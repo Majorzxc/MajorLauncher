@@ -12,4 +12,7 @@ name = "mlcli"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
 majorlauncher-core = { path = "../core" }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "env-filter", "ansi"] }
