@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["core", "cli", "app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "GPL-3.0-only"
+repository = "https://github.com/Majorzxc/MajorLauncher"
+
+# Бюджет из раздела 7 ТЗ: установщик до 15 МБ. Оптимизация по размеру,
+# LTO и вырезанные символы заметно уменьшают бинарь ценой времени сборки.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

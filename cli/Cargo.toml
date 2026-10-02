@@ -1,0 +1,15 @@
+[package]
+name = "majorlauncher-cli"
+description = "Консольная утилита поверх ядра MajorLauncher: тесты и автоматизация"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "mlcli"
+path = "src/main.rs"
+
+[dependencies]
+majorlauncher-core = { path = "../core" }

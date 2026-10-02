@@ -1,0 +1,36 @@
+/*
+  Все цвета интерфейса — только через эти переменные (раздел 6.0 ТЗ).
+  Две готовые темы: чёрная и белая. Свои цвета пользователя на этапе 3
+  будут переопределять эти же переменные.
+*/
+:root {
+  color-scheme: dark;
+  --bg: #0f0f0f;
+  --surface: #181818;
+  --border: #2e2e2e;
+  --text: #ededed;
+  --text-muted: #9a9a9a;
+  --accent: #ededed;
+  --font: "Segoe UI", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f7f7f7;
+    --surface: #ffffff;
+    --border: #dedede;
+    --text: #141414;
+    --text-muted: #5f5f5f;
+    --accent: #141414;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}

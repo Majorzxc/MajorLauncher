@@ -1,0 +1,17 @@
+# Сборка
+/target/
+/app/dist/
+/app/node_modules/
+/app/src-tauri/gen/
+
+# Исходник иконки (иконки генерируются из него командой `npx tauri icon`)
+# хранится в репозитории, а вот платформы, которых нет в ТЗ, — нет.
+/app/src-tauri/icons/android/
+/app/src-tauri/icons/ios/
+
+# Рабочие материалы автора (ТЗ, макеты, прототипы). Публиковать или нет —
+# решает автор; пока они лежат только локально.
+/TZ.md
+/TZ.draft-*.md
+/design/
+/prototype/

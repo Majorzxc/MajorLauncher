@@ -1,0 +1,5 @@
+# Все текстовые файлы в репозитории — с окончаниями строк LF, независимо от ОС.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
