@@ -1,35 +1,48 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { onMount } from "svelte";
+  import { call } from "./lib/tauri";
+  import Header from "./components/Header.svelte";
+  import Sidebar from "./components/Sidebar.svelte";
+  import Placeholder from "./screens/Placeholder.svelte";
+  import Settings from "./screens/Settings.svelte";
+  import { ALL, type SectionId } from "./lib/sections";
+  import { apply, type Appearance } from "./lib/theme.svelte";
 
-  // Окно ничего не знает само: даже версию спрашивает у ядра.
-  const version = invoke<string>("core_version");
+  // Раздел из адреса (#settings) — для снимков в браузере; в окне лаунчера адрес не меняется.
+  const fromHash = ALL.find((s) => s.id === location.hash.slice(1))?.id;
+  let current: SectionId = $state(fromHash ?? "home");
+  const section = $derived(ALL.find((s) => s.id === current)!);
+
+  // Окно уже показано и покрашено в фон темы (это делает Rust-часть при старте).
+  onMount(async () => {
+    const config = await call<{ appearance: Appearance }>("get_config");
+    apply(config.appearance);
+  });
 </script>
 
-<main>
-  <h1>MajorLauncher</h1>
-  {#await version}
-    <p class="muted">Подключение к ядру…</p>
-  {:then v}
-    <p class="muted">Ядро {v} · каркас этапа 0</p>
-  {:catch}
-    <p class="muted">Ядро недоступно: окно открыто не из приложения</p>
-  {/await}
-</main>
+<div class="app">
+  <Header />
+  <Sidebar {current} onselect={(id) => (current = id)} />
+  <main>
+    {#if current === "settings"}
+      <Settings />
+    {:else}
+      <Placeholder {section} />
+    {/if}
+  </main>
+</div>
 
 <style>
-  main {
-    height: 100%;
+  .app {
     display: grid;
-    place-content: center;
-    text-align: center;
+    grid-template-columns: var(--nav-w) minmax(0, 1fr);
+    grid-template-rows: var(--header-h) minmax(0, 1fr);
+    height: 100vh;
   }
-  h1 {
-    margin: 0 0 8px;
-    font-size: 32px;
-    font-weight: 600;
-  }
-  .muted {
-    margin: 0;
-    color: var(--text-muted);
+  main {
+    grid-area: 2 / 2;
+    overflow: auto;
+    padding: var(--pad-top) var(--pad-x) var(--s6);
+    scrollbar-gutter: stable;
   }
 </style>

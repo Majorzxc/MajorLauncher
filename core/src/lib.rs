@@ -8,6 +8,7 @@
 //! [`launch::build`] собирает команду запуска.
 
 pub mod account;
+pub mod config;
 pub mod download;
 pub mod elyby;
 pub mod error;
@@ -21,6 +22,7 @@ pub mod secrets;
 pub mod verify;
 
 pub use account::{Account, Accounts, Kind, Session};
+pub use config::{Appearance, Config, ConfigStore, ThemeMode};
 pub use download::{DownloadOptions, Downloader};
 pub use error::{Error, Result};
 pub use install::{Event, Mode, Prepared, Progress};

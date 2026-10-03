@@ -2,6 +2,11 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Права главного окна. Только базовые: всё остальное окно просит у ядра через команды.",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:allow-open-url"
+  ]
 }
