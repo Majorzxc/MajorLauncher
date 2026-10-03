@@ -11,7 +11,16 @@
   const version = call<string>("core_version");
 
   // Ссылки — во внешнем браузере, а не внутри окна лаунчера.
-  const open = (url: string) => (inTauri ? openUrl(url) : window.open(url));
+  let linkError = $state("");
+  async function open(url: string) {
+    linkError = "";
+    try {
+      if (inTauri) await openUrl(url);
+      else window.open(url);
+    } catch (e) {
+      linkError = `Не удалось открыть ссылку: ${e}`;
+    }
+  }
 
   const MODES: { id: ThemeMode; title: string; hint: string }[] = [
     { id: "dark", title: "Чёрная", hint: "Тёмный фон, светлый текст" },
@@ -153,6 +162,7 @@
         <button class="btn" onclick={() => open("https://github.com/Majorzxc/MajorLauncher")}>
           <Icon name="link" size={18} /> Исходный код на GitHub
         </button>
+        {#if linkError}<p class="warn"><Icon name="error" size={18} />{linkError}</p>{/if}
         <p class="muted credits">
           Иконки — Lucide (ISC). Шрифт — Onest (SIL Open Font License).
         </p>
