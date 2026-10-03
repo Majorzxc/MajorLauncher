@@ -274,7 +274,11 @@ async fn accounts(
             println!("Добавлен офлайн-ник {}", a.name);
         }
         AccountsAction::AddEly { login } => {
-            let password = rpassword::prompt_password("Пароль Ely.by (не отображается): ")
+            // Подсказку печатаем сами: rpassword пишет её в обход консоли Windows,
+            // и в PowerShell кириллица превращается в кракозябры.
+            print!("Пароль Ely.by (не отображается): ");
+            let _ = std::io::stdout().flush();
+            let password = rpassword::read_password()
                 .map_err(|e| Error::Other(format!("не удалось прочитать пароль: {e}")))?;
             let a = match accounts.add_ely(dl, &login, &password, None).await {
                 Err(Error::ElyTwoFactorRequired) => {

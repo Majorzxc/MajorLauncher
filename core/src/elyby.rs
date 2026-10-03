@@ -14,7 +14,11 @@ use crate::paths::DataDir;
 use crate::verify::sha1_file;
 
 const AUTH_SERVER: &str = "https://authserver.ely.by";
-const AUTHLIB_API: &str = "https://authserver.ely.by/api/authlib-injector";
+/// Корень API для authlib-injector — на него указывает сам Ely.by (заголовок
+/// X-Authlib-Injector-Api-Location). Короткое «ely.by» нельзя: вместе с заранее
+/// переданным описанием сервера agent не ищет настоящий адрес и стучится
+/// на ely.by, где профиль со скином отдаёт 404 (скина в игре нет).
+const AUTHLIB_API: &str = "https://account.ely.by/api/authlib-injector";
 
 /// Версия authlib-injector закреплена вместе с хешем: лаунчер не скачает
 /// другой файл, даже если источник подменят. Сверено 03.10.2026: файлы
@@ -171,7 +175,7 @@ pub struct Agent {
 
 impl Agent {
     pub fn jvm_args(&self) -> Vec<String> {
-        let mut args = vec![format!("-javaagent:{}=ely.by", self.jar.display())];
+        let mut args = vec![format!("-javaagent:{}={AUTHLIB_API}", self.jar.display())];
         if let Some(meta) = &self.prefetched {
             args.push(format!("-Dauthlibinjector.yggdrasil.prefetched={meta}"));
         }
@@ -287,7 +291,8 @@ mod tests {
         assert_eq!(
             agent.jvm_args(),
             vec![
-                "-javaagent:D:/data/agents/a.jar=ely.by".to_string(),
+                "-javaagent:D:/data/agents/a.jar=https://account.ely.by/api/authlib-injector"
+                    .to_string(),
                 "-Dauthlibinjector.yggdrasil.prefetched=eyJ9".to_string(),
             ]
         );
