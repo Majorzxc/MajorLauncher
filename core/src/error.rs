@@ -87,6 +87,9 @@ pub enum Error {
     #[error("нет ни одного аккаунта: добавьте офлайн-ник или войдите через Ely.by")]
     NoAccounts,
 
+    #[error("сборка «{0}» не найдена")]
+    BuildNotFound(String),
+
     #[error("хранилище паролей Windows: {0}")]
     Secrets(String),
 

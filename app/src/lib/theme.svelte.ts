@@ -49,6 +49,10 @@ export function apply(a: Appearance) {
   root.setProperty("--accent", p.accent);
   root.setProperty("--accent-hover", p.accentHover);
   root.setProperty("--on-accent", p.onAccent);
+  // Красный и жёлтый — только для предупреждений и опасных действий,
+  // подобраны отдельно для тёмного и светлого фона ради контраста.
+  root.setProperty("--danger", p.dark ? "#f0716a" : "#c81e1e");
+  root.setProperty("--warning", p.dark ? "#d9ad3c" : "#8a5a14");
   root.setProperty("color-scheme", p.dark ? "dark" : "light");
 
   theme.appearance = a;

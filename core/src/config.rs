@@ -99,6 +99,19 @@ impl ConfigStore {
         &self.config
     }
 
+    /// Запомнить папку данных. Папка создаётся, если её нет.
+    pub fn set_data_dir(&mut self, path: PathBuf) -> Result<()> {
+        if !path.is_absolute() {
+            return Err(Error::Other(format!(
+                r"«{}» — не полный путь: укажите его от буквы диска, например D:\MajorLauncherData",
+                path.display()
+            )));
+        }
+        std::fs::create_dir_all(&path).at(&path)?;
+        self.config.data_dir = Some(path);
+        self.save()
+    }
+
     pub fn set_appearance(&mut self, appearance: Appearance) -> Result<()> {
         appearance.validate()?;
         self.config.appearance = appearance;

@@ -8,6 +8,7 @@
 //!   assets/indexes, objects, virtual, log_configs
 //!   java/<компонент>/...   java/manifests/<компонент>.json
 //!   instances/<сборка>/    — папка игры: миры, моды, настройки
+//!   trash/, archive/       — корзина и архив сборок
 //!   cache/                 — списки версий и кэш проверенных файлов
 //! ```
 
@@ -80,6 +81,20 @@ impl DataDir {
             .join("java")
             .join("manifests")
             .join(format!("{component}.json"))
+    }
+
+    pub fn instances(&self) -> PathBuf {
+        self.root.join("instances")
+    }
+
+    /// Корзина: удалённые сборки целиком, 30 дней (раздел 6.2 ТЗ).
+    pub fn trash(&self) -> PathBuf {
+        self.root.join("trash")
+    }
+
+    /// Архив: сборки, упакованные в zip, и их описания.
+    pub fn archive(&self) -> PathBuf {
+        self.root.join("archive")
     }
 
     pub fn instance(&self, name: &str) -> PathBuf {

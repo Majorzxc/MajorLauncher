@@ -1,14 +1,17 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { call, inTauri } from "../lib/tauri";
+  import { api } from "../lib/api";
+  import { size } from "../lib/format";
   import HexInput from "../components/HexInput.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
   import { apply, save, theme, type Appearance, type ThemeMode } from "../lib/theme.svelte";
 
-  type Page = "look" | "about";
+  type Page = "look" | "data" | "about";
   let page: Page = $state("look");
   const version = call<string>("core_version");
+  const dataDir = api.config().then((c) => (c.data_dir ? api.inspectDir(c.data_dir) : null));
 
   // Ссылки — во внешнем браузере, а не внутри окна лаунчера.
   let linkError = $state("");
@@ -49,6 +52,9 @@
   <nav class="pages" aria-label="Разделы настроек">
     <button class="page" aria-current={page === "look" ? "page" : undefined} onclick={() => (page = "look")}>
       Внешний вид
+    </button>
+    <button class="page" aria-current={page === "data" ? "page" : undefined} onclick={() => (page = "data")}>
+      Папка данных
     </button>
     <button class="page" aria-current={page === "about" ? "page" : undefined} onclick={() => (page = "about")}>
       О программе
@@ -148,6 +154,25 @@
       >
         <Icon name="restore" size={18} /> Сбросить свои цвета
       </button>
+    {:else if page === "data"}
+      <h1>Папка данных</h1>
+      <div class="card block">
+        <p class="muted">Здесь лежат версии игры, Java, сборки с мирами и модами, аккаунты (без паролей).</p>
+        {#await dataDir then d}
+          {#if d}
+            <code class="path">{d.path}</code>
+            {#if d.free_bytes !== null}<p class="muted">Свободно на диске: {size(d.free_bytes)}</p>{/if}
+            {#each d.warnings as w}<p class="warn"><Icon name="warning" size={18} />{w}</p>{/each}
+          {/if}
+        {/await}
+        <div>
+          <button class="btn" onclick={() => api.openDataDir().catch((e) => (linkError = String(e)))}>
+            <Icon name="folder" size={18} /> Открыть в проводнике
+          </button>
+        </div>
+        {#if linkError}<p class="warn"><Icon name="error" size={18} />{linkError}</p>{/if}
+        <p class="muted small">Перенос в другую папку — в части 3.4.</p>
+      </div>
     {:else}
       <h1>О программе</h1>
       <div class="card block about">
@@ -377,6 +402,20 @@
   }
   .about p {
     margin: 0;
+  }
+  .path {
+    padding: var(--s2) var(--s3);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--bg);
+    font-family: Consolas, monospace;
+    user-select: text;
+  }
+  .block > p {
+    margin: 0;
+  }
+  .small {
+    font-size: var(--fs-12);
   }
   .credits {
     margin: 0;
