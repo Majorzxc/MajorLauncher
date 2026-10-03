@@ -95,6 +95,11 @@ impl Downloader {
         Ok(Self { client, opts })
     }
 
+    /// HTTP-клиент с настройками лаунчера (таймауты, User-Agent) — для API-запросов.
+    pub(crate) fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
     /// Скачать небольшой файл в память (описания версий, списки). Без зеркал:
     /// именно из этих данных берутся хеши, поэтому только официальный источник.
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {

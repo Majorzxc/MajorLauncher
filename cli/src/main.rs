@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 use majorlauncher_core::{
-    DataDir, DownloadOptions, Downloader, Event, LaunchOptions, Mode, OfflineAccount, Progress,
-    install, launch,
+    Accounts, DataDir, DownloadOptions, Downloader, Error, Event, LaunchOptions, Mode, Progress,
+    Session, install, launch,
 };
 
 #[derive(Parser)]
@@ -47,12 +47,21 @@ enum Command {
     },
     /// Пересчитать хеши всех файлов версии и докачать повреждённые.
     Verify { version: String },
-    /// Запустить версию с офлайн-ником (докачает недостающее).
+    /// Аккаунты: офлайн-ники и Ely.by. Без подкоманды — список.
+    Accounts {
+        #[command(subcommand)]
+        action: Option<AccountsAction>,
+    },
+    /// Запустить версию (докачает недостающее). Без --account и --nick —
+    /// с аккаунтом по умолчанию.
     Launch {
         version: String,
-        /// Ник: 3–16 символов, латиница, цифры, «_».
+        /// Аккаунт из списка: ник или offline:ник / ely:ник.
+        #[arg(long, conflicts_with = "nick")]
+        account: Option<String>,
+        /// Разовый офлайн-ник без сохранения: 3–16 символов, латиница, цифры, «_».
         #[arg(long)]
-        nick: String,
+        nick: Option<String>,
         /// Память для игры, МБ.
         #[arg(long, default_value_t = 4096)]
         memory: u32,
@@ -63,6 +72,24 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum AccountsAction {
+    /// Список аккаунтов; звёздочка — аккаунт по умолчанию.
+    List,
+    /// Добавить офлайн-ник.
+    AddOffline { nick: String },
+    /// Войти через Ely.by. Пароль спрашивается без отображения на экране
+    /// и не сохраняется — лаунчер хранит только токен в хранилище Windows.
+    AddEly {
+        /// Ник или почта Ely.by.
+        login: String,
+    },
+    /// Удалить аккаунт (токен Ely.by отзывается на сервере).
+    Remove { account: String },
+    /// Сделать аккаунтом по умолчанию.
+    Default { account: String },
 }
 
 #[tokio::main]
@@ -131,16 +158,24 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                 started.elapsed().as_secs_f64()
             );
         }
+        Command::Accounts { action } => {
+            accounts(&data, &dl, action.unwrap_or(AccountsAction::List)).await?;
+        }
         Command::Launch {
             version,
+            account,
             nick,
             memory,
             instance,
             dry_run,
         } => {
-            let account = OfflineAccount::new(&nick)?;
             let started = Instant::now();
-            let prepared = install::prepare(&data, &dl, &version, Mode::Launch, progress()).await?;
+            // Вход и проверка файлов идут одновременно: оба ждут сеть или диск.
+            let (session, prepared) = tokio::join!(
+                session(&data, &dl, account, nick),
+                install::prepare(&data, &dl, &version, Mode::Launch, progress())
+            );
+            let (session, prepared) = (session?, prepared?);
             let instance = instance.unwrap_or_else(|| prepared.version.id.clone());
             let opts = LaunchOptions {
                 game_dir: data.instance(&instance),
@@ -148,11 +183,21 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                 console: true,
                 extra_jvm_args: Vec::new(),
             };
-            let cmd = launch::build(&data, &prepared, &account, &opts)?;
+            let cmd = launch::build(&data, &prepared, &session, &opts)?;
             finish_line();
             println!("Подготовка к запуску: {} мс", started.elapsed().as_millis());
             println!("Версия:  {}", prepared.version.id);
-            println!("Ник:     {} ({})", account.name, account.uuid);
+            println!(
+                "Аккаунт: {} ({}, {})",
+                session.name,
+                session.kind.label(),
+                session.uuid
+            );
+            if session.unverified {
+                println!(
+                    "         Нет связи с Ely.by: одиночная игра работает, на серверы Ely.by может не пустить."
+                );
+            }
             println!("Java:    {}", cmd.program.display());
             println!("Память:  {memory} МБ");
             println!("Сборка:  {}", cmd.cwd.display());
@@ -170,9 +215,7 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                 .args(&cmd.args)
                 .current_dir(&cmd.cwd)
                 .status()
-                .map_err(|e| {
-                    majorlauncher_core::Error::Other(format!("не удалось запустить Java: {e}"))
-                })?;
+                .map_err(|e| Error::Other(format!("не удалось запустить Java: {e}")))?;
             println!(
                 "\nИгра закрылась, код выхода: {}",
                 status.code().unwrap_or(-1)
@@ -185,6 +228,88 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+async fn session(
+    data: &DataDir,
+    dl: &Downloader,
+    account: Option<String>,
+    nick: Option<String>,
+) -> majorlauncher_core::Result<Session> {
+    if let Some(nick) = nick {
+        return Session::offline(&nick);
+    }
+    let mut accounts = Accounts::load(data)?;
+    let id = match account {
+        Some(reference) => accounts.find(&reference)?.id.clone(),
+        None => accounts
+            .default_account()
+            .ok_or(Error::NoAccounts)?
+            .id
+            .clone(),
+    };
+    accounts.session(data, dl, &id).await
+}
+
+async fn accounts(
+    data: &DataDir,
+    dl: &Downloader,
+    action: AccountsAction,
+) -> majorlauncher_core::Result<()> {
+    let mut accounts = Accounts::load(data)?;
+    match action {
+        AccountsAction::List => {
+            if accounts.list().is_empty() {
+                println!(
+                    "Аккаунтов нет. Добавьте: mlcli accounts add-offline <ник> или add-ely <логин>"
+                );
+            }
+            for a in accounts.list() {
+                let mark = if accounts.is_default(a) { "*" } else { " " };
+                println!("{mark} {:<17} {:<8} {}", a.name, a.kind.label(), a.uuid);
+            }
+        }
+        AccountsAction::AddOffline { nick } => {
+            let a = accounts.add_offline(&nick)?;
+            println!("Добавлен офлайн-ник {}", a.name);
+        }
+        AccountsAction::AddEly { login } => {
+            let password = rpassword::prompt_password("Пароль Ely.by (не отображается): ")
+                .map_err(|e| Error::Other(format!("не удалось прочитать пароль: {e}")))?;
+            let a = match accounts.add_ely(dl, &login, &password, None).await {
+                Err(Error::ElyTwoFactorRequired) => {
+                    let code = prompt("Код двухфакторной защиты: ")?;
+                    accounts
+                        .add_ely(dl, &login, &password, Some(code.trim()))
+                        .await?
+                }
+                other => other?,
+            };
+            println!(
+                "Вход выполнен: {} (Ely.by). Пароль не сохранён — только токен в хранилище Windows.",
+                a.name
+            );
+        }
+        AccountsAction::Remove { account } => {
+            let a = accounts.remove(dl, &account).await?;
+            println!("Удалён аккаунт {} ({})", a.name, a.kind.label());
+        }
+        AccountsAction::Default { account } => {
+            accounts.set_default(&account)?;
+            println!("Аккаунт по умолчанию: {}", accounts.find(&account)?.name);
+        }
+    }
+    Ok(())
+}
+
+fn prompt(text: &str) -> majorlauncher_core::Result<String> {
+    print!("{text}");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| Error::Other(format!("не удалось прочитать ввод: {e}")))?;
+    Ok(line)
 }
 
 /// Полоса прогресса в одну строку, обновляется не чаще раза в 150 мс.

@@ -61,6 +61,35 @@ pub enum Error {
     )]
     BadNickname(String),
 
+    #[error(
+        "неверный логин или пароль Ely.by (если включена двухфакторная защита — проверьте и код)"
+    )]
+    ElyInvalidCredentials,
+
+    #[error("аккаунт Ely.by защищён двухфакторной аутентификацией: нужен код из приложения")]
+    ElyTwoFactorRequired,
+
+    #[error("вход в Ely.by устарел — войдите в аккаунт заново")]
+    ElySessionExpired,
+
+    #[error("Ely.by: {0}")]
+    ElyService(String),
+
+    #[error("аккаунт «{0}» не найден")]
+    AccountNotFound(String),
+
+    #[error("аккаунт «{0}» уже добавлен")]
+    AccountExists(String),
+
+    #[error("под именем «{0}» несколько аккаунтов — уточните: offline:{0} или ely:{0}")]
+    AmbiguousAccount(String),
+
+    #[error("нет ни одного аккаунта: добавьте офлайн-ник или войдите через Ely.by")]
+    NoAccounts,
+
+    #[error("хранилище паролей Windows: {0}")]
+    Secrets(String),
+
     #[error("{0}")]
     Other(String),
 }

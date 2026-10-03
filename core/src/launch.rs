@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::account::OfflineAccount;
+use crate::account::{Kind, Session};
 use crate::error::{IoContext, Result};
 use crate::install::Prepared;
 use crate::meta::{ArgValue, Argument};
@@ -45,7 +45,7 @@ const LEGACY_JVM_ARGS: &[&str] = &[
 pub fn build(
     data: &DataDir,
     prepared: &Prepared,
-    account: &OfflineAccount,
+    session: &Session,
     opts: &LaunchOptions,
 ) -> Result<LaunchCommand> {
     let version = &prepared.version;
@@ -69,14 +69,13 @@ pub fn build(
     let modern = version.arguments.is_some();
 
     let vars: HashMap<&str, String> = HashMap::from([
-        ("auth_player_name", account.name.clone()),
-        ("auth_uuid", account.uuid.clone()),
-        // Офлайн-игре токен не нужен, но пустым его оставлять нельзя.
-        ("auth_access_token", "0".into()),
+        ("auth_player_name", session.name.clone()),
+        ("auth_uuid", session.uuid.clone()),
+        ("auth_access_token", session.access_token.clone()),
         ("auth_session", "-".into()),
         ("auth_xuid", "0".into()),
         ("clientid", "0".into()),
-        ("user_type", if modern { "msa" } else { "legacy" }.into()),
+        ("user_type", user_type(session.kind, modern).into()),
         ("user_properties", "{}".into()),
         ("version_name", version.id.clone()),
         (
@@ -104,6 +103,10 @@ pub fn build(
         format!("-Xms{}M", opts.memory_mb.min(512)),
         format!("-Xmx{}M", opts.memory_mb),
     ];
+    // authlib-injector (Ely.by) должен подключиться раньше, чем загрузится игра.
+    if let Some(agent) = &session.agent {
+        args.extend(agent.jvm_args());
+    }
     match &version.arguments {
         Some(a) => args.extend(expand(&a.jvm, &features, &vars)),
         None => args.extend(LEGACY_JVM_ARGS.iter().map(|a| substitute(a, &vars))),
@@ -131,6 +134,16 @@ pub fn build(
         args,
         cwd: game_dir.clone(),
     })
+}
+
+/// Тип пользователя для аргумента `--userType`. Новые версии знают только `msa`
+/// (тип влияет лишь на телеметрию), старые ждут `legacy` или `mojang`.
+fn user_type(kind: Kind, modern: bool) -> &'static str {
+    match (kind, modern) {
+        (_, true) => "msa",
+        (Kind::Offline, false) => "legacy",
+        (Kind::Ely, false) => "mojang",
+    }
 }
 
 fn expand(list: &[Argument], features: &Features, vars: &HashMap<&str, String>) -> Vec<String> {
