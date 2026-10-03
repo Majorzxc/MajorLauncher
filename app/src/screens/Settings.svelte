@@ -1,6 +1,7 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { call, inTauri } from "../lib/tauri";
+  import HexInput from "../components/HexInput.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
   import { apply, save, theme, type Appearance, type ThemeMode } from "../lib/theme.svelte";
@@ -74,7 +75,7 @@
         <div class="row">
           <div class="label">
             <h2>Акцентный цвет</h2>
-            <p class="muted">Кнопка «Играть», выбранный раздел, переключатели.</p>
+            <p class="muted">Кнопка «Играть», выбранный раздел, переключатели. Можно выбрать в палитре или вставить код.</p>
           </div>
           <label class="swatch" style:background={theme.palette.accent}>
             <input
@@ -85,7 +86,12 @@
               aria-label="Выбрать акцентный цвет"
             />
           </label>
-          <code>{theme.palette.accent}</code>
+          <HexInput
+            label="Код акцентного цвета"
+            value={theme.palette.accent}
+            onpreview={(hex) => preview("accent", hex)}
+            oncommit={(hex) => update({ accent: hex })}
+          />
           <button class="btn btn-sm" disabled={!theme.appearance.accent} onclick={() => update({ accent: null })}>
             Как в теме
           </button>
@@ -105,7 +111,12 @@
               aria-label="Выбрать цвет фона"
             />
           </label>
-          <code>{theme.palette.bg}</code>
+          <HexInput
+            label="Код цвета фона"
+            value={theme.palette.bg}
+            onpreview={(hex) => preview("background", hex)}
+            oncommit={(hex) => update({ background: hex })}
+          />
           <button
             class="btn btn-sm"
             disabled={!theme.appearance.background}
@@ -336,12 +347,6 @@
     inset: 0;
     opacity: 0;
     cursor: pointer;
-  }
-  code {
-    width: 72px;
-    font-family: Consolas, monospace;
-    font-size: var(--fs-14);
-    color: var(--text-muted);
   }
   .btn:disabled {
     opacity: 0.45;
