@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { fade, scale } from "svelte/transition";
+  import { ms } from "../lib/motion";
   import Icon from "./Icon.svelte";
 
   let {
@@ -27,8 +29,16 @@
 <svelte:window onkeydown={(e) => e.key === "Escape" && onclose()} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="scrim" onmousedown={(e) => e.target === e.currentTarget && onclose()}>
-  <div class="card" style:width="{width}px" bind:this={card} role="dialog" aria-modal="true" aria-label={title}>
+<div class="scrim" transition:fade={{ duration: ms(140) }} onmousedown={(e) => e.target === e.currentTarget && onclose()}>
+  <div
+    class="card"
+    style:width="{width}px"
+    bind:this={card}
+    role="dialog"
+    aria-modal="true"
+    aria-label={title}
+    transition:scale={{ start: 0.96, duration: ms(150) }}
+  >
     <header>
       <h2>{title}</h2>
       <button class="btn btn-quiet btn-sm close" aria-label="Закрыть" onclick={onclose}>

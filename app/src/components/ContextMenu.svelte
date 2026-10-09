@@ -14,6 +14,8 @@
 </script>
 
 <script lang="ts">
+  import { fly } from "svelte/transition";
+  import { ms } from "../lib/motion";
   import Icon from "./Icon.svelte";
 
   let { x, y, items, onclose }: { x: number; y: number; items: MenuItem[]; onclose: () => void } = $props();
@@ -37,7 +39,15 @@
   onblur={onclose}
 />
 
-<div class="menu" role="menu" bind:this={menu} style:left="{left}px" style:top="{top}px">
+<div
+  class="menu"
+  role="menu"
+  bind:this={menu}
+  style:left="{left}px"
+  style:top="{top}px"
+  in:fly={{ y: -4, duration: ms(120) }}
+  out:fly={{ y: -4, duration: ms(80) }}
+>
   {#each items as item}
     {#if item.divider}<hr />{/if}
     <button
@@ -46,8 +56,10 @@
       disabled={!item.onclick}
       title={item.hint}
       onclick={() => {
+        // Действие запоминаем до закрытия: после onclose() меню и его пункты исчезают.
+        const run = item.onclick;
         onclose();
-        item.onclick?.();
+        run?.();
       }}
     >
       <Icon name={item.icon} size={18} />

@@ -73,7 +73,13 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let path = app.path().app_config_dir()?.join("config.json");
+            // MAJORLAUNCHER_CONFIG_DIR — другая папка настроек (а с ней и папка
+            // данных) для автоматических проверок: они не трогают данные игрока.
+            let config_dir = match std::env::var_os("MAJORLAUNCHER_CONFIG_DIR") {
+                Some(dir) => std::path::PathBuf::from(dir),
+                None => app.path().app_config_dir()?,
+            };
+            let path = config_dir.join("config.json");
             let config = ConfigStore::load(path);
 
             // Окно создаётся здесь, а не в tauri.conf.json: так оно видимо и

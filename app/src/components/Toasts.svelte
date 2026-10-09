@@ -1,11 +1,20 @@
 <script lang="ts">
+  import { flip } from "svelte/animate";
+  import { fly } from "svelte/transition";
+  import { ms } from "../lib/motion";
   import Icon from "./Icon.svelte";
   import { dismiss, toasts } from "../lib/toast.svelte";
 </script>
 
 <div class="toasts" role="status" aria-live="polite">
   {#each toasts as t (t.id)}
-    <div class="toast" class:error={t.error}>
+    <div
+      class="toast"
+      class:error={t.error}
+      in:fly={{ x: 24, duration: ms(150) }}
+      out:fly={{ x: 24, duration: ms(120) }}
+      animate:flip={{ duration: ms(150) }}
+    >
       <Icon name={t.error ? "error" : "check"} size={18} />
       <span>{t.text}</span>
       {#if t.action}

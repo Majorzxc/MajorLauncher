@@ -348,8 +348,10 @@
       <button
         class="btn danger-fill"
         onclick={() => {
+          // Сначала запоминаем действие: {@const c} живой и после confirm = null станет пустым.
+          const run = c.run;
           confirm = null;
-          c.run();
+          run();
         }}>{c.action}</button
       >
     {/snippet}
