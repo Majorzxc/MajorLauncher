@@ -15,6 +15,113 @@ export interface Config {
   data_dir: string | null;
   appearance: Appearance;
   game: GameSettings;
+  catalog?: CatalogSettings;
+}
+
+export interface CatalogSettings {
+  /// Ставить обязательные зависимости без окна подтверждения.
+  auto_deps: boolean;
+}
+
+// Каталог Modrinth (раздел 5.4 ТЗ).
+export type ProjectType = "mod" | "resourcepack" | "shader" | "modpack";
+export type Sort = "relevance" | "downloads" | "follows" | "newest" | "updated";
+
+/// Куда ставить: в сборку или в библиотеку (фильтры — вручную).
+export type CatalogTarget =
+  | { kind: "build"; id: string }
+  | { kind: "new"; game: string; loader: Loader }
+  | { kind: "library"; game: string | null; loader: Loader | null };
+
+export interface SearchRequest {
+  target: CatalogTarget;
+  kind: ProjectType;
+  query: string;
+  sort: Sort;
+  offset: number;
+  all: boolean;
+}
+
+export interface Hit {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  author: string;
+  icon_url: string | null;
+  downloads: number;
+  follows: number;
+  display_categories: string[];
+  date_modified: string;
+}
+
+export interface SearchResult {
+  hits: Hit[];
+  total_hits: number;
+}
+
+export interface Project {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  body: string;
+  project_type: ProjectType;
+  icon_url: string | null;
+  downloads: number;
+  followers: number;
+  categories: string[];
+  loaders: string[];
+  game_versions: string[];
+  license: { id: string; name: string } | null;
+  source_url: string | null;
+  issues_url: string | null;
+  wiki_url: string | null;
+  discord_url: string | null;
+  donation_urls: { platform: string; url: string }[];
+  gallery: { url: string; raw_url: string | null; title: string | null; description: string | null; featured: boolean }[];
+  client_side: string;
+  updated: string;
+}
+
+export interface CatalogVersion {
+  id: string;
+  project_id: string;
+  name: string;
+  version_number: string;
+  game_versions: string[];
+  loaders: string[];
+  version_type: "release" | "beta" | "alpha";
+  date_published: string;
+  downloads: number;
+  files: { filename: string; size: number; primary: boolean }[];
+  compatible: boolean;
+}
+
+export interface Installed {
+  project_id: string;
+  version_id: string;
+  file: string;
+  enabled: boolean;
+}
+
+export interface PlanItem {
+  project_id: string;
+  version_id: string;
+  title: string;
+  icon_url: string | null;
+  version_number: string;
+  size: number;
+  dependency: boolean;
+  replaces: string | null;
+}
+
+export interface Plan {
+  items: PlanItem[];
+  present: string[];
+  missing: string[];
+  conflicts: string[];
+  optional: string[];
 }
 
 export interface BuildSettings {
@@ -302,6 +409,16 @@ export const api = {
   create: (name: string, version: string, loader: LoaderChoice, group: string | null) =>
     call<Instance>("build_create", { name, version, loader, group }),
   loaderGames: (loader: Loader) => call<string[]>("loader_games", { loader }),
+  setCatalog: (catalog: CatalogSettings) => call<Config>("set_catalog", { catalog }),
+  catalogSearch: (req: SearchRequest) => call<SearchResult>("catalog_search", { req }),
+  catalogProject: (id: string) => call<Project>("catalog_project", { id }),
+  catalogVersions: (target: CatalogTarget, kind: ProjectType, project: string, all: boolean) =>
+    call<CatalogVersion[]>("catalog_versions", { target, kind, project, all }),
+  catalogInstalled: (target: CatalogTarget) => call<Installed[]>("catalog_installed", { target }),
+  catalogPlan: (target: CatalogTarget, kind: ProjectType, project: string, version: string | null) =>
+    call<Plan>("catalog_plan", { target, kind, project, version }),
+  catalogInstall: (target: CatalogTarget, kind: ProjectType, versions: string[]) =>
+    call<string[]>("catalog_install", { target, kind, versions }),
   loaderVersions: (loader: Loader, game: string) => call<LoaderVersion[]>("loader_versions", { loader, game }),
   update: (id: string, patch: Patch) => call<Instance>("build_update", { id, patch }),
   duplicate: (id: string) => call<Instance>("build_duplicate", { id }),

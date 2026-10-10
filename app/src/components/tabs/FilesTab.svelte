@@ -3,6 +3,7 @@
   // файлы — добавить с диска (каталог Modrinth — этап 5).
   import { open } from "@tauri-apps/plugin-dialog";
   import { api, type FileEntry, type Folder, type Loader } from "../../lib/api";
+  import { openCatalog } from "../../lib/catalog.svelte";
   import { date, size } from "../../lib/format";
   import type { IconName } from "../../lib/icons";
   import { inTauri } from "../../lib/tauri";
@@ -13,7 +14,7 @@
 
   const ICON: Record<typeof folder, IconName> = { mods: "mods", resourcepacks: "resourcepack", shaderpacks: "shader" };
   const EMPTY: Record<typeof folder, string> = {
-    mods: "Модов нет. Добавьте файлы .jar кнопкой «Добавить» или положите их в папку. Каталог Modrinth — на этапе 5.",
+    mods: "Модов нет. Найдите их в каталоге Modrinth или добавьте свои файлы .jar кнопкой «Добавить».",
     resourcepacks: "Ресурспаков нет. Положите zip-файлы в папку — игра увидит их в настройках.",
     shaderpacks: "Шейдеров нет. Для них нужен мод Iris или OptiFine.",
   };
@@ -67,7 +68,13 @@
   <span class="muted small grow">
     {#if list?.length}{list.length} · {list.filter((f) => f.enabled).length} включено{/if}
   </span>
-  <button class="btn btn-sm" onclick={add}><Icon name="plus" size={16} />Добавить</button>
+  <button
+    class="btn btn-sm btn-primary"
+    onclick={() => openCatalog(id, folder === "mods" ? "mod" : folder === "resourcepacks" ? "resourcepack" : "shader")}
+  >
+    <Icon name="search" size={16} />Каталог
+  </button>
+  <button class="btn btn-sm" onclick={add}><Icon name="plus" size={16} />Добавить файл</button>
   <button class="btn btn-sm" onclick={() => attempt("Папка", () => api.open(id, { kind: "folder", name: folder }))}>
     <Icon name="folder" size={16} />Открыть папку
   </button>

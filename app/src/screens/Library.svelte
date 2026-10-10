@@ -30,6 +30,7 @@
   }
   load();
 
+  // Моды из каталога тоже хранятся здесь, но их раздел — в части 5.3.
   const shown = $derived(items.filter((i) => i.folder === tab));
   const activeBuilds = $derived(builds.list.filter((b) => b.state === "active"));
   const buildName = (id: string) => (id === QUICK_ID ? "Быстрая игра" : (builds.list.find((b) => b.id === id)?.name ?? id));
@@ -72,7 +73,7 @@
 <h1>Библиотека</h1>
 <p class="muted lead">
   Ресурспаки и шейдеры хранятся здесь один раз и при запуске попадают в сборки — без копий и без ручного переноса.
-  Включаются они в самой игре. Каталог Modrinth с поиском модов, паков и шейдеров появится на этапе 5.
+  Включаются они в самой игре. Найти новые — во вкладке «Каталог Modrinth»; библиотека модов — в части 5.3.
 </p>
 
 <div class="bar">

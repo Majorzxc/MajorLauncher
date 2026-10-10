@@ -231,6 +231,39 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       })) as Entry[] as T;
     case "builds_groups":
       return [...new Set([...d.groups, ...d.builds.flatMap((b) => (b.group ? [b.group] : []))])] as T;
+    // Каталог: в браузере — настоящий Modrinth (он отвечает и сайтам).
+    case "catalog_search": {
+      const r = a.req;
+      const facets = JSON.stringify([[`project_type:${r.kind}`]]);
+      const q = new URLSearchParams({ query: r.query, index: r.sort, offset: String(r.offset), limit: "20", facets });
+      const found = await (await fetch(`https://api.modrinth.com/v2/search?${q}`)).json();
+      return { ...found, hits: found.hits.map((h: { project_id: string }) => ({ ...h, id: h.project_id })) } as T;
+    }
+    case "catalog_project":
+      return (await (await fetch(`https://api.modrinth.com/v2/project/${a.id}`)).json()) as T;
+    case "catalog_versions": {
+      const list = await (await fetch(`https://api.modrinth.com/v2/project/${a.project}/version`)).json();
+      return list.map((v: object, i: number) => ({ ...v, compatible: i % 3 !== 2 })) as T;
+    }
+    case "catalog_installed":
+      return [] as T;
+    case "catalog_plan":
+      await sleep(400);
+      return {
+        items: [
+          { project_id: a.project, version_id: "v1", title: "Iris Shaders", icon_url: null, version_number: "1.8.14", size: 2900000, dependency: false, replaces: null },
+          { project_id: "AANobbMI", version_id: "v2", title: "Sodium", icon_url: null, version_number: "0.8.13", size: 1200000, dependency: true, replaces: null },
+        ],
+        present: ["Fabric API"],
+        missing: [],
+        conflicts: [],
+        optional: ["Mod Menu"],
+      } as T;
+    case "catalog_install":
+      await sleep(800);
+      return ["Iris Shaders", "Sodium"] as T;
+    case "set_catalog":
+      return config() as T;
     case "loader_games":
       await sleep(200);
       return (a.loader === "neoforge" ? ["1.20.1", "1.20.4", "1.21.1", "26.3"] : VERSIONS.map((v) => v.id).filter((v) => v !== "1.5.2")) as T;

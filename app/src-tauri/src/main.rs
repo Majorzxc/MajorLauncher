@@ -7,6 +7,7 @@
 
 mod accounts;
 mod builds;
+mod catalog;
 mod content;
 mod game_options;
 mod play;
@@ -184,6 +185,13 @@ fn main() {
             settings::get_config,
             settings::set_appearance,
             settings::set_game,
+            settings::set_catalog,
+            catalog::catalog_search,
+            catalog::catalog_project,
+            catalog::catalog_versions,
+            catalog::catalog_installed,
+            catalog::catalog_plan,
+            catalog::catalog_install,
             settings::system_memory,
             settings::data_dir_suggestion,
             settings::inspect_dir,

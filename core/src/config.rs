@@ -139,6 +139,14 @@ pub fn check_memory(mb: Option<u32>) -> Result<()> {
     }
 }
 
+/// Каталог Modrinth (раздел 5.4 ТЗ).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogSettings {
+    /// Ставить обязательные зависимости без окна подтверждения.
+    #[serde(default)]
+    pub auto_deps: bool,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
     /// Папка данных; `None` — ещё не выбрана (первый запуск).
@@ -148,6 +156,8 @@ pub struct Config {
     pub appearance: Appearance,
     #[serde(default)]
     pub game: GameSettings,
+    #[serde(default)]
+    pub catalog: CatalogSettings,
 }
 
 pub struct ConfigStore {
@@ -189,6 +199,11 @@ impl ConfigStore {
             jvm_args: game.jvm_args.trim().to_string(),
             ..game
         };
+        self.save()
+    }
+
+    pub fn set_catalog(&mut self, catalog: CatalogSettings) -> Result<()> {
+        self.config.catalog = catalog;
         self.save()
     }
 

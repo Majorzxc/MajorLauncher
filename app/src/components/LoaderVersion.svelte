@@ -77,6 +77,7 @@
     min-height: var(--h-md);
   }
   .label {
+    min-width: 110px;
     font-size: var(--fs-14);
     font-weight: 600;
     white-space: nowrap;

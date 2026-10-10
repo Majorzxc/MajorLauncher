@@ -10,6 +10,7 @@
 
 pub mod account;
 pub mod builds;
+pub mod catalog;
 pub mod config;
 pub mod content;
 pub mod datadir;
@@ -23,6 +24,7 @@ pub mod launch;
 pub mod library;
 pub mod loaders;
 pub mod meta;
+pub mod modrinth;
 pub mod nbt;
 pub mod options;
 pub mod paths;
@@ -36,7 +38,9 @@ pub mod verify;
 
 pub use account::{Account, Accounts, Kind, Session};
 pub use builds::{Builds, Instance};
-pub use config::{Appearance, Config, ConfigStore, GameSettings, OnLaunch, ThemeMode};
+pub use config::{
+    Appearance, CatalogSettings, Config, ConfigStore, GameSettings, OnLaunch, ThemeMode,
+};
 pub use download::{DownloadOptions, Downloader};
 pub use error::{Error, Result};
 pub use install::{Event, Mode, Prepared, Progress};

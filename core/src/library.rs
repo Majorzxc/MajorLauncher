@@ -1,6 +1,9 @@
-//! Библиотека ресурспаков и шейдеров (разделы 5.4 и 5.18 ТЗ). Файл хранится
-//! один раз в `library/`, в сборки попадает жёсткой ссылкой перед запуском —
-//! на диске он один, сколько бы сборок его ни использовали.
+//! Библиотека (разделы 5.4 и 5.18 ТЗ). Файл хранится один раз в `library/`,
+//! в сборки попадает жёсткой ссылкой — на диске он один, сколько бы сборок
+//! его ни использовали. Ресурспаки и шейдеры раскладываются перед запуском
+//! по списку «где использовать»; моды из каталога кладутся в сборку сразу,
+//! и дальше главная — папка модов сборки (выключенный или удалённый там мод
+//! лаунчер обратно не вернёт).
 
 use std::path::{Path, PathBuf};
 
@@ -23,6 +26,19 @@ pub struct Item {
     /// Или только в эти.
     #[serde(default)]
     pub builds: Vec<String>,
+    /// Откуда файл: проект и версия на Modrinth.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+}
+
+/// Файл из каталога Modrinth.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Source {
+    pub project_id: String,
+    pub version_id: String,
+    pub title: String,
+    pub version_number: String,
+    pub sha1: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -102,6 +118,7 @@ impl Library {
             added: now(),
             all_builds: true,
             builds: Vec::new(),
+            source: None,
         };
         lib.items.push(item.clone());
         self.save(&lib)?;
@@ -147,9 +164,95 @@ impl Library {
         self.save(&lib)
     }
 
-    /// Перед запуском: положить в сборку всё, что ей положено.
+    /// Куда класть файл из каталога. Имя занято другим файлом — к имени
+    /// добавляется версия.
+    pub(crate) fn store_name(
+        &self,
+        folder: Folder,
+        file: &str,
+        sha1: &str,
+        version_id: &str,
+    ) -> String {
+        let path = self.path(folder, file);
+        let taken = path.exists()
+            && !crate::verify::sha1_file(&path).is_ok_and(|h| h.eq_ignore_ascii_case(sha1));
+        if !taken {
+            return file.to_string();
+        }
+        match file.rsplit_once('.') {
+            Some((stem, ext)) => format!("{stem}-{version_id}.{ext}"),
+            None => format!("{file}-{version_id}"),
+        }
+    }
+
+    pub(crate) fn store_path(&self, folder: Folder, file: &str) -> PathBuf {
+        self.path(folder, file)
+    }
+
+    /// Записать скачанный из каталога файл (он уже лежит в библиотеке).
+    pub(crate) fn register(&self, folder: Folder, file: &str, source: Source) -> Result<Item> {
+        let mut lib = self.load()?;
+        let path = self.path(folder, file);
+        let size = std::fs::metadata(&path).at(&path)?.len();
+        let item = match lib
+            .items
+            .iter_mut()
+            .find(|i| i.folder == folder && i.file == file)
+        {
+            Some(item) => {
+                item.size = size;
+                item.source = Some(source);
+                item.clone()
+            }
+            None => {
+                let item = Item {
+                    folder,
+                    file: file.to_string(),
+                    size,
+                    added: now(),
+                    all_builds: false,
+                    builds: Vec::new(),
+                    source: Some(source),
+                };
+                lib.items.push(item.clone());
+                item
+            }
+        };
+        self.save(&lib)?;
+        Ok(item)
+    }
+
+    /// Ресурспак или шейдер из каталога — ещё и в эту сборку.
+    pub(crate) fn use_in(&self, folder: Folder, file: &str, build: &str) -> Result<()> {
+        let mut lib = self.load()?;
+        if let Some(item) = lib
+            .items
+            .iter_mut()
+            .find(|i| i.folder == folder && i.file == file)
+            && !item.all_builds
+            && !item.builds.iter().any(|b| b == build)
+        {
+            item.builds.push(build.to_string());
+            self.save(&lib)?;
+        }
+        Ok(())
+    }
+
+    /// Положить файл библиотеки в папку сборки сейчас.
+    pub(crate) fn link(&self, folder: Folder, file: &str, game_dir: &Path) -> Result<PathBuf> {
+        let from = self.path(folder, file);
+        let to = game_dir.join(folder.dir()).join(file);
+        crate::install::link_file(&from, &to)?;
+        Ok(to)
+    }
+
+    /// Перед запуском: положить в сборку ресурспаки и шейдеры, что ей положены.
+    /// Моды так не раскладываются — их кладёт установка из каталога.
     pub fn link_into(&self, build: &str, game_dir: &Path) -> Result<()> {
         for item in self.load()?.items {
+            if item.folder == Folder::Mods {
+                continue;
+            }
             if !item.all_builds && !item.builds.iter().any(|b| b == build) {
                 continue;
             }
@@ -170,7 +273,7 @@ impl Library {
 }
 
 /// Тот же файл, что в библиотеке: у жёсткой ссылки те же размер и время.
-fn is_same(lib: &std::fs::Metadata, other: &Path) -> bool {
+pub(crate) fn is_same(lib: &std::fs::Metadata, other: &Path) -> bool {
     std::fs::metadata(other)
         .is_ok_and(|m| m.len() == lib.len() && m.modified().ok() == lib.modified().ok())
 }

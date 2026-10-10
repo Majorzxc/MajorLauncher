@@ -9,6 +9,14 @@ export function plural(n: number, [one, few, many]: [string, string, string]): s
   return many;
 }
 
+/// Число скачиваний: «240 млн», «41,6 тыс.», «812».
+export function count(n: number): string {
+  const fmt = (x: number) => x.toLocaleString("ru-RU", { maximumFractionDigits: x < 10 ? 1 : 0 });
+  if (n >= 1e6) return `${fmt(n / 1e6)} млн`;
+  if (n >= 1e3) return `${fmt(n / 1e3)} тыс.`;
+  return String(n);
+}
+
 export function size(bytes: number): string {
   const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
   let v = bytes;

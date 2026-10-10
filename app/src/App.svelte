@@ -10,7 +10,7 @@
   import Home from "./screens/Home.svelte";
   import CropCover from "./components/CropCover.svelte";
   import { cropper, finish } from "./lib/crop.svelte";
-  import Library from "./screens/Library.svelte";
+  import Mods from "./screens/Mods.svelte";
   import Placeholder from "./screens/Placeholder.svelte";
   import Settings from "./screens/Settings.svelte";
   import Stats from "./screens/Stats.svelte";
@@ -66,7 +66,7 @@
     {:else if nav.section === "stats"}
       <Stats />
     {:else if nav.section === "mods"}
-      <Library />
+      <Mods />
     {:else if nav.section === "settings"}
       <Settings />
     {:else}

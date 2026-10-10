@@ -9,7 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use majorlauncher_core::datadir::{self, DirCheck};
 use majorlauncher_core::relocate::{self, Method, Plan};
-use majorlauncher_core::{Appearance, Config, GameSettings, content, system};
+use majorlauncher_core::{Appearance, CatalogSettings, Config, GameSettings, content, system};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
@@ -32,6 +32,13 @@ pub fn set_appearance(
     let mut config = state.config.lock().unwrap();
     config.set_appearance(appearance).map_err(text)?;
     paint(&window, config.get());
+    Ok(config.get().clone())
+}
+
+#[tauri::command]
+pub fn set_catalog(state: State<AppState>, catalog: CatalogSettings) -> CmdResult<Config> {
+    let mut config = state.config.lock().unwrap();
+    config.set_catalog(catalog).map_err(text)?;
     Ok(config.get().clone())
 }
 
