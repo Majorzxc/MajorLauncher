@@ -190,7 +190,8 @@ impl Game {
         let game_dir = self.game_dir.clone();
         let mut on_line = |tracker: &mut Tracker, line: String| {
             tracker.line(secs(), &line, || {
-                content::current_world(&game_dir).unwrap_or_else(|| "Одиночный мир".into())
+                content::current_world(&game_dir)
+                    .unwrap_or_else(|| (String::new(), "Одиночный мир".into()))
             });
             if tail.len() == TAIL_LINES {
                 tail.pop_front();

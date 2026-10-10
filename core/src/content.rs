@@ -169,9 +169,9 @@ pub fn worlds(game_dir: &Path) -> Result<Vec<World>> {
     Ok(out)
 }
 
-/// Название мира, в котором игрок сейчас: тот, чей `session.lock` обновлён
-/// последним (игра пишет его при открытии мира).
-pub fn current_world(game_dir: &Path) -> Option<String> {
+/// Мир, в котором игрок сейчас, — папка и название: тот, чей `session.lock`
+/// обновлён последним (игра пишет его при открытии мира).
+pub fn current_world(game_dir: &Path) -> Option<(String, String)> {
     let saves = game_dir.join("saves");
     let newest = std::fs::read_dir(&saves)
         .ok()?
@@ -182,8 +182,23 @@ pub fn current_world(game_dir: &Path) -> Option<String> {
         })
         .max_by_key(|(time, _)| *time)?
         .1;
-    level_name(&newest.join("level.dat"))
-        .or_else(|| newest.file_name()?.to_str().map(str::to_string))
+    let folder = newest.file_name()?.to_str()?.to_string();
+    let name = level_name(&newest.join("level.dat")).unwrap_or_else(|| folder.clone());
+    Some((folder, name))
+}
+
+/// Миры сборки: пары «папка, название» — без подсчёта размера, быстро.
+pub fn world_names(game_dir: &Path) -> Vec<(String, String)> {
+    let Ok(read) = std::fs::read_dir(game_dir.join("saves")) else {
+        return Vec::new();
+    };
+    read.flatten()
+        .filter_map(|e| {
+            let folder = e.file_name().into_string().ok()?;
+            let name = level_name(&e.path().join("level.dat"))?;
+            Some((folder, name))
+        })
+        .collect()
 }
 
 /// `LevelName` из level.dat (NBT в gzip). Разбирать весь NBT не нужно:
@@ -363,7 +378,14 @@ mod tests {
         assert_eq!(worlds[0].folder, "New World");
         assert_eq!(worlds[0].name, "Мой мир");
         std::fs::write(game.path().join("saves/New World/session.lock"), "☃").unwrap();
-        assert_eq!(current_world(game.path()).as_deref(), Some("Мой мир"));
+        assert_eq!(
+            current_world(game.path()),
+            Some(("New World".to_string(), "Мой мир".to_string()))
+        );
+        assert_eq!(
+            world_names(game.path()),
+            vec![("New World".to_string(), "Мой мир".to_string())]
+        );
     }
 
     #[test]

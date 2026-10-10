@@ -4,6 +4,7 @@
   import EditBuild from "../components/EditBuild.svelte";
   import Icon from "../components/Icon.svelte";
   import Modal from "../components/Modal.svelte";
+  import Select from "../components/Select.svelte";
   import Wizard from "../components/Wizard.svelte";
   import { api, TRASH_DAYS, type Entry, type TrashEntry } from "../lib/api";
   import { builds, forget, refresh, withBusy } from "../lib/builds.svelte";
@@ -18,10 +19,16 @@
   let query = $state("");
   let filter: Filter = $state({ kind: "all" });
   let sort: Sort = $state("played");
+  const SORTS: { value: Sort; label: string }[] = [
+    { value: "played", label: "По последнему запуску" },
+    { value: "name", label: "По названию" },
+    { value: "created", label: "По дате создания" },
+    { value: "playtime", label: "По времени в игре" },
+  ];
   let view: "grid" | "trash" = $state("grid");
   let trash: TrashEntry[] = $state([]);
 
-  let menu: { x: number; y: number; items: MenuItem[] } | null = $state(null);
+  let menu: { x: number; y: number; items: MenuItem[]; anchor?: Element } | null = $state(null);
   let editing: Entry | null = $state(null);
   let creating = $state(false);
   let addingGroup = $state(false);
@@ -60,11 +67,17 @@
   const isFilter = (f: Filter) =>
     f.kind === filter.kind && (f.kind !== "group" || (filter.kind === "group" && filter.name === f.name));
 
-  function openMenu(b: Entry, x: number, y: number) {
+  function openMenu(b: Entry, x: number, y: number, anchor?: Element) {
+    // Повторное нажатие на «⋯» закрывает меню.
+    if (anchor && menu?.anchor === anchor) {
+      menu = null;
+      return;
+    }
     if (b.state === "archived") {
       menu = {
         x,
         y,
+        anchor,
         items: [
           { label: "Восстановить из архива", icon: "restore", onclick: () => unarchive(b) },
           { label: "Удалить", icon: "trash", danger: true, divider: true, onclick: () => trashArchived(b) },
@@ -75,6 +88,7 @@
     menu = {
       x,
       y,
+      anchor,
       items: [
         busyLabel(b.id)
           ? { label: "Играть", icon: "play", hint: busyLabel(b.id)! }
@@ -241,15 +255,13 @@
       <Icon name="search" size={18} />
       <input placeholder="Поиск по названию или версии" bind:value={query} />
     </label>
-    <label class="sort">
-      <Icon name="sort" size={18} />
-      <select bind:value={sort} aria-label="Сортировка">
-        <option value="played">По последнему запуску</option>
-        <option value="name">По названию</option>
-        <option value="created">По дате создания</option>
-        <option value="playtime">По времени в игре</option>
-      </select>
-    </label>
+    <Select
+      label="Сортировка"
+      icon="sort"
+      value={sort}
+      onchange={(v) => (sort = v)}
+      options={SORTS}
+    />
     <span class="spacer"></span>
     <button class="btn btn-primary" onclick={() => (creating = true)}><Icon name="plus" size={18} />Новая сборка</button>
   </div>
@@ -323,7 +335,7 @@
           bytes={builds.sizes[b.id]}
           busy={builds.busy[b.id]}
           onopen={() => openBuild(b.id)}
-          onmenu={(x, y) => openMenu(b, x, y)}
+          onmenu={(x, y, anchor) => openMenu(b, x, y, anchor)}
           onrestore={() => unarchive(b)}
         />
       {/each}
@@ -384,8 +396,7 @@
   .spacer {
     flex: 1;
   }
-  .search,
-  .sort {
+  .search {
     display: flex;
     align-items: center;
     gap: var(--s2);
@@ -396,8 +407,7 @@
     background: var(--surface);
     color: var(--text-muted);
   }
-  .search:focus-within,
-  .sort:focus-within {
+  .search:focus-within {
     border-color: var(--accent);
   }
   .search {
@@ -411,16 +421,6 @@
     outline: none;
     color: var(--text);
     user-select: text;
-  }
-  .sort select {
-    border: 0;
-    background: none;
-    outline: none;
-    color: var(--text);
-    cursor: pointer;
-  }
-  .sort option {
-    background: var(--surface);
   }
   .chips {
     display: flex;

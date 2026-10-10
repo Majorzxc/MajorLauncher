@@ -35,7 +35,49 @@ pub struct PlaceTime {
     /// Название мира или адрес сервера; у меню пусто.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+    /// Папка мира: название можно сменить в игре, папка остаётся той же.
+    /// В сессиях до 10.10.2026 пусто — см. [`resolve_worlds`].
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
     pub seconds: u64,
+}
+
+impl PlaceTime {
+    /// Ключ места для статистики. Мир — это папка внутри сборки (в разных
+    /// сборках может быть свой «New World»), сервер — адрес, где бы ни играл.
+    pub fn key(&self, build: &str) -> String {
+        match self.kind {
+            PlaceKind::Menu => "menu".into(),
+            PlaceKind::Server => format!("server:{}", self.name),
+            PlaceKind::World => format!("world:{build}/{}", self.folder()),
+        }
+    }
+
+    fn folder(&self) -> &str {
+        if self.id.is_empty() {
+            &self.name
+        } else {
+            &self.id
+        }
+    }
+}
+
+/// Где сейчас игрок.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Spot {
+    kind: PlaceKind,
+    id: String,
+    name: String,
+}
+
+impl Spot {
+    fn menu() -> Self {
+        Self {
+            kind: PlaceKind::Menu,
+            id: String::new(),
+            name: String::new(),
+        }
+    }
 }
 
 /// Одна игровая сессия: от запуска игры до её закрытия.
@@ -61,11 +103,11 @@ impl SessionRecord {
 /// Следит, где сейчас игрок, и копит время по местам.
 pub struct Tracker {
     /// Где игрок по логу.
-    log_place: (PlaceKind, String),
+    log_place: Spot,
     /// Режим по заголовку окна: `Some(true)` — в мире или на сервере.
     /// `None` — заголовок ни разу не показывал режим (версии до 1.15).
     title_playing: Option<bool>,
-    current: (PlaceKind, String),
+    current: Spot,
     since: u64,
     totals: Vec<PlaceTime>,
 }
@@ -78,26 +120,34 @@ impl Default for Tracker {
 
 impl Tracker {
     pub fn new() -> Self {
-        let menu = (PlaceKind::Menu, String::new());
         Self {
-            log_place: menu.clone(),
+            log_place: Spot::menu(),
             title_playing: None,
-            current: menu,
+            current: Spot::menu(),
             since: 0,
             totals: Vec::new(),
         }
     }
 
-    /// Строка вывода игры. `now` — секунды от запуска; `world` — название
-    /// одиночного мира, спрашивается только при входе в мир.
-    pub fn line(&mut self, now: u64, line: &str, world: impl FnOnce() -> String) {
+    /// Строка вывода игры. `now` — секунды от запуска; `world` — папка и
+    /// название одиночного мира, спрашиваются только при входе в мир.
+    pub fn line(&mut self, now: u64, line: &str, world: impl FnOnce() -> (String, String)) {
         let msg = message(line);
         let place = if msg.contains("Starting integrated minecraft server") {
-            (PlaceKind::World, world())
+            let (id, name) = world();
+            Spot {
+                kind: PlaceKind::World,
+                id,
+                name,
+            }
         } else if let Some(address) = server_address(msg) {
-            (PlaceKind::Server, address)
+            Spot {
+                kind: PlaceKind::Server,
+                id: String::new(),
+                name: address,
+            }
         } else if msg.ends_with("Stopping server") {
-            (PlaceKind::Menu, String::new())
+            Spot::menu()
         } else {
             return;
         };
@@ -116,7 +166,7 @@ impl Tracker {
 
     fn update(&mut self, now: u64) {
         let next = match self.title_playing {
-            Some(false) => (PlaceKind::Menu, String::new()),
+            Some(false) => Spot::menu(),
             _ => self.log_place.clone(),
         };
         if next != self.current {
@@ -131,16 +181,17 @@ impl Tracker {
         if seconds == 0 {
             return;
         }
-        let (kind, name) = &self.current;
+        let c = &self.current;
         match self
             .totals
             .iter_mut()
-            .find(|p| p.kind == *kind && p.name == *name)
+            .find(|p| p.kind == c.kind && p.id == c.id && p.name == c.name)
         {
             Some(p) => p.seconds += seconds,
             None => self.totals.push(PlaceTime {
-                kind: *kind,
-                name: name.clone(),
+                kind: c.kind,
+                name: c.name.clone(),
+                id: c.id.clone(),
                 seconds,
             }),
         }
@@ -239,7 +290,7 @@ pub struct Filter {
     /// Только один вид мест: меню, одиночные миры или серверы.
     #[serde(default)]
     pub kind: Option<PlaceKind>,
-    /// Только один мир или сервер (вместе с `kind`).
+    /// Только один мир или сервер: ключ из [`PlaceSummary::key`].
     #[serde(default)]
     pub place: Option<String>,
     /// Смещение местного времени от UTC в минутах — чтобы делить время по дням.
@@ -262,6 +313,24 @@ pub struct DayTime {
     pub seconds: u64,
 }
 
+/// Мир, сервер или меню в сводке.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaceSummary {
+    /// Чем фильтровать по этому месту.
+    pub key: String,
+    pub kind: PlaceKind,
+    /// Название мира (последнее известное), адрес сервера; у меню пусто.
+    pub name: String,
+    /// Сборка и папка — у миров.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    pub seconds: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Summary {
     /// Время с учётом фильтра.
@@ -273,14 +342,50 @@ pub struct Summary {
     pub since: Option<u64>,
     pub builds: Vec<BuildTime>,
     /// Миры, серверы и меню — без фильтра по месту, чтобы его можно было сменить.
-    pub places: Vec<PlaceTime>,
+    pub places: Vec<PlaceSummary>,
     pub days: Vec<DayTime>,
+}
+
+impl Summary {
+    /// Показать у миров их нынешние названия: мир могли переименовать в игре
+    /// после последней сессии. `worlds(сборка)` — пары «папка, название».
+    pub fn rename_worlds(&mut self, mut worlds: impl FnMut(&str) -> Vec<(String, String)>) {
+        for p in &mut self.places {
+            if let (Some(build), Some(folder)) = (&p.build, &p.folder)
+                && let Some((_, name)) = worlds(build).into_iter().find(|(f, _)| f == folder)
+            {
+                p.name = name;
+            }
+        }
+    }
+}
+
+/// Сессии до 10.10.2026 помнят мир только по названию. Если сейчас в сборке
+/// есть мир с таким названием или такой папкой — привязываем к его папке,
+/// чтобы старое и новое время мира сложились вместе.
+pub fn resolve_worlds(
+    records: &mut [SessionRecord],
+    mut worlds: impl FnMut(&str) -> Vec<(String, String)>,
+) {
+    for r in records {
+        for p in &mut r.places {
+            if p.kind != PlaceKind::World || !p.id.is_empty() {
+                continue;
+            }
+            if let Some((folder, _)) = worlds(&r.build)
+                .into_iter()
+                .find(|(f, n)| *n == p.name || *f == p.name)
+            {
+                p.id = folder;
+            }
+        }
+    }
 }
 
 /// Свести сессии в цифры для экрана статистики.
 pub fn summarize(records: &[SessionRecord], filter: &Filter) -> Summary {
     let mut builds: Vec<BuildTime> = Vec::new();
-    let mut places: Vec<PlaceTime> = Vec::new();
+    let mut places: Vec<PlaceSummary> = Vec::new();
     let mut days: HashMap<i64, u64> = HashMap::new();
     let (mut total, mut sessions, mut longest) = (0, 0, 0);
 
@@ -294,6 +399,7 @@ pub fn summarize(records: &[SessionRecord], filter: &Filter) -> Summary {
             fallback = [PlaceTime {
                 kind: PlaceKind::Menu,
                 name: String::new(),
+                id: String::new(),
                 seconds: r.seconds(),
             }];
             &fallback[..]
@@ -303,17 +409,30 @@ pub fn summarize(records: &[SessionRecord], filter: &Filter) -> Summary {
 
         let mut seconds = 0;
         for p in session_places {
+            let key = p.key(&r.build);
             if filter.kind.is_none_or(|k| k == p.kind) {
-                match places
-                    .iter_mut()
-                    .find(|x| x.kind == p.kind && x.name == p.name)
-                {
-                    Some(x) => x.seconds += p.seconds,
-                    None => places.push(p.clone()),
+                match places.iter_mut().find(|x| x.key == key) {
+                    // Название — из последней сессии: мир могли переименовать.
+                    Some(x) => {
+                        x.seconds += p.seconds;
+                        x.name = p.name.clone();
+                    }
+                    None => {
+                        let world = p.kind == PlaceKind::World;
+                        places.push(PlaceSummary {
+                            key: key.clone(),
+                            kind: p.kind,
+                            name: p.name.clone(),
+                            build: world.then(|| r.build.clone()),
+                            build_name: world.then(|| r.build_name.clone()),
+                            folder: world.then(|| p.folder().to_string()),
+                            seconds: p.seconds,
+                        });
+                    }
                 }
             }
             let kind_ok = filter.kind.is_none_or(|k| k == p.kind);
-            let place_ok = filter.place.as_ref().is_none_or(|n| *n == p.name);
+            let place_ok = filter.place.as_ref().is_none_or(|k| *k == key);
             if kind_ok && place_ok {
                 seconds += p.seconds;
             }
@@ -364,8 +483,17 @@ pub fn summarize(records: &[SessionRecord], filter: &Filter) -> Summary {
 mod tests {
     use super::*;
 
-    fn world() -> String {
-        "Мой мир".into()
+    fn world() -> (String, String) {
+        ("New World".into(), "Мой мир".into())
+    }
+
+    fn pt(kind: PlaceKind, name: &str, id: &str, seconds: u64) -> PlaceTime {
+        PlaceTime {
+            kind,
+            name: name.into(),
+            id: id.into(),
+            seconds,
+        }
     }
 
     #[test]
@@ -414,16 +542,8 @@ mod tests {
         assert_eq!(
             places,
             vec![
-                PlaceTime {
-                    kind: PlaceKind::Menu,
-                    name: String::new(),
-                    seconds: 30 + 39
-                },
-                PlaceTime {
-                    kind: PlaceKind::World,
-                    name: "Мой мир".into(),
-                    seconds: 31
-                },
+                pt(PlaceKind::Menu, "", "", 30 + 39),
+                pt(PlaceKind::World, "Мой мир", "New World", 31),
             ]
         );
     }
@@ -451,16 +571,8 @@ mod tests {
         assert_eq!(
             places,
             vec![
-                PlaceTime {
-                    kind: PlaceKind::Menu,
-                    name: String::new(),
-                    seconds: 10 + 20
-                },
-                PlaceTime {
-                    kind: PlaceKind::Server,
-                    name: "play.example.org".into(),
-                    seconds: 60
-                },
+                pt(PlaceKind::Menu, "", "", 10 + 20),
+                pt(PlaceKind::Server, "play.example.org", "", 60),
             ]
         );
     }
@@ -477,24 +589,13 @@ mod tests {
         );
         t.title(20, "Minecraft 1.12.2");
         let places = t.finish(50);
-        assert_eq!(
-            places[1],
-            PlaceTime {
-                kind: PlaceKind::World,
-                name: "Мой мир".into(),
-                seconds: 40
-            }
-        );
+        assert_eq!(places[1], pt(PlaceKind::World, "Мой мир", "New World", 40));
     }
 
     fn rec(build: &str, start: u64, places: Vec<(PlaceKind, &str, u64)>) -> SessionRecord {
         let places: Vec<PlaceTime> = places
             .into_iter()
-            .map(|(kind, name, seconds)| PlaceTime {
-                kind,
-                name: name.into(),
-                seconds,
-            })
+            .map(|(kind, name, seconds)| pt(kind, name, "", seconds))
             .collect();
         let len: u64 = places.iter().map(|p| p.seconds).sum();
         SessionRecord {
@@ -545,13 +646,14 @@ mod tests {
             &records,
             &Filter {
                 kind: Some(World),
-                place: Some("w1".into()),
+                place: Some("world:a/w1".into()),
                 ..Default::default()
             },
         );
         assert_eq!(w1.total, 700);
         // Список мест не сужается выбранным местом — чтобы переключаться между ними.
         assert_eq!(w1.places.len(), 2);
+        assert_eq!(w1.places[0].build_name.as_deref(), Some("A"));
 
         let only_a = summarize(
             &records,
@@ -562,6 +664,63 @@ mod tests {
         );
         assert_eq!(only_a.total, 810);
         assert_eq!(only_a.builds.len(), 1);
+    }
+
+    /// Просьба автора 10.10.2026: переименовал мир — время не должно делиться.
+    #[test]
+    fn renamed_world_stays_one_place() {
+        use PlaceKind::*;
+        let mut records = vec![
+            // Старые сессии: мир только по названию.
+            rec("a", 0, vec![(World, "New World", 100)]),
+            rec("a", 100, vec![(World, "Крепость", 50)]),
+            // Новая сессия: с папкой.
+            SessionRecord {
+                places: vec![pt(World, "Крепость", "New World", 30)],
+                ..rec("a", 200, vec![])
+            },
+            // Свой «New World» в другой сборке — другой мир.
+            rec("b", 300, vec![(World, "New World", 7)]),
+        ];
+        // Сейчас в сборке «a» папка «New World» называется «Замок».
+        let worlds = |build: &str| match build {
+            "a" => vec![("New World".to_string(), "Замок".to_string())],
+            _ => vec![],
+        };
+        // Без привязки «Крепость» из старой сессии — отдельное место.
+        assert_eq!(summarize(&records, &Filter::default()).places.len(), 3);
+
+        resolve_worlds(&mut records, worlds);
+        let mut s = summarize(&records, &Filter::default());
+        // «Крепость» не нашлась по имени (мир снова переименован) — но
+        // «New World» привязан по папке, а новая сессия знает папку сама.
+        assert_eq!(s.places.len(), 3);
+        s.rename_worlds(worlds);
+        let a = s
+            .places
+            .iter()
+            .find(|p| p.key == "world:a/New World")
+            .unwrap();
+        assert_eq!((a.name.as_str(), a.seconds), ("Замок", 130));
+        let b = s
+            .places
+            .iter()
+            .find(|p| p.key == "world:b/New World")
+            .unwrap();
+        assert_eq!((b.name.as_str(), b.seconds), ("New World", 7));
+
+        // Если старое название совпадает с нынешним — сессии складываются.
+        let mut old = vec![
+            rec("a", 0, vec![(World, "Замок", 40)]),
+            SessionRecord {
+                places: vec![pt(World, "Замок", "New World", 2)],
+                ..rec("a", 50, vec![])
+            },
+        ];
+        resolve_worlds(&mut old, worlds);
+        let s = summarize(&old, &Filter::default());
+        assert_eq!(s.places.len(), 1);
+        assert_eq!(s.places[0].seconds, 42);
     }
 
     #[test]

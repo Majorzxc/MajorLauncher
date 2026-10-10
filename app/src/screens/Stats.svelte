@@ -1,11 +1,14 @@
 <script lang="ts">
   // Статистика игрового времени (раздел 5.17 ТЗ): всего, по сборкам, по дням,
   // где именно играл — миры, серверы, меню. Фильтры по видам и местам.
+  import { fade } from "svelte/transition";
   import Icon from "../components/Icon.svelte";
+  import Select from "../components/Select.svelte";
   import { api, type PlaceKind, type Summary } from "../lib/api";
   import { builds, refresh } from "../lib/builds.svelte";
   import { date, duration } from "../lib/format";
   import type { IconName } from "../lib/icons";
+  import { ms } from "../lib/motion";
 
   // Смещение местного времени: ядро делит сессии по дням так, как их видит игрок.
   const offset = -new Date().getTimezoneOffset();
@@ -18,7 +21,9 @@
   const PLACE_ICON: Record<PlaceKind, IconName> = { menu: "home", world: "globe", server: "servers" };
 
   let kind: PlaceKind | null = $state(null);
+  /// Ключ выбранного мира или сервера (папка мира внутри сборки, адрес сервера).
   let place: string | null = $state(null);
+  let hover: number | null = $state(null);
   let build: string | null = $state(null);
   let summary: Summary | null = $state(null);
   let error = $state("");
@@ -53,8 +58,33 @@
       : d.toLocaleDateString("ru-RU", { day: "numeric", month: "numeric" });
   }
 
-  function placeName(p: { kind: PlaceKind; name?: string }): string {
-    return p.kind === "menu" ? "Меню и загрузка" : (p.name ?? "");
+  function placeName(p: { kind: PlaceKind; name: string }): string {
+    return p.kind === "menu" ? "Меню и загрузка" : p.name;
+  }
+
+  /// Нажатие на мир или сервер — показать только его, повторное — снять фильтр.
+  let kindBefore: PlaceKind | null = null;
+  function togglePlace(p: { key: string; kind: PlaceKind }) {
+    if (place === p.key) {
+      place = null;
+      kind = kindBefore;
+    } else {
+      if (place === null) kindBefore = kind;
+      kind = p.kind;
+      place = p.key;
+    }
+  }
+
+  // Название выбранного места для чипа: список мест сам не сужается фильтром.
+  let placeLabel = $state("");
+  $effect(() => {
+    const found = summary?.places.find((p) => p.key === place);
+    if (found) placeLabel = found.name;
+  });
+
+  function hoverLabel(day: number): string {
+    const d = new Date((day * 86400 - offset * 60) * 1000);
+    return d.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
   }
 
   function pickKind(k: PlaceKind | null) {
@@ -62,9 +92,13 @@
     place = null;
   }
 
-  const buildOptions = $derived(
-    [...builds.list].filter((b) => b.state === "active").sort((a, b) => a.name.localeCompare(b.name, "ru")),
-  );
+  const buildOptions = $derived([
+    { value: null as string | null, label: "Все сборки" },
+    ...[...builds.list]
+      .filter((b) => b.state === "active")
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+      .map((b) => ({ value: b.id as string | null, label: b.name })),
+  ]);
 </script>
 
 <h1>Статистика</h1>
@@ -87,15 +121,14 @@
         <button class="chip" class:on={kind === k.id} onclick={() => pickKind(k.id)}>{k.title}</button>
       {/each}
       {#if place}
-        <button class="chip on" title="Убрать фильтр" onclick={() => (place = null)}>
-          {place}<Icon name="close" size={14} />
+        <button class="chip on" title="Убрать фильтр" onclick={() => ((place = null), (kind = kindBefore))}>
+          {placeLabel}<Icon name="close" size={14} />
         </button>
       {/if}
     </div>
-    <select class="input" bind:value={build} aria-label="Сборка">
-      <option value={null}>Все сборки</option>
-      {#each buildOptions as b (b.id)}<option value={b.id}>{b.name}</option>{/each}
-    </select>
+    <div class="build-select">
+      <Select label="Сборка" icon="builds" value={build} options={buildOptions} onchange={(v) => (build = v)} />
+    </div>
   </div>
 
   {#if summary.sessions === 0}
@@ -106,13 +139,24 @@
   {:else}
     <section class="card block">
       <h2>Последние 30 дней</h2>
-      <div class="chart">
+      <div class="chart" role="img" aria-label="Время в игре по дням" onmouseleave={() => (hover = null)}>
         {#each chart.days as d, i (d.day)}
-          <div class="col" title="{dayLabel(d.day, true)}: {d.seconds ? duration(d.seconds) : 'не играл'}">
-            <span class="bar-v" style:height="{(d.seconds / chart.max) * 100}%"></span>
+          <div class="col" role="presentation" class:hover={hover === i} onmouseenter={() => (hover = i)}>
+            <span class="bar-v" class:empty={!d.seconds} style:height="{(d.seconds / chart.max) * 100}%"></span>
             <span class="label">{i % 5 === 4 || i === DAYS - 1 ? dayLabel(d.day) : ""}</span>
           </div>
         {/each}
+        {#if hover !== null}
+          {@const d = chart.days[hover]}
+          <div
+            class="tip"
+            style:left="{Math.min(88, Math.max(12, ((hover + 0.5) / DAYS) * 100))}%"
+            transition:fade={{ duration: ms(100) }}
+          >
+            <span class="muted small">{hoverLabel(d.day)}</span>
+            <b>{d.seconds ? duration(d.seconds) : "не играл"}</b>
+          </div>
+        {/if}
       </div>
     </section>
 
@@ -134,7 +178,7 @@
       <section class="card block">
         <h2>Где играл</h2>
         <ul class="list">
-          {#each summary.places as p (p.kind + (p.name ?? ""))}
+          {#each summary.places as p (p.key)}
             <li>
               <Icon name={PLACE_ICON[p.kind]} size={18} />
               {#if p.kind === "menu"}
@@ -142,9 +186,11 @@
               {:else}
                 <button
                   class="link grow"
-                  class:on={place === p.name}
-                  title="Показать только это место"
-                  onclick={() => ((kind = p.kind), (place = p.name ?? null))}>{placeName(p)}</button
+                  class:on={place === p.key}
+                  aria-pressed={place === p.key}
+                  title={place === p.key ? "Показать все места" : "Показать только это место"}
+                  onclick={() => togglePlace(p)}
+                  >{placeName(p)}{#if p.build_name}<span class="muted small"> · {p.build_name}</span>{/if}</button
                 >
               {/if}
               <b class="time">{duration(p.seconds)}</b>
@@ -196,14 +242,15 @@
   .chip {
     gap: var(--s1);
   }
-  select {
-    min-width: 220px;
+  .build-select {
+    min-width: 240px;
   }
   .block {
     padding: var(--s5);
     margin-bottom: var(--s4);
   }
   .chart {
+    position: relative;
     display: flex;
     align-items: stretch;
     gap: 4px;
@@ -221,6 +268,32 @@
     min-height: 2px;
     border-radius: 3px 3px 0 0;
     background: var(--accent);
+    opacity: 0.85;
+    transition: opacity var(--t-fast) var(--ease);
+  }
+  .bar-v.empty {
+    background: var(--border);
+  }
+  .col.hover .bar-v {
+    opacity: 1;
+  }
+  .col.hover .bar-v.empty {
+    background: var(--border-strong);
+  }
+  .tip {
+    position: absolute;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--s2) var(--s3);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r);
+    transform: translate(-50%, -105%);
+    white-space: nowrap;
+    pointer-events: none;
   }
   .label {
     height: 16px;

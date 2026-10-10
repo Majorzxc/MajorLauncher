@@ -18,7 +18,21 @@
   import { ms } from "../lib/motion";
   import Icon from "./Icon.svelte";
 
-  let { x, y, items, onclose }: { x: number; y: number; items: MenuItem[]; onclose: () => void } = $props();
+  let {
+    x,
+    y,
+    items,
+    onclose,
+    anchor,
+  }: {
+    x: number;
+    y: number;
+    items: MenuItem[];
+    onclose: () => void;
+    /// Кнопка, которая открыла меню: нажатие на неё не закрывает меню здесь,
+    /// а переключает его там, где оно открыто (второй клик — закрыть).
+    anchor?: Element | null;
+  } = $props();
 
   let menu: HTMLDivElement;
   let left = $state(0);
@@ -35,7 +49,10 @@
 
 <svelte:window
   onkeydown={(e) => e.key === "Escape" && onclose()}
-  onmousedown={(e) => !menu.contains(e.target as Node) && onclose()}
+  onmousedown={(e) => {
+    const t = e.target as Node;
+    if (!menu.contains(t) && !anchor?.contains(t)) onclose();
+  }}
   onblur={onclose}
 />
 

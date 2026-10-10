@@ -126,7 +126,15 @@ export interface Summary {
   longest: number;
   since: number | null;
   builds: { id: string; name: string; seconds: number; sessions: number }[];
-  places: { kind: PlaceKind; name?: string; seconds: number }[];
+  places: {
+    key: string;
+    kind: PlaceKind;
+    name: string;
+    build?: string;
+    build_name?: string;
+    folder?: string;
+    seconds: number;
+  }[];
   days: { day: number; seconds: number }[];
 }
 

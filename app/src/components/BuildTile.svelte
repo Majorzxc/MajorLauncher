@@ -18,7 +18,7 @@
     bytes: number | undefined;
     busy: string | undefined;
     onopen: () => void;
-    onmenu: (x: number, y: number) => void;
+    onmenu: (x: number, y: number, anchor?: Element) => void;
     onrestore: () => void;
   } = $props();
 
@@ -52,7 +52,7 @@
         onclick={(e) => {
           e.stopPropagation();
           const r = e.currentTarget.getBoundingClientRect();
-          onmenu(r.left, r.bottom + 4);
+          onmenu(r.left, r.bottom + 4, e.currentTarget);
         }}><Icon name="more" size={18} /></button
       >
     {/if}

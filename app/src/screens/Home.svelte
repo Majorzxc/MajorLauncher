@@ -21,7 +21,7 @@
   const current = $derived(byRecent.find((b) => b.id === nav.homeBuild) ?? byRecent[0]);
   const recent = $derived(byRecent.filter((b) => b.id !== current?.id).slice(0, 4));
 
-  let menu: { x: number; y: number } | null = $state(null);
+  let menu: { x: number; y: number; anchor: Element } | null = $state(null);
   const switchItems = $derived<MenuItem[]>(
     byRecent.map((b) => ({
       label: b.name,
@@ -58,9 +58,12 @@
             class="btn btn-quiet btn-sm switch"
             aria-label="Сменить сборку"
             title="Сменить сборку"
+            aria-expanded={!!menu}
             onclick={(e) => {
+              // Второй клик по стрелке закрывает список.
+              if (menu) return (menu = null);
               const r = e.currentTarget.getBoundingClientRect();
-              menu = { x: r.left, y: r.bottom + 4 };
+              menu = { x: r.left, y: r.bottom + 4, anchor: e.currentTarget };
             }}><Icon name="chevron-down" size={20} /></button
           >
         {/if}
@@ -114,7 +117,7 @@
 {/if}
 
 {#if menu}
-  <ContextMenu x={menu.x} y={menu.y} items={switchItems} onclose={() => (menu = null)} />
+  <ContextMenu {...menu} items={switchItems} onclose={() => (menu = null)} />
 {/if}
 
 <style>

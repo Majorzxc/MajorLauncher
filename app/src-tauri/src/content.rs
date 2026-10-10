@@ -1,11 +1,13 @@
 //! Вкладки страницы сборки (миры, моды, скриншоты, логи) и статистика.
 //! Окно называет сборку и имя файла — пути строит ядро.
 
+use std::collections::HashMap;
+
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use majorlauncher_core::Builds;
 use majorlauncher_core::content::{self, FileEntry, Folder, LogFile, World};
-use majorlauncher_core::playtime::{Filter, Stats, Summary, summarize};
+use majorlauncher_core::playtime::{Filter, Stats, Summary, resolve_worlds, summarize};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
@@ -146,8 +148,19 @@ pub fn build_open(
 pub async fn stats_summary(state: State<'_, AppState>, filter: Filter) -> CmdResult<Summary> {
     let data = state.data()?;
     blocking(move || {
-        let records = Stats::new(&data).load().map_err(text)?;
-        Ok(summarize(&records, &filter))
+        let mut records = Stats::new(&data).load().map_err(text)?;
+        // Миры сборок читаются один раз на сборку: названия из level.dat.
+        let mut cache: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        let mut worlds = |build: &str| {
+            cache
+                .entry(build.to_string())
+                .or_insert_with(|| content::world_names(&data.instance(build)))
+                .clone()
+        };
+        resolve_worlds(&mut records, &mut worlds);
+        let mut summary = summarize(&records, &filter);
+        summary.rename_worlds(&mut worlds);
+        Ok(summary)
     })
     .await
 }

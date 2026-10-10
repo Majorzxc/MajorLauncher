@@ -168,10 +168,10 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
           { id: "1-12-2", name: "1.12.2", seconds: Math.round(total * 0.1), sessions: 2 },
         ],
         places: [
-          { kind: "server", name: "play.example.org", seconds: Math.round(total * 0.45) },
-          { kind: "world", name: "Выживание", seconds: Math.round(total * 0.35) },
-          { kind: "menu", seconds: Math.round(total * 0.12) },
-          { kind: "world", name: "test", seconds: Math.round(total * 0.08) },
+          { key: "server:play.example.org", kind: "server", name: "play.example.org", seconds: Math.round(total * 0.45) },
+          { key: "world:vyzhivanie/New World", kind: "world", name: "Выживание", build_name: "Выживание с друзьями", seconds: Math.round(total * 0.35) },
+          { key: "menu", kind: "menu", name: "", seconds: Math.round(total * 0.12) },
+          { key: "world:tehno/test", kind: "world", name: "test", build_name: "Техно 1.20.1", seconds: Math.round(total * 0.08) },
         ].filter((p) => !a.filter.kind || p.kind === a.filter.kind),
         days,
       } as T;
