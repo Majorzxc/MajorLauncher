@@ -118,6 +118,10 @@ pub async fn build_play(
         if play.status.phase != Phase::Idle {
             return Err("игра уже запущена или готовится к запуску".into());
         }
+        // Проверка под замком игры: перенос папки проверяет игру тоже под ним.
+        if state.relocating() {
+            return Err("идёт перенос папки данных — подождите, пока он закончится".into());
+        }
         play.status = PlayStatus {
             build: Some(id.clone()),
             phase: Phase::Preparing,

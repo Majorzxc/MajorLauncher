@@ -143,16 +143,24 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
         { file: "logs/latest.log", kind: "log", size: 41e3, modified: now() },
         { file: "crash-reports/crash-2026-10-03_09.20.11-client.txt", kind: "crash", size: 12e3, modified: now() - 6 * DAY },
       ] as T;
-    case "build_thumbnail": {
+    case "build_thumbnail":
+    case "build_screenshot": {
+      // Скриншот для обрезки — побольше и с узором, чтобы было что двигать.
+      const big = cmd === "build_screenshot";
       const c = document.createElement("canvas");
-      c.width = 320;
-      c.height = 180;
+      c.width = big ? 1280 : 320;
+      c.height = big ? 720 : 180;
       const g = c.getContext("2d")!;
       g.fillStyle = `hsl(${(a.file.length * 37 + a.file.charCodeAt(9) * 50) % 360} 40% 45%)`;
-      g.fillRect(0, 0, 320, 180);
+      g.fillRect(0, 0, c.width, c.height);
+      if (big) {
+        for (let i = 0; i < 14; i++) {
+          g.fillStyle = `hsl(${i * 47} 60% ${35 + (i % 4) * 10}%)`;
+          g.fillRect((i * 173) % 1180, (i * 97) % 640, 120 + (i % 3) * 60, 80 + (i % 5) * 30);
+        }
+      }
       return c.toDataURL() as T;
     }
-    case "build_cover_from_screenshot":
     case "build_open":
       return undefined as T;
     case "stats_summary": {
@@ -186,6 +194,25 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       if (/onedrive/i.test(path)) warnings.push("Папка внутри OneDrive: синхронизация портит файлы игры во время записи. Лучше выбрать папку вне OneDrive.");
       return { path, free_bytes: 412 * 1024 ** 3, has_data: false, writable: !path.startsWith("Z:"), warnings } as T;
     }
+    case "data_size":
+      return (37.4 * 1024 ** 3) as T;
+    case "data_move_plan": {
+      const to: string = a.path.trim();
+      const error = /^g:/i.test(to) ? "это та же папка" : null;
+      return { to, same_disk: /^g:/i.test(to), free: 412 * 1024 ** 3, error } as T;
+    }
+    case "data_move": {
+      const total = 37.4 * 1024 ** 3;
+      await sleep(2000);
+      saveConfig({ ...config(), data_dir: a.to });
+      return { method: "copied", old: "G:\\MajorLauncherData", old_size: total } as T;
+    }
+    case "data_move_cancel":
+    case "data_remove_old":
+    case "remove_background_image":
+      return (cmd === "remove_background_image" ? config() : undefined) as T;
+    case "background_image":
+      return null as T;
     case "set_data_dir":
       saveConfig({ ...config(), data_dir: a.path });
       return config() as T;

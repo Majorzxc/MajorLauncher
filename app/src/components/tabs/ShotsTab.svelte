@@ -3,7 +3,8 @@
   // 8 МБ памяти), открыть в просмотрщике, сделать обложкой.
   import { untrack } from "svelte";
   import { api, type FileEntry } from "../../lib/api";
-  import { forget, refresh } from "../../lib/builds.svelte";
+  import { builds } from "../../lib/builds.svelte";
+  import { crop } from "../../lib/crop.svelte";
   import { date } from "../../lib/format";
   import { attempt, toast } from "../../lib/toast.svelte";
   import Icon from "../Icon.svelte";
@@ -37,11 +38,13 @@
     return () => (cancelled = true);
   });
 
+  // Скриншот открывается в окне обрезки: какой кусок кадра станет обложкой, выбирает игрок.
   async function makeCover(f: FileEntry) {
-    const ok = await attempt("Обложка", () => api.coverFromScreenshot(id, f.file).then(() => true));
-    if (ok) {
-      forget(id);
-      refresh();
+    const src = await attempt("Обложка", () => api.screenshot(id, f.file));
+    const png = src && (await crop(src));
+    if (!png) return;
+    if (await attempt("Обложка", () => api.setCover(id, png).then(() => true))) {
+      builds.covers[id] = `data:image/png;base64,${png}`;
       toast("Скриншот стал обложкой сборки");
     }
   }

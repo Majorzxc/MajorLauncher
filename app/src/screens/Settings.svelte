@@ -1,22 +1,25 @@
 <script lang="ts">
+  import { open as openFile } from "@tauri-apps/plugin-dialog";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { call, inTauri } from "../lib/tauri";
   import { api } from "../lib/api";
   import { size } from "../lib/format";
+  import DataMove from "../components/DataMove.svelte";
   import GameOptions from "../components/GameOptions.svelte";
   import GameProfile from "../components/GameProfile.svelte";
   import { settingsPage } from "../lib/nav.svelte";
   import HexInput from "../components/HexInput.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
-  import { apply, save, theme, type Appearance, type ThemeMode } from "../lib/theme.svelte";
+  import { apply, loadImage, save, theme, type Appearance, type ThemeMode } from "../lib/theme.svelte";
 
   type Page = "profile" | "look" | "game" | "data" | "about";
   // Страница настроек из адреса (#settings/profile) — чтобы открыть «Настройки игры» по ссылке.
   let page: Page = $state(settingsPage.value ?? "look");
   settingsPage.value = null;
   const version = call<string>("core_version");
-  const dataDir = api.config().then((c) => (c.data_dir ? api.inspectDir(c.data_dir) : null));
+  const inspectData = () => api.config().then((c) => (c.data_dir ? api.inspectDir(c.data_dir) : null));
+  let dataDir = $state(inspectData());
 
   // Ссылки — во внешнем браузере, а не внутри окна лаунчера.
   let linkError = $state("");
@@ -42,6 +45,41 @@
     error = "";
     try {
       await save({ ...theme.appearance, ...patch });
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  // Картинка фона: ядро уменьшает её под экран (с учётом масштаба Windows).
+  let picking = $state(false);
+  async function pickImage() {
+    if (!inTauri) return;
+    const path = await openFile({
+      multiple: false,
+      directory: false,
+      title: "Картинка фона",
+      filters: [{ name: "Картинки", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }],
+    });
+    if (typeof path !== "string") return;
+    picking = true;
+    error = "";
+    try {
+      const dpr = window.devicePixelRatio || 1;
+      const c = await api.setBackgroundImage(path, Math.round(screen.width * dpr), Math.round(screen.height * dpr));
+      apply(c.appearance);
+      await loadImage();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      picking = false;
+    }
+  }
+
+  async function removeImage() {
+    error = "";
+    try {
+      apply((await api.removeBackgroundImage()).appearance);
+      await loadImage();
     } catch (e) {
       error = String(e);
     }
@@ -158,6 +196,45 @@
         {#if error}<p class="warn"><Icon name="error" size={18} />{error}</p>{/if}
       </div>
 
+      <div class="card block">
+        <div class="row">
+          <div class="label">
+            <h2>Картинка фона</h2>
+            <p class="muted">Статичная, за содержимым окна. Лаунчер уменьшит её под ваш экран.</p>
+          </div>
+          {#if theme.image}<img class="bg-thumb" src={theme.image} alt="Текущая картинка фона" />{/if}
+          <button class="btn btn-sm" disabled={picking} onclick={pickImage}>
+            {picking ? "Готовим…" : theme.appearance.image ? "Другая картинка" : "Выбрать картинку"}
+          </button>
+          {#if theme.appearance.image}
+            <button class="btn btn-sm" onclick={removeImage}>Убрать</button>
+          {/if}
+        </div>
+        {#if theme.appearance.image}
+          <div class="row">
+            <div class="label">
+              <h2>{theme.palette.dark ? "Затемнение" : "Осветление"}</h2>
+              <p class="muted">Чем сильнее, тем лучше читается текст поверх картинки.</p>
+            </div>
+            <input
+              class="dim"
+              type="range"
+              min="0"
+              max="90"
+              step="5"
+              value={theme.appearance.image_dim}
+              oninput={(e) => apply({ ...theme.appearance, image_dim: Number(e.currentTarget.value) })}
+              onchange={(e) => update({ image_dim: Number(e.currentTarget.value) })}
+              aria-label="Насколько приглушить картинку"
+            />
+            <b class="pct">{theme.appearance.image_dim}%</b>
+          </div>
+          {#if theme.appearance.image_dim < 40}
+            <p class="warn"><Icon name="warning" size={18} />Текст поверх яркой картинки может читаться плохо.</p>
+          {/if}
+        {/if}
+      </div>
+
       <button
         class="btn"
         disabled={!theme.appearance.accent && !theme.appearance.background}
@@ -188,8 +265,8 @@
           </button>
         </div>
         {#if linkError}<p class="warn"><Icon name="error" size={18} />{linkError}</p>{/if}
-        <p class="muted small">Перенос в другую папку — в части 3.4.</p>
       </div>
+      <DataMove onmoved={() => (dataDir = inspectData())} />
     {:else}
       <h1>О программе</h1>
       <div class="card block about">
@@ -385,6 +462,22 @@
   .label p {
     margin: 0;
     font-size: var(--fs-14);
+  }
+  .bg-thumb {
+    width: 96px;
+    height: 54px;
+    object-fit: cover;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+  }
+  .dim {
+    width: 240px;
+    accent-color: var(--accent);
+  }
+  .pct {
+    min-width: 44px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
   .swatch {
     position: relative;

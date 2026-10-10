@@ -360,18 +360,81 @@ pub fn cover_from(path: &Path) -> Result<Vec<u8>> {
     encode_png(&cover)
 }
 
+/// Картинка для окна обрезки обложки: не длиннее этого по большей стороне.
+/// Фото на 24 мегапикселя в окне заняло бы около 100 МБ памяти.
+pub const PREVIEW_MAX: u32 = 1280;
+
+/// Картинка, готовая для окна.
+pub struct Picture {
+    pub bytes: Vec<u8>,
+    pub mime: &'static str,
+}
+
+/// Уменьшенная копия картинки для окна обрезки. Маленькие картинки
+/// (пиксель-арт) — PNG без потерь, остальные — JPEG.
+pub fn preview(path: &Path) -> Result<Picture> {
+    let image = open_image(path)?;
+    if image.width().max(image.height()) <= 512 {
+        return Ok(Picture {
+            bytes: encode_png(&image)?,
+            mime: "image/png",
+        });
+    }
+    let small = image.thumbnail(PREVIEW_MAX, PREVIEW_MAX);
+    Ok(Picture {
+        bytes: encode_jpeg(&small, 90)?,
+        mime: "image/jpeg",
+    })
+}
+
+/// Скриншот сборки для окна обрезки обложки.
+pub fn screenshot_preview(game_dir: &Path, file: &str) -> Result<Picture> {
+    preview(&inside(game_dir, Folder::Screenshots, file)?)
+}
+
+/// Картинка фона окна (раздел 6.0 ТЗ): уменьшается так, чтобы только-только
+/// закрыть экран `width×height`, — меньше памяти в окне. JPEG.
+pub fn background(path: &Path, width: u32, height: u32) -> Result<Vec<u8>> {
+    let image = open_image(path)?;
+    let (w, h) = (image.width().max(1), image.height().max(1));
+    let scale =
+        (width.clamp(640, 3840) as f64 / w as f64).max(height.clamp(360, 2160) as f64 / h as f64);
+    let image = if scale < 1.0 {
+        let nw = ((w as f64 * scale).ceil() as u32).max(1);
+        let nh = ((h as f64 * scale).ceil() as u32).max(1);
+        image.resize_exact(nw, nh, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
+    encode_jpeg(&image, 85)
+}
+
+/// Картинки игрока больше этого не открываем: это уже не картинка для обложки.
+const MAX_IMAGE_FILE: u64 = 40 * 1024 * 1024;
+
 fn open_image(path: &Path) -> Result<image::DynamicImage> {
-    image::ImageReader::open(path)
+    let size = std::fs::metadata(path).at(path)?.len();
+    if size > MAX_IMAGE_FILE {
+        return Err(Error::Other(format!(
+            "картинка {} больше 40 МБ — выберите поменьше",
+            path.display()
+        )));
+    }
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(16384);
+    limits.max_image_height = Some(16384);
+    limits.max_alloc = Some(512 * 1024 * 1024);
+    let mut reader = image::ImageReader::open(path)
         .at(path)?
         .with_guessed_format()
-        .at(path)?
-        .decode()
-        .map_err(|e| {
-            Error::Other(format!(
-                "не удалось открыть картинку {}: {e}",
-                path.display()
-            ))
-        })
+        .at(path)?;
+    reader.limits(limits);
+    reader.decode().map_err(|e| {
+        Error::Other(format!(
+            "не удалось открыть картинку {}: {e}",
+            path.display()
+        ))
+    })
 }
 
 fn encode_png(image: &image::DynamicImage) -> Result<Vec<u8>> {
@@ -381,6 +444,14 @@ fn encode_png(image: &image::DynamicImage) -> Result<Vec<u8>> {
         .write_to(&mut out, image::ImageFormat::Png)
         .map_err(|e| Error::Other(format!("не удалось сохранить картинку: {e}")))?;
     Ok(out.into_inner())
+}
+
+fn encode_jpeg(image: &image::DynamicImage, quality: u8) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality)
+        .encode_image(&image.to_rgb8())
+        .map_err(|e| Error::Other(format!("не удалось сохранить картинку: {e}")))?;
+    Ok(out)
 }
 
 fn mtime(meta: &std::fs::Metadata) -> u64 {
@@ -501,6 +572,32 @@ mod tests {
 
         let cover = image::load_from_memory(&cover_from(&shots.join("a.png")).unwrap()).unwrap();
         assert_eq!((cover.width(), cover.height()), (256, 256));
+
+        let shot = screenshot_preview(game.path(), "a.png").unwrap();
+        assert_eq!(shot.mime, "image/jpeg");
+        assert!(screenshot_preview(game.path(), "../a.png").is_err());
+    }
+
+    #[test]
+    fn big_pictures_shrink() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = dir.path().join("photo.jpg");
+        image::RgbImage::from_pixel(3000, 2000, image::Rgb([10, 120, 200]))
+            .save(&photo)
+            .unwrap();
+
+        let p = preview(&photo).unwrap();
+        assert_eq!(p.mime, "image/jpeg");
+        let p = image::load_from_memory(&p.bytes).unwrap();
+        assert_eq!(p.width(), 1280);
+        assert!((853..=854).contains(&p.height()));
+
+        // Фон закрывает экран 1920×1080 целиком и не больше.
+        let bg = image::load_from_memory(&background(&photo, 1920, 1080).unwrap()).unwrap();
+        assert_eq!((bg.width(), bg.height()), (1920, 1280));
+        // Маленькую картинку не растягиваем: это сделает окно.
+        let bg = image::load_from_memory(&background(&photo, 3840, 2160).unwrap()).unwrap();
+        assert_eq!((bg.width(), bg.height()), (3000, 2000));
     }
 }
 

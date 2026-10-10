@@ -20,7 +20,7 @@ pub enum ThemeMode {
     System,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Appearance {
     #[serde(default)]
     pub mode: ThemeMode,
@@ -30,6 +30,32 @@ pub struct Appearance {
     /// Свой цвет фона `#rrggbb`; остальные оттенки окно вычисляет из него.
     #[serde(default)]
     pub background: Option<String>,
+    /// Картинка фона: файл `background.jpg` рядом с настройками.
+    #[serde(default)]
+    pub image: bool,
+    /// Насколько приглушить картинку цветом фона, %: текст поверх неё
+    /// должен читаться.
+    #[serde(default = "default_dim")]
+    pub image_dim: u8,
+}
+
+fn default_dim() -> u8 {
+    60
+}
+
+/// Сильнее 90 % картинку уже не видно.
+pub const MAX_DIM: u8 = 90;
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            mode: ThemeMode::default(),
+            accent: None,
+            background: None,
+            image: false,
+            image_dim: default_dim(),
+        }
+    }
 }
 
 /// Фон готовых тем. Те же значения — в app/src/lib/theme.svelte.ts.
@@ -56,6 +82,11 @@ impl Appearance {
     }
 
     fn validate(&self) -> Result<()> {
+        if self.image_dim > MAX_DIM {
+            return Err(Error::Other(format!(
+                "приглушение картинки — от 0 до {MAX_DIM} %"
+            )));
+        }
         for color in [&self.accent, &self.background].into_iter().flatten() {
             let ok = color.len() == 7
                 && color.starts_with('#')
@@ -163,8 +194,50 @@ impl ConfigStore {
 
     pub fn set_appearance(&mut self, appearance: Appearance) -> Result<()> {
         appearance.validate()?;
-        self.config.appearance = appearance;
+        // Картинку включает только set_background: без файла её нет.
+        let image = appearance.image && self.background_path().exists();
+        self.config.appearance = Appearance {
+            image,
+            ..appearance
+        };
         self.save()
+    }
+
+    fn background_path(&self) -> PathBuf {
+        self.path.with_file_name("background.jpg")
+    }
+
+    /// Поставить картинку фона (уже уменьшенный JPEG, см. [`crate::content::background`]).
+    pub fn set_background(&mut self, jpeg: &[u8]) -> Result<()> {
+        let path = self.background_path();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).at(dir)?;
+        }
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, jpeg).at(&tmp)?;
+        std::fs::rename(&tmp, &path).at(&path)?;
+        self.config.appearance.image = true;
+        self.save()
+    }
+
+    pub fn remove_background(&mut self) -> Result<()> {
+        let path = self.background_path();
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).at(&path),
+        }
+        self.config.appearance.image = false;
+        self.save()
+    }
+
+    /// Картинка фона, если она включена.
+    pub fn background(&self) -> Option<Vec<u8>> {
+        self.config
+            .appearance
+            .image
+            .then(|| std::fs::read(self.background_path()).ok())
+            .flatten()
     }
 
     fn save(&self) -> Result<()> {
@@ -192,7 +265,7 @@ mod tests {
         let custom = Appearance {
             mode: ThemeMode::Dark,
             accent: Some("#7c3aed".into()),
-            background: None,
+            ..Appearance::default()
         };
         store.set_appearance(custom.clone()).unwrap();
         assert_eq!(ConfigStore::load(path).get().appearance, custom);
@@ -213,6 +286,40 @@ mod tests {
         assert_eq!(a.background_rgb(true), [0xf4, 0xf4, 0xf5]);
         a.background = Some("#14182a".into());
         assert_eq!(a.background_rgb(true), [0x14, 0x18, 0x2a]);
+    }
+
+    #[test]
+    fn background_image_needs_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ConfigStore::load(dir.path().join("config.json"));
+        let on = Appearance {
+            image: true,
+            ..Appearance::default()
+        };
+        store.set_appearance(on.clone()).unwrap();
+        assert!(!store.get().appearance.image, "без файла картинки нет");
+        assert!(store.background().is_none());
+
+        store.set_background(b"jpeg").unwrap();
+        assert_eq!(store.background().as_deref(), Some(&b"jpeg"[..]));
+        let dim = Appearance {
+            image_dim: 30,
+            ..on
+        };
+        store.set_appearance(dim).unwrap();
+        assert!(store.get().appearance.image);
+        let too_much = Appearance {
+            image_dim: 95,
+            ..Appearance::default()
+        };
+        assert!(store.set_appearance(too_much).is_err());
+
+        store.remove_background().unwrap();
+        assert!(!store.get().appearance.image);
+        assert!(!dir.path().join("background.jpg").exists());
+        // Старый config.json без новых полей читается с приглушением по умолчанию.
+        let old: Appearance = serde_json::from_str(r#"{"mode":"dark"}"#).unwrap();
+        assert_eq!(old.image_dim, 60);
     }
 
     #[test]

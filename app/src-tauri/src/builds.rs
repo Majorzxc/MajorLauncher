@@ -4,7 +4,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use majorlauncher_core::builds::{Entry, Patch, State as BuildState, TrashEntry};
-use majorlauncher_core::{Builds, Instance, install};
+use majorlauncher_core::{Builds, Instance, content, install};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
@@ -153,32 +153,23 @@ pub fn build_remove_cover(state: State<AppState>, id: String) -> CmdResult<()> {
     builds(&state)?.remove_cover(&id).map_err(text)
 }
 
-/// Прочитать картинку, выбранную игроком в диалоге, чтобы окно её уменьшило.
-/// Только картинки и не больше 15 МБ.
+/// Картинка, выбранная игроком в диалоге, — для окна обрезки обложки.
+/// Ядро уменьшает её заранее: окну не нужно держать в памяти фото целиком.
 #[tauri::command]
 pub async fn read_image(path: String) -> CmdResult<String> {
     blocking(move || {
-        let lower = path.to_lowercase();
-        let mime = [
-            (".png", "image/png"),
-            (".jpg", "image/jpeg"),
-            (".jpeg", "image/jpeg"),
-            (".webp", "image/webp"),
-            (".gif", "image/gif"),
-            (".bmp", "image/bmp"),
-        ]
-        .into_iter()
-        .find(|(ext, _)| lower.ends_with(ext))
-        .map(|(_, m)| m)
-        .ok_or("подойдёт картинка PNG, JPG, WebP, GIF или BMP")?;
-        let size = std::fs::metadata(&path).map_err(text)?.len();
-        if size > 15 * 1024 * 1024 {
-            return Err("картинка больше 15 МБ — выберите поменьше".into());
-        }
-        let bytes = std::fs::read(&path).map_err(text)?;
-        Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
+        let picture = content::preview(std::path::Path::new(&path)).map_err(text)?;
+        Ok(data_url(&picture))
     })
     .await
+}
+
+pub(crate) fn data_url(picture: &content::Picture) -> String {
+    format!(
+        "data:{};base64,{}",
+        picture.mime,
+        STANDARD.encode(&picture.bytes)
+    )
 }
 
 #[tauri::command]

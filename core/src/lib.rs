@@ -26,6 +26,7 @@ pub mod nbt;
 pub mod options;
 pub mod paths;
 pub mod playtime;
+pub mod relocate;
 pub mod rules;
 pub mod secrets;
 pub mod servers;

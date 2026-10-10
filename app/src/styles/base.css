@@ -41,6 +41,13 @@ html, body, #app {
 
 body {
   background: var(--bg);
+}
+/* Статичная картинка фона под приглушением (раздел 6.0 ТЗ). Видна там, где
+   нет панелей: шапка, боковая панель и карточки непрозрачны. */
+body.with-image {
+  background: linear-gradient(var(--bg-dim), var(--bg-dim)), var(--bg-image) center / cover no-repeat, var(--bg);
+}
+body {
   color: var(--text);
   font: 400 var(--fs-16)/1.5 var(--font);
   -webkit-font-smoothing: antialiased;

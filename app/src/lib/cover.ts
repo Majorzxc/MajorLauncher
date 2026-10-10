@@ -1,15 +1,14 @@
-// Обложка сборки: игрок выбирает любую картинку, окно обрезает её до квадрата
-// по центру и уменьшает до 256×256 (раздел 5.5 ТЗ: хранится уменьшенная копия).
-// Уменьшение делает окно — так ядру не нужна тяжёлая библиотека картинок.
+// Обложка сборки: игрок выбирает любую картинку и обрезает её в окне обрезки
+// (раздел 5.5 ТЗ, design/covers.md). Хранится уменьшенная копия 256×256.
+// Большие фото ядро заранее уменьшает: окну не нужно держать их целиком.
 
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
+import { crop } from "./crop.svelte";
 import { inTauri } from "./tauri";
 
-const SIZE = 256;
-
-/// Спросить картинку у игрока и вернуть PNG 256×256 в base64 (без префикса data:).
-/// `null` — игрок закрыл диалог.
+/// Спросить картинку у игрока, дать обрезать и вернуть PNG в base64 (без
+/// префикса data:). `null` — игрок закрыл диалог или окно обрезки.
 export async function pickCover(): Promise<string | null> {
   let dataUrl: string;
   if (inTauri) {
@@ -25,23 +24,7 @@ export async function pickCover(): Promise<string | null> {
     dataUrl = await pickInBrowser();
     if (!dataUrl) return null;
   }
-  return shrink(dataUrl);
-}
-
-async function shrink(dataUrl: string): Promise<string> {
-  const img = new Image();
-  img.src = dataUrl;
-  await img.decode();
-  const side = Math.min(img.naturalWidth, img.naturalHeight);
-  const canvas = document.createElement("canvas");
-  canvas.width = SIZE;
-  canvas.height = SIZE;
-  const ctx = canvas.getContext("2d")!;
-  // Маленькие картинки (пиксель-арт) увеличиваем без размытия.
-  ctx.imageSmoothingEnabled = side >= SIZE;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, SIZE, SIZE);
-  return canvas.toDataURL("image/png").split(",")[1];
+  return crop(dataUrl);
 }
 
 /// Только для проверки вёрстки в браузере (`npm run dev`).

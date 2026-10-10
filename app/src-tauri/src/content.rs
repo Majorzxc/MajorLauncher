@@ -67,19 +67,17 @@ pub async fn build_thumbnail(
     .await
 }
 
-/// Сделать скриншот обложкой сборки: середина кадра, 256×256.
+/// Скриншот для окна обрезки обложки (уменьшенный).
 #[tauri::command]
-pub async fn build_cover_from_screenshot(
+pub async fn build_screenshot(
     state: State<'_, AppState>,
     id: String,
     file: String,
-) -> CmdResult<()> {
-    let builds = Builds::new(state.data()?);
+) -> CmdResult<String> {
     let dir = game_dir(&state, &id)?;
     blocking(move || {
-        let path = content::inside(&dir, Folder::Screenshots, &file).map_err(text)?;
-        let png = content::cover_from(&path).map_err(text)?;
-        builds.set_cover(&id, &png).map_err(text)
+        let picture = content::screenshot_preview(&dir, &file).map_err(text)?;
+        Ok(crate::builds::data_url(&picture))
     })
     .await
 }

@@ -8,6 +8,8 @@
   import Builds from "./screens/Builds.svelte";
   import FirstRun from "./screens/FirstRun.svelte";
   import Home from "./screens/Home.svelte";
+  import CropCover from "./components/CropCover.svelte";
+  import { cropper, finish } from "./lib/crop.svelte";
   import Library from "./screens/Library.svelte";
   import Placeholder from "./screens/Placeholder.svelte";
   import Settings from "./screens/Settings.svelte";
@@ -18,7 +20,7 @@
   import { go, nav } from "./lib/nav.svelte";
   import { connect, percent, play } from "./lib/play.svelte";
   import { ALL } from "./lib/sections";
-  import { apply } from "./lib/theme.svelte";
+  import { apply, loadImage } from "./lib/theme.svelte";
 
   const section = $derived(ALL.find((s) => s.id === nav.section)!);
 
@@ -31,6 +33,7 @@
   onMount(async () => {
     const config = await api.config();
     apply(config.appearance);
+    loadImage();
     needsDataDir = !config.data_dir;
     ready = true;
     if (!needsDataDir) connect();
@@ -82,6 +85,9 @@
   {/if}
 </div>
 <Toasts />
+{#if cropper.request}
+  {#key cropper.request}<CropCover src={cropper.request.src} ondone={finish} />{/key}
+{/if}
 {#if play.crash}
   <CrashDialog info={play.crash} onclose={() => (play.crash = null)} />
 {/if}

@@ -12,7 +12,9 @@ mod game_options;
 mod play;
 mod settings;
 
-use std::sync::Mutex;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use majorlauncher_core::{Config, ConfigStore, DataDir, DownloadOptions, Downloader};
 use tauri::window::Color;
@@ -31,11 +33,24 @@ pub struct AppState {
     pub config: Mutex<ConfigStore>,
     pub http: Downloader,
     pub play: Mutex<play::PlayState>,
+    pub relocation: Mutex<Relocation>,
+}
+
+/// Перенос папки данных: пока он идёт, остальные команды её не трогают.
+#[derive(Default)]
+pub struct Relocation {
+    pub active: bool,
+    pub cancel: Arc<AtomicBool>,
+    /// Старая папка после копирования на другой диск — её удаляет только игрок.
+    pub old: Option<PathBuf>,
 }
 
 impl AppState {
     /// Папка данных или понятная ошибка, если её ещё не выбрали.
     pub fn data(&self) -> CmdResult<DataDir> {
+        if self.relocating() {
+            return Err("идёт перенос папки данных — подождите, пока он закончится".into());
+        }
         self.config
             .lock()
             .unwrap()
@@ -44,6 +59,12 @@ impl AppState {
             .clone()
             .map(DataDir::new)
             .ok_or_else(|| "папка данных ещё не выбрана".to_string())
+    }
+}
+
+impl AppState {
+    pub fn relocating(&self) -> bool {
+        self.relocation.lock().unwrap().active
     }
 }
 
@@ -146,6 +167,7 @@ fn main() {
                 config: Mutex::new(config),
                 http: Downloader::new(DownloadOptions::default())?,
                 play: Mutex::new(play::PlayState::default()),
+                relocation: Mutex::new(Relocation::default()),
             });
             open_window(app.handle())?;
 
@@ -167,6 +189,14 @@ fn main() {
             settings::inspect_dir,
             settings::set_data_dir,
             settings::open_data_dir,
+            settings::data_size,
+            settings::data_move_plan,
+            settings::data_move,
+            settings::data_move_cancel,
+            settings::data_remove_old,
+            settings::background_image,
+            settings::set_background_image,
+            settings::remove_background_image,
             accounts::accounts_list,
             accounts::account_set_default,
             accounts::account_add_offline,
@@ -197,7 +227,7 @@ fn main() {
             content::build_worlds,
             content::build_logs,
             content::build_thumbnail,
-            content::build_cover_from_screenshot,
+            content::build_screenshot,
             content::build_open,
             content::stats_summary,
             game_options::options_get,

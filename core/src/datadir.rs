@@ -9,7 +9,7 @@ use serde::Serialize;
 /// Меньше этого свободного места — предупреждаем: одна сборка с модами
 /// и её версия игры легко занимают несколько гигабайт.
 const LOW_SPACE: u64 = 5 * 1024 * 1024 * 1024;
-const FOLDER: &str = "MajorLauncherData";
+pub(crate) const FOLDER: &str = "MajorLauncherData";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DirCheck {
@@ -54,7 +54,7 @@ pub fn inspect(path: &Path) -> DirCheck {
     if free_bytes.is_some_and(|f| f < LOW_SPACE) {
         warnings.push("На диске меньше 5 ГБ свободного места: одна сборка с модами может занимать несколько гигабайт.".into());
     }
-    let has_data = path.join("accounts.json").exists() || path.join("versions").is_dir();
+    let has_data = has_data(path);
     DirCheck {
         path: text,
         free_bytes,
@@ -62,6 +62,13 @@ pub fn inspect(path: &Path) -> DirCheck {
         writable: can_write(path),
         warnings,
     }
+}
+
+/// В папке уже лежат данные MajorLauncher.
+pub(crate) fn has_data(path: &Path) -> bool {
+    path.join("accounts.json").exists()
+        || path.join("versions").is_dir()
+        || path.join("instances").is_dir()
 }
 
 /// Где предложить папку данных: на несистемном несъёмном диске с наибольшим
@@ -87,7 +94,7 @@ pub fn suggest() -> PathBuf {
 /// папку или, если её ещё нет, в ближайшую существующую — и сразу удаляется.
 /// (Проверка идёт, пока игрок печатает путь, — иначе на диске оставались бы
 /// папки от каждой набранной буквы.)
-fn can_write(path: &Path) -> bool {
+pub(crate) fn can_write(path: &Path) -> bool {
     let Some(existing) = path.ancestors().find(|p| p.is_dir()) else {
         return false;
     };

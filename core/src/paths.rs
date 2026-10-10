@@ -104,4 +104,9 @@ impl DataDir {
     pub fn cache(&self) -> PathBuf {
         self.root.join("cache")
     }
+
+    /// Кэш уже проверенных файлов (размер и дата → хеш).
+    pub fn verified(&self) -> PathBuf {
+        self.cache().join("verified.json")
+    }
 }

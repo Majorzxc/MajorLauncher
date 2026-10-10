@@ -91,6 +91,20 @@ impl VerifyCache {
         }
     }
 
+    /// Папка данных переехала: пути в кэше — на новое место.
+    pub fn rebase(file: &Path, from: &Path, to: &Path) -> Result<()> {
+        let cache = Self::load(file.to_path_buf());
+        {
+            let mut entries = cache.entries.lock().unwrap();
+            *entries = std::mem::take(&mut *entries)
+                .into_iter()
+                .filter_map(|(path, entry)| Some((to.join(path.strip_prefix(from).ok()?), entry)))
+                .collect();
+        }
+        *cache.dirty.lock().unwrap() = true;
+        cache.save()
+    }
+
     pub fn save(&self) -> Result<()> {
         if !*self.dirty.lock().unwrap() {
             return Ok(());

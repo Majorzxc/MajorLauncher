@@ -76,7 +76,7 @@ pub async fn prepare(
     mode: Mode,
     progress: Progress,
 ) -> Result<Prepared> {
-    let cache = Arc::new(VerifyCache::load(data.cache().join("verified.json")));
+    let cache = Arc::new(VerifyCache::load(data.verified()));
     let version = load_version(data, dl, version_id, mode).await?;
     let id = version.id.clone();
     let complete = complete_marker(data, &id);

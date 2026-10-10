@@ -8,17 +8,27 @@
     title,
     width = 560,
     onclose,
+    closable = true,
     children,
     footer,
   }: {
     title: string;
     width?: number;
     onclose: () => void;
+    /// `false` — окно нельзя закрыть крестиком, Esc и кликом мимо (идёт работа).
+    closable?: boolean;
     children: Snippet;
     footer?: Snippet;
   } = $props();
 
   let card: HTMLDivElement;
+  let scrim: HTMLDivElement;
+
+  /// Окно обрезки открывается поверх «Изменить сборку»: Esc закрывает только верхнее.
+  function isTop() {
+    const all = document.querySelectorAll("[data-modal]");
+    return all[all.length - 1] === scrim;
+  }
 
   $effect(() => {
     // Фокус внутрь окна — чтобы Tab и Esc работали сразу.
@@ -26,10 +36,10 @@
   });
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && onclose()} />
+<svelte:window onkeydown={(e) => e.key === "Escape" && closable && isTop() && onclose()} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="scrim" transition:fade={{ duration: ms(140) }} onmousedown={(e) => e.target === e.currentTarget && onclose()}>
+<div class="scrim" data-modal bind:this={scrim} transition:fade={{ duration: ms(140) }} onmousedown={(e) => closable && e.target === e.currentTarget && onclose()}>
   <div
     class="card"
     style:width="{width}px"
@@ -41,9 +51,11 @@
   >
     <header>
       <h2>{title}</h2>
-      <button class="btn btn-quiet btn-sm close" aria-label="Закрыть" onclick={onclose}>
-        <Icon name="close" size={18} />
-      </button>
+      {#if closable}
+        <button class="btn btn-quiet btn-sm close" aria-label="Закрыть" onclick={onclose}>
+          <Icon name="close" size={18} />
+        </button>
+      {/if}
     </header>
     <div class="body">{@render children()}</div>
     {#if footer}<footer>{@render footer()}</footer>{/if}

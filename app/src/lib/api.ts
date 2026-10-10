@@ -34,6 +34,26 @@ export interface DirCheck {
   warnings: string[];
 }
 
+export interface MovePlan {
+  /// Куда на самом деле (в непустую папку — во вложенную MajorLauncherData).
+  to: string;
+  same_disk: boolean;
+  free: number | null;
+  error: string | null;
+}
+
+export interface MoveProgress {
+  stage: "scan" | "copy" | "verify";
+  done: number;
+  total: number;
+}
+
+export interface Moved {
+  method: "renamed" | "copied";
+  old: string | null;
+  old_size: number;
+}
+
 export interface Instance {
   id: string;
   name: string;
@@ -255,7 +275,7 @@ export const api = {
   worlds: (id: string) => call<World[]>("build_worlds", { id }),
   logs: (id: string) => call<LogFile[]>("build_logs", { id }),
   thumbnail: (id: string, file: string) => call<string>("build_thumbnail", { id, file }),
-  coverFromScreenshot: (id: string, file: string) => call<void>("build_cover_from_screenshot", { id, file }),
+  screenshot: (id: string, file: string) => call<string>("build_screenshot", { id, file }),
   open: (id: string, target: OpenTarget) => call<void>("build_open", { id, target }),
   stats: (filter: StatsFilter) => call<Summary>("stats_summary", { filter }),
 
@@ -275,6 +295,14 @@ export const api = {
   setCover: (id: string, pngBase64: string) => call<void>("build_set_cover", { id, pngBase64 }),
   removeCover: (id: string) => call<void>("build_remove_cover", { id }),
   readImage: (path: string) => call<string>("read_image", { path }),
+  dataSize: () => call<number>("data_size"),
+  dataMovePlan: (path: string, size: number) => call<MovePlan>("data_move_plan", { path, size }),
+  dataMove: (to: string) => call<Moved>("data_move", { to }),
+  dataMoveCancel: () => call<void>("data_move_cancel"),
+  dataRemoveOld: () => call<void>("data_remove_old"),
+  setBackgroundImage: (path: string, width: number, height: number) =>
+    call<Config>("set_background_image", { path, width, height }),
+  removeBackgroundImage: () => call<Config>("remove_background_image"),
   addGroup: (name: string) => call<void>("group_add", { name }),
   deleteGroup: (name: string) => call<void>("group_delete", { name }),
   trashList: () => call<TrashEntry[]>("trash_list"),

@@ -53,7 +53,7 @@
       </div>
       <div class="cover-actions">
         <b>Обложка</b>
-        <p class="muted">Любая картинка: обрежется до квадрата и уменьшится до 256×256.</p>
+        <p class="muted">Любая картинка: выберите квадрат, который станет обложкой.</p>
         <div class="buttons">
           <button class="btn btn-sm" onclick={chooseCover}><Icon name="screenshot" size={16} />Выбрать картинку</button>
           {#if cover}<button class="btn btn-sm btn-quiet" onclick={removeCover}>Убрать</button>{/if}

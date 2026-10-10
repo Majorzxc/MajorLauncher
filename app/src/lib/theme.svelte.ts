@@ -10,6 +10,10 @@ export interface Appearance {
   mode: ThemeMode;
   accent: string | null;
   background: string | null;
+  /// Картинка фона (файл хранит ядро).
+  image: boolean;
+  /// Насколько приглушить картинку цветом фона, %.
+  image_dim: number;
 }
 
 /// Готовые чёрная и белая темы: акцент монохромный, как и всё остальное.
@@ -22,7 +26,9 @@ const BASE = {
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 
 export const theme = $state({
-  appearance: { mode: "system", accent: null, background: null } as Appearance,
+  appearance: { mode: "system", accent: null, background: null, image: false, image_dim: 60 } as Appearance,
+  /// Картинка фона, data URL.
+  image: null as string | null,
   palette: palette(BASE.dark.bg, BASE.dark.accent) as Palette,
   warnings: [] as string[],
 });
@@ -54,10 +60,22 @@ export function apply(a: Appearance) {
   root.setProperty("--danger", p.dark ? "#f0716a" : "#c81e1e");
   root.setProperty("--warning", p.dark ? "#d9ad3c" : "#8a5a14");
   root.setProperty("color-scheme", p.dark ? "dark" : "light");
+  // Картинка приглушается цветом фона: в тёмной теме темнеет, в светлой светлеет.
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(p.bg.slice(i, i + 2), 16));
+  root.setProperty("--bg-dim", `rgb(${r} ${g} ${b} / ${a.image_dim / 100})`);
+  document.body.classList.toggle("with-image", a.image && !!theme.image);
 
   theme.appearance = a;
   theme.palette = p;
   theme.warnings = contrastWarnings(p);
+}
+
+/// Подгрузить картинку фона у ядра (при старте и после смены картинки).
+export async function loadImage() {
+  theme.image = theme.appearance.image ? await call<string | null>("background_image") : null;
+  // Картинка — в переменной: ползунок приглушения не пересобирает её заново.
+  document.documentElement.style.setProperty("--bg-image", theme.image ? `url("${theme.image}")` : "none");
+  apply(theme.appearance);
 }
 
 /// Применить и сохранить через ядро. Ядро проверяет цвета само.
