@@ -5,27 +5,32 @@
 //!
 //! [`install::prepare`] ставит версию (Java, библиотеки, ассеты, клиент),
 //! [`account::Accounts`] хранит аккаунты и готовит сессию,
-//! [`launch::build`] собирает команду запуска.
+//! [`launch::build`] собирает команду запуска,
+//! [`game`] запускает сборку и следит за игрой, [`playtime`] ведёт статистику.
 
 pub mod account;
 pub mod builds;
 pub mod config;
+pub mod content;
 pub mod datadir;
 pub mod download;
 pub mod elyby;
 pub mod error;
+pub mod game;
 pub mod install;
 pub mod java;
 pub mod launch;
 pub mod meta;
 pub mod paths;
+pub mod playtime;
 pub mod rules;
 pub mod secrets;
+pub mod system;
 pub mod verify;
 
 pub use account::{Account, Accounts, Kind, Session};
 pub use builds::{Builds, Instance};
-pub use config::{Appearance, Config, ConfigStore, ThemeMode};
+pub use config::{Appearance, Config, ConfigStore, GameSettings, OnLaunch, ThemeMode};
 pub use download::{DownloadOptions, Downloader};
 pub use error::{Error, Result};
 pub use install::{Event, Mode, Prepared, Progress};

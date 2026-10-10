@@ -70,6 +70,44 @@ impl Appearance {
     }
 }
 
+/// Что делать с окном лаунчера, пока идёт игра (раздел 5.16 ТЗ).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OnLaunch {
+    /// Закрыть окно: остаётся только маленький фоновый процесс (принцип 4).
+    #[default]
+    Close,
+    Minimize,
+    Keep,
+}
+
+/// Общие настройки запуска игры. Память и аргументы JVM сборка может переопределить.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GameSettings {
+    #[serde(default)]
+    pub on_launch: OnLaunch,
+    /// Память для игры, МБ; `None` — подобрать по объёму ОЗУ.
+    #[serde(default)]
+    pub memory_mb: Option<u32>,
+    /// Дополнительные аргументы JVM через пробел.
+    #[serde(default)]
+    pub jvm_args: String,
+}
+
+/// Допустимая память для игры, МБ.
+pub const MEMORY_RANGE: std::ops::RangeInclusive<u32> = 512..=65536;
+
+pub fn check_memory(mb: Option<u32>) -> Result<()> {
+    match mb {
+        Some(mb) if !MEMORY_RANGE.contains(&mb) => Err(Error::Other(format!(
+            "память {mb} МБ не подходит: нужно от {} до {} МБ",
+            MEMORY_RANGE.start(),
+            MEMORY_RANGE.end()
+        ))),
+        _ => Ok(()),
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
     /// Папка данных; `None` — ещё не выбрана (первый запуск).
@@ -77,6 +115,8 @@ pub struct Config {
     pub data_dir: Option<PathBuf>,
     #[serde(default)]
     pub appearance: Appearance,
+    #[serde(default)]
+    pub game: GameSettings,
 }
 
 pub struct ConfigStore {
@@ -109,6 +149,15 @@ impl ConfigStore {
         }
         std::fs::create_dir_all(&path).at(&path)?;
         self.config.data_dir = Some(path);
+        self.save()
+    }
+
+    pub fn set_game(&mut self, game: GameSettings) -> Result<()> {
+        check_memory(game.memory_mb)?;
+        self.config.game = GameSettings {
+            jvm_args: game.jvm_args.trim().to_string(),
+            ..game
+        };
         self.save()
     }
 

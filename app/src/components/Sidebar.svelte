@@ -28,7 +28,7 @@
 
 <style>
   nav {
-    grid-area: 2 / 1;
+    grid-area: 2 / 1 / span 2;
     display: flex;
     flex-direction: column;
     background: var(--surface);

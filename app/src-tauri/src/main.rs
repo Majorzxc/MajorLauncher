@@ -5,14 +5,20 @@
 //! принимают запрос окна, вызывают ядро и возвращают результат. Решения
 //! (что скачать, что запустить, какой цвет допустим) принимает ядро.
 
+mod accounts;
 mod builds;
+mod content;
+mod play;
 mod settings;
 
 use std::sync::Mutex;
 
 use majorlauncher_core::{Config, ConfigStore, DataDir, DownloadOptions, Downloader};
 use tauri::window::Color;
-use tauri::{Manager, State, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Manager, RunEvent, State, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
+};
 
 /// Флаги WebView2: стандартные флаги Tauri плюс отключение GPU.
 const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu --disable-software-rasterizer";
@@ -23,6 +29,7 @@ pub type CmdResult<T> = Result<T, String>;
 pub struct AppState {
     pub config: Mutex<ConfigStore>,
     pub http: Downloader,
+    pub play: Mutex<play::PlayState>,
 }
 
 impl AppState {
@@ -68,8 +75,55 @@ pub fn paint(window: &WebviewWindow, config: &Config) {
     let _ = window.set_background_color(Some(Color(r, g, b, 255)));
 }
 
+/// Открыть окно лаунчера или показать уже открытое. Окно закрывается на
+/// время игры и создаётся заново после неё.
+pub fn open_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(window);
+    }
+    let state: State<AppState> = app.state();
+    let [r, g, b] = state
+        .config
+        .lock()
+        .unwrap()
+        .get()
+        .appearance
+        .background_rgb(system_dark());
+    // Окно создаётся здесь, а не в tauri.conf.json: так оно видимо и
+    // покрашено в фон темы сразу, а WebView2 (около секунды на запуск)
+    // подключается к нему следом — без ожидания и без белой вспышки.
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+        .title("MajorLauncher")
+        .inner_size(1280.0, 720.0)
+        .min_inner_size(1024.0, 640.0)
+        .center()
+        .background_color(Color(r, g, b, 255))
+        // Без GPU: 154 → 97 МБ (замер 03.10.2026). Интерфейсу из плиток
+        // и кнопок видеокарта не нужна; WebGL для 3D-скинов — этап 8.
+        .additional_browser_args(BROWSER_ARGS)
+        .visible(true)
+        .build()
+}
+
 fn main() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // Второй запуск лаунчера не открывает вторую копию, а показывает эту —
+    // в том числе во время игры, когда окна нет. Проверочный экземпляр со
+    // своей папкой настроек (MAJORLAUNCHER_CONFIG_DIR) живёт отдельно.
+    if std::env::var_os("MAJORLAUNCHER_CONFIG_DIR").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Окно создаём из отдельного потока: в обработчике событий
+            // WebView2 на Windows может зависнуть.
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let _ = open_window(&app);
+            });
+        }));
+    }
+    let app = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -79,29 +133,13 @@ fn main() {
                 Some(dir) => std::path::PathBuf::from(dir),
                 None => app.path().app_config_dir()?,
             };
-            let path = config_dir.join("config.json");
-            let config = ConfigStore::load(path);
-
-            // Окно создаётся здесь, а не в tauri.conf.json: так оно видимо и
-            // покрашено в фон темы сразу, а WebView2 (около секунды на запуск)
-            // подключается к нему следом — без ожидания и без белой вспышки.
-            let [r, g, b] = config.get().appearance.background_rgb(system_dark());
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                .title("MajorLauncher")
-                .inner_size(1280.0, 720.0)
-                .min_inner_size(1024.0, 640.0)
-                .center()
-                .background_color(Color(r, g, b, 255))
-                // Без GPU: 154 → 97 МБ (замер 03.10.2026). Интерфейсу из плиток
-                // и кнопок видеокарта не нужна; WebGL для 3D-скинов — этап 8.
-                .additional_browser_args(BROWSER_ARGS)
-                .visible(true)
-                .build()?;
-
+            let config = ConfigStore::load(config_dir.join("config.json"));
             app.manage(AppState {
                 config: Mutex::new(config),
                 http: Downloader::new(DownloadOptions::default())?,
+                play: Mutex::new(play::PlayState::default()),
             });
+            open_window(app.handle())?;
 
             // Корзина чистится от сборок старше 30 дней при каждом запуске.
             let state: State<AppState> = app.state();
@@ -115,11 +153,17 @@ fn main() {
             core_version,
             settings::get_config,
             settings::set_appearance,
-            settings::current_account,
+            settings::set_game,
+            settings::system_memory,
             settings::data_dir_suggestion,
             settings::inspect_dir,
             settings::set_data_dir,
             settings::open_data_dir,
+            accounts::accounts_list,
+            accounts::account_set_default,
+            accounts::account_add_offline,
+            accounts::account_add_ely,
+            accounts::account_remove,
             builds::versions_list,
             builds::builds_list,
             builds::builds_groups,
@@ -140,7 +184,37 @@ fn main() {
             builds::trash_list,
             builds::trash_restore,
             builds::trash_purge,
+            content::build_files,
+            content::build_set_enabled,
+            content::build_worlds,
+            content::build_logs,
+            content::build_thumbnail,
+            content::build_cover_from_screenshot,
+            content::build_open,
+            content::stats_summary,
+            play::build_play,
+            play::play_status,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("не удалось запустить окно MajorLauncher");
+
+    app.run(|app, event| {
+        let game_alive = || app.state::<AppState>().play.lock().unwrap().game_alive();
+        match event {
+            // Окно закрылось, пока идёт игра (его закрыли мы или игрок): лаунчер
+            // остаётся маленьким фоновым процессом — досчитать время и открыть
+            // окно, когда игра закроется.
+            RunEvent::ExitRequested {
+                api, code: None, ..
+            } if game_alive() => api.prevent_exit(),
+            // Подстраховка: окна нет и игры нет — выходим сами. Иначе невидимый
+            // процесс перехватывал бы следующие запуски лаунчера.
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::Destroyed,
+                ..
+            } if label == "main" && !game_alive() => app.exit(0),
+            _ => {}
+        }
+    });
 }

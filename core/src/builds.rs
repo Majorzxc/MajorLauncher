@@ -50,6 +50,25 @@ pub struct Instance {
     /// Время в игре, секунды.
     #[serde(default)]
     pub playtime: u64,
+    #[serde(default, skip_serializing_if = "BuildSettings::is_default")]
+    pub settings: BuildSettings,
+}
+
+/// Настройки сборки, которые переопределяют общие (вкладка «Настройки сборки»).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuildSettings {
+    /// Память для игры, МБ; `None` — как в общих настройках.
+    #[serde(default)]
+    pub memory_mb: Option<u32>,
+    /// Аргументы JVM; `None` — как в общих настройках.
+    #[serde(default)]
+    pub jvm_args: Option<String>,
+}
+
+impl BuildSettings {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -89,6 +108,7 @@ pub struct Patch {
     #[serde(default, with = "double_option")]
     pub group: Option<Option<String>>,
     pub pinned: Option<bool>,
+    pub settings: Option<BuildSettings>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,6 +195,7 @@ impl Builds {
             created,
             last_played: None,
             playtime: 0,
+            settings: BuildSettings::default(),
         };
         write_meta(dir, &instance)?;
         Ok(Some(instance))
@@ -200,6 +221,7 @@ impl Builds {
             created: now(),
             last_played: None,
             playtime: 0,
+            settings: BuildSettings::default(),
         };
         let dir = self.data.instance(&id);
         std::fs::create_dir_all(&dir).at(&dir)?;
@@ -219,9 +241,39 @@ impl Builds {
         if let Some(pinned) = patch.pinned {
             instance.pinned = pinned;
         }
+        if let Some(settings) = patch.settings {
+            crate::config::check_memory(settings.memory_mb)?;
+            let jvm_args = settings
+                .jvm_args
+                .map(|a| a.trim().to_string())
+                .filter(|a| !a.is_empty());
+            instance.settings = BuildSettings {
+                jvm_args,
+                ..settings
+            };
+        }
         write_meta(&self.data.instance(id), &instance)?;
         self.remember_group(instance.group.as_deref())?;
         Ok(instance)
+    }
+
+    /// Отметить игру: `start` — когда запущена, `seconds` — сколько длилась
+    /// (0 — игра только началась). Сборку могли удалить, пока шла игра, —
+    /// тогда отмечать нечего, время останется в общей статистике.
+    pub fn record_play(&self, id: &str, start: u64, seconds: u64) -> Result<()> {
+        let dir = self.data.instance(id);
+        let Some(mut instance) = read_meta(&dir)? else {
+            return Ok(());
+        };
+        instance.last_played = Some(start);
+        instance.playtime += seconds;
+        write_meta(&dir, &instance)
+    }
+
+    /// Папка игры сборки.
+    pub fn game_dir(&self, id: &str) -> Result<PathBuf> {
+        self.get(id)?;
+        Ok(self.data.instance(id))
     }
 
     /// Копия сборки со всеми мирами и настройками. Время в игре не копируется.
@@ -640,7 +692,7 @@ pub fn slug(name: &str) -> String {
     }
 }
 
-fn dir_size(dir: &Path) -> u64 {
+pub(crate) fn dir_size(dir: &Path) -> u64 {
     let mut total = 0;
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
@@ -780,10 +832,25 @@ mod tests {
                     name: Some("Новое имя".into()),
                     pinned: Some(true),
                     group: Some(None),
+                    settings: Some(BuildSettings {
+                        memory_mb: Some(3072),
+                        jvm_args: Some("  ".into()),
+                    }),
                 },
             )
             .unwrap();
         assert_eq!(u.name, "Новое имя");
+        assert_eq!(u.settings.memory_mb, Some(3072));
+        // Пустые аргументы — значит «как в общих настройках».
+        assert_eq!(u.settings.jvm_args, None);
+        let too_much = Patch {
+            settings: Some(BuildSettings {
+                memory_mb: Some(100),
+                jvm_args: None,
+            }),
+            ..Default::default()
+        };
+        assert!(b.update(&a.id, too_much).is_err());
         assert!(u.pinned);
         assert_eq!(u.group, None);
         assert_eq!(b.get(&a.id).unwrap(), u, "изменения сохранились");
@@ -791,6 +858,12 @@ mod tests {
             b.groups().unwrap().contains(&"Серверы".to_string()),
             "пустая группа осталась"
         );
+        b.record_play(&a.id, 1000, 60).unwrap();
+        b.record_play(&a.id, 2000, 30).unwrap();
+        let played = b.get(&a.id).unwrap();
+        assert_eq!((played.last_played, played.playtime), (Some(2000), 90));
+        // Сборку удалили, пока шла игра, — не ошибка.
+        b.record_play("net-takoi", 1, 1).unwrap();
     }
 
     #[test]

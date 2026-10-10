@@ -13,7 +13,7 @@ export interface Section {
 
 /// Разделы боковой панели (раздел 6.1 ТЗ): сверху основные, снизу — служебные.
 export const TOP: Section[] = [
-  { id: "home", title: "Главная", icon: "home", stage: "3.3", about: "Последняя сборка и большая кнопка «Играть»." },
+  { id: "home", title: "Главная", icon: "home" },
   { id: "builds", title: "Сборки", icon: "builds" },
   { id: "mods", title: "Моды", icon: "mods", stage: "5", about: "Каталог Modrinth и библиотека модов." },
   { id: "servers", title: "Серверы", icon: "servers", stage: "9", about: "Общий список серверов и их статус." },
@@ -21,7 +21,7 @@ export const TOP: Section[] = [
 ];
 
 export const BOTTOM: Section[] = [
-  { id: "stats", title: "Статистика", icon: "stats", stage: "3.3", about: "Время в игре: всего и по сборкам." },
+  { id: "stats", title: "Статистика", icon: "stats" },
   { id: "settings", title: "Настройки", icon: "settings" },
 ];
 

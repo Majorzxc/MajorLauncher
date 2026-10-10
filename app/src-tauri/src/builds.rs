@@ -16,7 +16,7 @@ fn builds(state: &State<AppState>) -> CmdResult<Builds> {
 }
 
 /// Запустить тяжёлую работу с диском в отдельном потоке, чтобы окно не подвисало.
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> CmdResult<T> + Send + 'static,
 ) -> CmdResult<T> {
     tauri::async_runtime::spawn_blocking(f)

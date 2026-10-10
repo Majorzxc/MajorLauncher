@@ -18,6 +18,7 @@ function config() {
   return {
     data_dir: url.has("fresh") ? null : "D:\\MajorLauncherData",
     appearance: { mode: url.get("mode") ?? "system", accent: url.get("accent"), background: url.get("bg") },
+    game: { on_launch: "close", memory_mb: null, jvm_args: "" },
   };
 }
 
@@ -93,8 +94,88 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
     case "set_appearance":
       saveConfig({ ...config(), appearance: a.appearance });
       return config() as T;
-    case "current_account":
-      return (config().data_dir ? { name: "Majorzxc", kind: "Ely.by" } : null) as T;
+    case "set_game":
+      saveConfig({ ...config(), game: a.game });
+      return config() as T;
+    case "system_memory":
+      return { total_mb: 8150, auto_mb: 2048 } as T;
+    case "accounts_list":
+    case "account_set_default":
+    case "account_add_offline":
+    case "account_remove":
+      return (url.has("noacc") || !config().data_dir
+        ? []
+        : [
+            { id: "ely-1", kind: "ely", name: "Majorzxc", is_default: true },
+            { id: "offline-steve", kind: "offline", name: "Steve", is_default: false },
+          ]) as T;
+    case "account_add_ely":
+      await sleep(500);
+      return { status: "need_code" } as T;
+    case "play_status":
+      return {
+        status: url.has("downloading")
+          ? { build: "vyzhivanie", phase: "downloading", done: 141 * 1024 * 1024, total: 402 * 1024 * 1024 }
+          : { build: null, phase: "idle", done: 0, total: 0 },
+        finished: url.has("crash")
+          ? { build: "vyzhivanie", name: "Выживание с друзьями", seconds: 0, code: 1, crashed: true, no_window: true, tail: ["Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space", "	at net.minecraft.client.main.Main.main(Main.java:42)"], warning: null }
+          : null,
+      } as T;
+    case "build_play":
+      await sleep(400);
+      throw new Error("в браузере игру не запустить");
+    case "build_files":
+      if (a.folder === "screenshots") return Array.from({ length: 5 }, (_, i) => ({ file: `2026-10-0${i + 1}_12.00.00.png`, name: "", size: 2e6, modified: now() - i * DAY, enabled: true, is_dir: false })) as T;
+      if (a.folder !== "mods") return [] as T;
+      return [
+        { file: "sodium-0.6.jar", name: "sodium-0.6.jar", size: 1.2e6, modified: now() - DAY, enabled: true, is_dir: false },
+        { file: "journeymap.jar.disabled", name: "journeymap.jar", size: 4.5e6, modified: now() - 5 * DAY, enabled: false, is_dir: false },
+      ] as T;
+    case "build_set_enabled":
+      return a.file as T;
+    case "build_worlds":
+      return [
+        { folder: "New World", name: "Выживание", size: 84e6, last_played: now() - DAY, icon: null },
+        { folder: "test", name: "test", size: 3e6, last_played: now() - 20 * DAY, icon: null },
+      ] as T;
+    case "build_logs":
+      return [
+        { file: "logs/latest.log", kind: "log", size: 41e3, modified: now() },
+        { file: "crash-reports/crash-2026-10-03_09.20.11-client.txt", kind: "crash", size: 12e3, modified: now() - 6 * DAY },
+      ] as T;
+    case "build_thumbnail": {
+      const c = document.createElement("canvas");
+      c.width = 320;
+      c.height = 180;
+      const g = c.getContext("2d")!;
+      g.fillStyle = `hsl(${(a.file.length * 37 + a.file.charCodeAt(9) * 50) % 360} 40% 45%)`;
+      g.fillRect(0, 0, 320, 180);
+      return c.toDataURL() as T;
+    }
+    case "build_cover_from_screenshot":
+    case "build_open":
+      return undefined as T;
+    case "stats_summary": {
+      if (url.has("nostats")) return { total: 0, sessions: 0, longest: 0, since: null, builds: [], places: [], days: [] } as T;
+      const today = Math.floor((Date.now() / 1000 - new Date().getTimezoneOffset() * 60) / DAY);
+      const days = [0, 1, 2, 4, 5, 8, 12, 13, 20, 26].map((d, i) => ({ day: today - d, seconds: ((i * 7919) % 9000) + 900 }));
+      const total = days.reduce((s, d) => s + d.seconds, 0);
+      return {
+        total, sessions: 14, longest: 9100, since: now() - 30 * DAY,
+        builds: [
+          { id: "vyzhivanie", name: "Выживание с друзьями", seconds: Math.round(total * 0.6), sessions: 8 },
+          { id: "tehno", name: "Техно 1.20.1", seconds: Math.round(total * 0.3), sessions: 4 },
+          { id: "1-12-2", name: "1.12.2", seconds: Math.round(total * 0.1), sessions: 2 },
+        ],
+        places: [
+          { kind: "server", name: "play.example.org", seconds: Math.round(total * 0.45) },
+          { kind: "world", name: "Выживание", seconds: Math.round(total * 0.35) },
+          { kind: "menu", seconds: Math.round(total * 0.12) },
+          { kind: "world", name: "test", seconds: Math.round(total * 0.08) },
+        ].filter((p) => !a.filter.kind || p.kind === a.filter.kind),
+        days,
+      } as T;
+    }
     case "data_dir_suggestion":
     case "inspect_dir": {
       const path: string = a.path ?? "D:\\MajorLauncherData";

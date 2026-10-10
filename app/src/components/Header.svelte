@@ -1,14 +1,6 @@
 <script lang="ts">
-  import { call } from "../lib/tauri";
-  import Icon from "./Icon.svelte";
+  import AccountMenu from "./AccountMenu.svelte";
   import Logo from "./Logo.svelte";
-
-  interface AccountInfo {
-    name: string;
-    kind: string;
-  }
-
-  const account = call<AccountInfo | null>("current_account").catch(() => null);
 </script>
 
 <div class="logo"><Logo size={48} /></div>
@@ -17,18 +9,7 @@
   <span class="title">MajorLauncher</span>
   <span class="spacer"></span>
 
-  {#await account then a}
-    <!-- Меню аккаунтов (сменить, добавить, выйти) — этап 3.3. -->
-    <div class="acct">
-      {#if a}
-        <span class="avatar">{a.name[0].toUpperCase()}</span>
-        <span class="who"><b>{a.name}</b><span class="muted">·</span><span class="muted">{a.kind}</span></span>
-      {:else}
-        <span class="avatar"><Icon name="user" size={18} /></span>
-        <span class="muted">Аккаунт не выбран</span>
-      {/if}
-    </div>
-  {/await}
+  <AccountMenu />
 </header>
 
 <style>
@@ -56,32 +37,5 @@
   }
   .spacer {
     flex: 1;
-  }
-  .acct {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--s3);
-    height: 48px;
-    padding: 0 var(--s4) 0 var(--s2);
-    border: 1px solid var(--border);
-    border-radius: var(--r);
-    white-space: nowrap;
-  }
-  .avatar {
-    display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--r-sm);
-    background: var(--surface-raised);
-    color: var(--text);
-    font-weight: 600;
-  }
-  .who {
-    display: inline-flex;
-    gap: 6px;
-  }
-  b {
-    font-weight: 600;
   }
 </style>

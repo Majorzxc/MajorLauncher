@@ -85,6 +85,56 @@ button, input, select { font: inherit; color: inherit; }
   border-radius: var(--r-card);
 }
 
+/* ─── чипы-фильтры ─── */
+.chips { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--h-sm); padding: 0 var(--s3);
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface); font-size: var(--fs-14); cursor: pointer;
+}
+.chip:hover { border-color: var(--border-strong); }
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+/* ─── поля ввода ─── */
+.input {
+  height: var(--h-md); padding: 0 var(--s3);
+  border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--bg); outline: none; user-select: text;
+}
+.input:focus { border-color: var(--accent); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > span { font-size: var(--fs-14); font-weight: 600; }
+
+/* ─── вкладки ─── */
+.tabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--border); }
+.tab {
+  height: 40px; padding: 0 var(--s3); margin-bottom: -1px;
+  border: 0; border-bottom: 2px solid transparent; background: none;
+  color: var(--text-muted); font-size: var(--fs-14); cursor: pointer;
+}
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* ─── списки в карточке (моды, миры, логи) ─── */
+.rows { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card); }
+.rows > li { display: flex; align-items: center; gap: var(--s3); min-height: 52px; padding: var(--s2) var(--s4); border-top: 1px solid var(--border); }
+.rows > li:first-child { border-top: 0; }
+.grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
+.note { padding: var(--s6) var(--s5); text-align: center; color: var(--text-muted); border: 1px dashed var(--border); border-radius: var(--r-card); }
+.small { font-size: var(--fs-14); }
+.warn { display: flex; align-items: flex-start; gap: var(--s2); color: var(--warning); font-size: var(--fs-14); }
+
+/* ─── переключатель вкл/выкл ─── */
+.switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: none; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--border); transition: background var(--t-fast) var(--ease); pointer-events: none; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--text); transition: transform var(--t-fast) var(--ease); }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { transform: translateX(16px); background: var(--on-accent); }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* ─── полоса прокрутки ─── */
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border: 3px solid var(--bg); border-radius: 6px; }

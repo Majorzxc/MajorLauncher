@@ -155,8 +155,13 @@ impl Accounts {
             .or_else(|| self.file.accounts.first())
     }
 
-    /// Найти по нику (без учёта регистра) или с уточнением `offline:` / `ely:`.
+    /// Найти по id (так ищет окно), по нику (без учёта регистра) или с
+    /// уточнением `offline:` / `ely:`. В нике не бывает «-», так что id с ником
+    /// не спутать.
     pub fn find(&self, reference: &str) -> Result<&Account> {
+        if let Some(a) = self.file.accounts.iter().find(|a| a.id == reference) {
+            return Ok(a);
+        }
         let (kind, name) = match reference.split_once(':') {
             Some(("offline", n)) => (Some(Kind::Offline), n),
             Some(("ely", n)) => (Some(Kind::Ely), n),

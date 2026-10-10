@@ -9,6 +9,8 @@
   import { builds, forget, refresh, withBusy } from "../lib/builds.svelte";
   import { plural, size, trashLeft } from "../lib/format";
   import { attempt, toast } from "../lib/toast.svelte";
+  import { openBuild } from "../lib/nav.svelte";
+  import { busyLabel, start } from "../lib/play.svelte";
 
   type Filter = { kind: "all" } | { kind: "pinned" } | { kind: "archive" } | { kind: "group"; name: string };
   type Sort = "played" | "name" | "created" | "playtime";
@@ -74,7 +76,10 @@
       x,
       y,
       items: [
-        { label: "Играть", icon: "play", hint: "этап 3.3" },
+        busyLabel(b.id)
+          ? { label: "Играть", icon: "play", hint: busyLabel(b.id)! }
+          : { label: "Играть", icon: "play", onclick: () => start(b.id) },
+        { label: "Открыть", icon: "builds", onclick: () => openBuild(b.id) },
         { label: "Редактировать", icon: "edit", onclick: () => (editing = b) },
         { label: "Открыть папку", icon: "folder", onclick: () => attempt("Папка", () => api.openFolder(b.id)) },
         { label: "Копировать", icon: "copy", onclick: () => duplicate(b) },
@@ -317,7 +322,7 @@
           cover={builds.covers[b.id]}
           bytes={builds.sizes[b.id]}
           busy={builds.busy[b.id]}
-          onopen={() => (editing = b)}
+          onopen={() => openBuild(b.id)}
           onmenu={(x, y) => openMenu(b, x, y)}
           onrestore={() => unarchive(b)}
         />

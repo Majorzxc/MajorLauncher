@@ -1,9 +1,9 @@
-//! Настройки окна: оформление, аккаунт для шапки, папка данных.
+//! Настройки: оформление, запуск игры, папка данных.
 
 use std::path::PathBuf;
 
 use majorlauncher_core::datadir::{self, DirCheck};
-use majorlauncher_core::{Accounts, Appearance, Config};
+use majorlauncher_core::{Appearance, Config, GameSettings, system};
 use serde::Serialize;
 use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
@@ -27,24 +27,28 @@ pub fn set_appearance(
     Ok(config.get().clone())
 }
 
-#[derive(Serialize)]
-pub struct AccountInfo {
-    name: String,
-    kind: &'static str,
+#[tauri::command]
+pub fn set_game(state: State<AppState>, game: GameSettings) -> CmdResult<Config> {
+    let mut config = state.config.lock().unwrap();
+    config.set_game(game).map_err(text)?;
+    Ok(config.get().clone())
 }
 
-/// Аккаунт по умолчанию для плашки в шапке. `None` — папка данных ещё
-/// не выбрана или аккаунтов нет.
+#[derive(Serialize)]
+pub struct Memory {
+    total_mb: Option<u64>,
+    /// Сколько даст режим «авто».
+    auto_mb: u32,
+}
+
+/// Объём ОЗУ и память «авто» — для ползунка памяти.
 #[tauri::command]
-pub fn current_account(state: State<AppState>) -> CmdResult<Option<AccountInfo>> {
-    let Ok(data) = state.data() else {
-        return Ok(None);
-    };
-    let accounts = Accounts::load(&data).map_err(text)?;
-    Ok(accounts.default_account().map(|a| AccountInfo {
-        name: a.name.clone(),
-        kind: a.kind.label(),
-    }))
+pub fn system_memory() -> Memory {
+    let total_mb = system::total_ram_mb();
+    Memory {
+        total_mb,
+        auto_mb: system::auto_memory_mb(total_mb),
+    }
 }
 
 /// Куда предложить положить папку данных при первом запуске — с проверкой.

@@ -3,12 +3,13 @@
   import { call, inTauri } from "../lib/tauri";
   import { api } from "../lib/api";
   import { size } from "../lib/format";
+  import GameOptions from "../components/GameOptions.svelte";
   import HexInput from "../components/HexInput.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
   import { apply, save, theme, type Appearance, type ThemeMode } from "../lib/theme.svelte";
 
-  type Page = "look" | "data" | "about";
+  type Page = "look" | "game" | "data" | "about";
   let page: Page = $state("look");
   const version = call<string>("core_version");
   const dataDir = api.config().then((c) => (c.data_dir ? api.inspectDir(c.data_dir) : null));
@@ -52,6 +53,9 @@
   <nav class="pages" aria-label="Разделы настроек">
     <button class="page" aria-current={page === "look" ? "page" : undefined} onclick={() => (page = "look")}>
       Внешний вид
+    </button>
+    <button class="page" aria-current={page === "game" ? "page" : undefined} onclick={() => (page = "game")}>
+      Игра
     </button>
     <button class="page" aria-current={page === "data" ? "page" : undefined} onclick={() => (page = "data")}>
       Папка данных
@@ -154,6 +158,9 @@
       >
         <Icon name="restore" size={18} /> Сбросить свои цвета
       </button>
+    {:else if page === "game"}
+      <h1>Игра</h1>
+      <GameOptions />
     {:else if page === "data"}
       <h1>Папка данных</h1>
       <div class="card block">

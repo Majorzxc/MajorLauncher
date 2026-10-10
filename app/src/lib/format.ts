@@ -49,3 +49,19 @@ export function trashLeft(deletedAt: number, keepDays: number): string {
   const left = Math.max(0, keepDays - Math.floor((Date.now() / 1000 - deletedAt) / 86400));
   return left === 0 ? "удалится сегодня" : `удалится через ${left} ${plural(left, ["день", "дня", "дней"])}`;
 }
+
+/// Длительность сессии: «40 с», «12 мин», «1 ч 5 мин».
+export function duration(seconds: number): string {
+  if (seconds < 60) return `${seconds} с`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m} мин`;
+  const h = Math.floor(m / 60);
+  return m % 60 ? `${h} ч ${m % 60} мин` : `${h} ч`;
+}
+
+/// Дата по-русски: «9 октября 2026» (без «г.», которое добавляет браузер).
+export function date(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000)
+    .toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })
+    .replace(/\s*г\.$/, "");
+}
