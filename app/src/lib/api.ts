@@ -118,6 +118,8 @@ export interface StatsFilter {
   kind?: PlaceKind | null;
   place?: string | null;
   utc_offset_min: number;
+  /// Только сессии с этого момента (секунды с 1970); null — всё время.
+  from?: number | null;
 }
 
 export interface Summary {
@@ -134,6 +136,9 @@ export interface Summary {
     build_name?: string;
     folder?: string;
     seconds: number;
+    sessions: number;
+    first: number;
+    last: number;
   }[];
   days: { day: number; seconds: number }[];
 }

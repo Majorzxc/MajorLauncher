@@ -296,6 +296,9 @@ pub struct Filter {
     /// Смещение местного времени от UTC в минутах — чтобы делить время по дням.
     #[serde(default)]
     pub utc_offset_min: i32,
+    /// Только сессии, начатые с этого момента (секунды с 1970): неделя, месяц, год.
+    #[serde(default)]
+    pub from: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -329,6 +332,10 @@ pub struct PlaceSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
     pub seconds: u64,
+    /// Сколько раз заходил, когда впервые и когда последний раз (конец сессии).
+    pub sessions: u32,
+    pub first: u64,
+    pub last: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -390,7 +397,9 @@ pub fn summarize(records: &[SessionRecord], filter: &Filter) -> Summary {
     let (mut total, mut sessions, mut longest) = (0, 0, 0);
 
     for r in records {
-        if filter.build.as_ref().is_some_and(|b| *b != r.build) {
+        if filter.build.as_ref().is_some_and(|b| *b != r.build)
+            || filter.from.is_some_and(|from| r.start < from)
+        {
             continue;
         }
         // Старые сессии без разбивки по местам целиком считаем меню.
@@ -408,14 +417,23 @@ pub fn summarize(records: &[SessionRecord], filter: &Filter) -> Summary {
         };
 
         let mut seconds = 0;
+        // Место считается один раз за сессию, даже если игрок выходил и заходил.
+        let mut seen: Vec<String> = Vec::new();
         for p in session_places {
             let key = p.key(&r.build);
             if filter.kind.is_none_or(|k| k == p.kind) {
+                let first_time = !seen.contains(&key);
+                if first_time {
+                    seen.push(key.clone());
+                }
                 match places.iter_mut().find(|x| x.key == key) {
                     // Название — из последней сессии: мир могли переименовать.
                     Some(x) => {
                         x.seconds += p.seconds;
                         x.name = p.name.clone();
+                        x.sessions += u32::from(first_time);
+                        x.first = x.first.min(r.start);
+                        x.last = x.last.max(r.end);
                     }
                     None => {
                         let world = p.kind == PlaceKind::World;
@@ -427,6 +445,9 @@ pub fn summarize(records: &[SessionRecord], filter: &Filter) -> Summary {
                             build_name: world.then(|| r.build_name.clone()),
                             folder: world.then(|| p.folder().to_string()),
                             seconds: p.seconds,
+                            sessions: 1,
+                            first: r.start,
+                            last: r.end,
                         });
                     }
                 }
@@ -654,6 +675,25 @@ mod tests {
         // Список мест не сужается выбранным местом — чтобы переключаться между ними.
         assert_eq!(w1.places.len(), 2);
         assert_eq!(w1.places[0].build_name.as_deref(), Some("A"));
+
+        let w1_all = all.places.iter().find(|p| p.key == "world:a/w1").unwrap();
+        assert_eq!(
+            (w1_all.sessions, w1_all.first, w1_all.last),
+            (2, 0, 86_400 * 2 + 150)
+        );
+        let last_two_days = summarize(
+            &records,
+            &Filter {
+                from: Some(86_400),
+                ..Default::default()
+            },
+        );
+        assert_eq!(last_two_days.total, 1230 + 150);
+        assert_eq!(
+            last_two_days.since,
+            Some(0),
+            "«считаем с» — с самой первой игры"
+        );
 
         let only_a = summarize(
             &records,

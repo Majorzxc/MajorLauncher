@@ -160,6 +160,7 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       const today = Math.floor((Date.now() / 1000 - new Date().getTimezoneOffset() * 60) / DAY);
       const days = [0, 1, 2, 4, 5, 8, 12, 13, 20, 26].map((d, i) => ({ day: today - d, seconds: ((i * 7919) % 9000) + 900 }));
       const total = days.reduce((s, d) => s + d.seconds, 0);
+      const seen = { sessions: 3, first: now() - 20 * DAY, last: now() - DAY };
       return {
         total, sessions: 14, longest: 9100, since: now() - 30 * DAY,
         builds: [
@@ -168,10 +169,11 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
           { id: "1-12-2", name: "1.12.2", seconds: Math.round(total * 0.1), sessions: 2 },
         ],
         places: [
-          { key: "server:play.example.org", kind: "server", name: "play.example.org", seconds: Math.round(total * 0.45) },
-          { key: "world:vyzhivanie/New World", kind: "world", name: "Выживание", build_name: "Выживание с друзьями", seconds: Math.round(total * 0.35) },
-          { key: "menu", kind: "menu", name: "", seconds: Math.round(total * 0.12) },
-          { key: "world:tehno/test", kind: "world", name: "test", build_name: "Техно 1.20.1", seconds: Math.round(total * 0.08) },
+          { key: "server:play.example.org", kind: "server", name: "play.example.org", seconds: Math.round(total * 0.45), ...seen },
+          { key: "server:mc.hypixel.net", kind: "server", name: "mc.hypixel.net", seconds: Math.round(total * 0.05), ...seen },
+          { key: "world:vyzhivanie/New World", kind: "world", name: "Выживание", build_name: "Выживание с друзьями", seconds: Math.round(total * 0.35), ...seen },
+          { key: "menu", kind: "menu", name: "", seconds: Math.round(total * 0.12), ...seen },
+          { key: "world:tehno/test", kind: "world", name: "test", build_name: "Техно 1.20.1", seconds: Math.round(total * 0.08), ...seen },
         ].filter((p) => !a.filter.kind || p.kind === a.filter.kind),
         days,
       } as T;
