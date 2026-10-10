@@ -96,7 +96,7 @@ pub fn open_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     // Окно создаётся здесь, а не в tauri.conf.json: так оно видимо и
     // покрашено в фон темы сразу, а WebView2 (около секунды на запуск)
     // подключается к нему следом — без ожидания и без белой вспышки.
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+    let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("MajorLauncher")
         .inner_size(1280.0, 720.0)
         .min_inner_size(1024.0, 640.0)
@@ -105,8 +105,15 @@ pub fn open_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         // Без GPU: 154 → 97 МБ (замер 03.10.2026). Интерфейсу из плиток
         // и кнопок видеокарта не нужна; WebGL для 3D-скинов — этап 8.
         .additional_browser_args(BROWSER_ARGS)
-        .visible(true)
-        .build()
+        .visible(true);
+    // Проверочный экземпляр — со своей папкой WebView2: если рядом открыт
+    // лаунчер игрока с другими флагами браузера, общая папка не даёт окну
+    // подняться.
+    let builder = match std::env::var_os("MAJORLAUNCHER_CONFIG_DIR") {
+        Some(dir) => builder.data_directory(std::path::PathBuf::from(dir).join("webview")),
+        None => builder,
+    };
+    builder.build()
 }
 
 fn main() {
