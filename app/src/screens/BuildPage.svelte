@@ -14,6 +14,7 @@
   import { ago, playtime } from "../lib/format";
   import { go } from "../lib/nav.svelte";
   import { attempt } from "../lib/toast.svelte";
+  import { loaderLabel } from "../lib/loaders";
 
   let { id }: { id: string } = $props();
 
@@ -46,7 +47,7 @@
     <Cover id={entry.id} size={112} />
     <div class="info">
       <h1>{entry.name}</h1>
-      <p class="muted">{entry.quick ? `Быстрая игра · любая ванильная версия, последняя — ${entry.version}` : `${entry.version} · Ванилла`}</p>
+      <p class="muted">{entry.quick ? `Быстрая игра · любая ванильная версия, последняя — ${entry.version}` : `${entry.version} · ${loaderLabel(entry)}`}</p>
       <p class="muted small meta">
         <span><Icon name="time" size={16} />{playtime(entry.playtime)} в игре</span>
         <span>{entry.last_played ? `запуск ${ago(entry.last_played)}` : "ещё не запускалась"}</span>
@@ -79,7 +80,7 @@
 
   <div class="body">
     {#if tab === "mods" || tab === "resourcepacks" || tab === "shaderpacks"}
-      {#key tab}<FilesTab id={entry.id} folder={tab} />{/key}
+      {#key tab}<FilesTab id={entry.id} folder={tab} loader={entry.loader} />{/key}
     {:else if tab === "worlds"}
       <WorldsTab id={entry.id} />
     {:else if tab === "screenshots"}

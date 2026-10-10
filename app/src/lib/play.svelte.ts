@@ -29,6 +29,8 @@ export function busyLabel(id: string): string | null {
       return "Подготовка…";
     case "downloading":
       return `Загрузка ${percent(s)}%`;
+    case "installing":
+      return `Ставим загрузчик ${s.done}/${s.total}`;
     case "starting":
       return "Запуск…";
     default:

@@ -25,13 +25,7 @@ pub const TRASH_DAYS: u64 = 30;
 /// «-», так что с обычной сборкой папка не совпадёт.
 pub const QUICK_ID: &str = "_quick";
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Loader {
-    /// Без загрузчика модов. Fabric, Forge и NeoForge — этап 4.
-    #[default]
-    Vanilla,
-}
+pub use crate::loaders::Loader;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Instance {
@@ -43,6 +37,9 @@ pub struct Instance {
     pub version: String,
     #[serde(default)]
     pub loader: Loader,
+    /// Версия загрузчика (`0.16.10`, `47.4.0`); у ванили нет.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loader_version: Option<String>,
     #[serde(default)]
     pub group: Option<String>,
     #[serde(default)]
@@ -122,6 +119,33 @@ pub struct Patch {
     pub group: Option<Option<String>>,
     pub pinned: Option<bool>,
     pub settings: Option<BuildSettings>,
+    /// Сменить загрузчик или его версию.
+    pub loader: Option<LoaderChoice>,
+}
+
+/// Загрузчик сборки: какой и какой версии (у ванили версии нет).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoaderChoice {
+    pub loader: Loader,
+    #[serde(default)]
+    pub version: Option<String>,
+}
+
+impl LoaderChoice {
+    fn checked(self) -> Result<(Loader, Option<String>)> {
+        let version = self
+            .version
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        match (self.loader, version) {
+            (Loader::Vanilla, _) => Ok((Loader::Vanilla, None)),
+            (loader, Some(v)) => Ok((loader, Some(v))),
+            (loader, None) => Err(Error::Other(format!(
+                "не выбрана версия {}",
+                loader.title()
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,11 +232,17 @@ impl Builds {
             .ok()
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map_or_else(now, |d| d.as_secs());
+        // Версия с загрузчиком (её поставил `mlcli launch --loader`).
+        let (loader, version, loader_version) = match crate::loaders::parse_version_id(id) {
+            Some((loader, game, v)) => (loader, game, Some(v)),
+            None => (Loader::Vanilla, id.to_string(), None),
+        };
         let instance = Instance {
             id: id.to_string(),
             name: id.to_string(),
-            version: id.to_string(),
-            loader: Loader::Vanilla,
+            version,
+            loader,
+            loader_version,
             group: None,
             pinned: false,
             created,
@@ -229,17 +259,25 @@ impl Builds {
         read_meta(&self.data.instance(id))?.ok_or_else(|| Error::BuildNotFound(id.to_string()))
     }
 
-    pub fn create(&self, name: &str, version: &str, group: Option<&str>) -> Result<Instance> {
+    pub fn create(
+        &self,
+        name: &str,
+        version: &str,
+        loader: LoaderChoice,
+        group: Option<&str>,
+    ) -> Result<Instance> {
         let name = clean_name(name)?;
         if version.trim().is_empty() {
             return Err(Error::Other("не выбрана версия игры".into()));
         }
+        let (loader, loader_version) = loader.checked()?;
         let id = self.free_id(&slug(&name))?;
         let instance = Instance {
             id: id.clone(),
             name,
             version: version.trim().to_string(),
-            loader: Loader::Vanilla,
+            loader,
+            loader_version,
             group: clean_group(group),
             pinned: false,
             created: now(),
@@ -265,6 +303,14 @@ impl Builds {
         }
         if let Some(pinned) = patch.pinned {
             instance.pinned = pinned;
+        }
+        if let Some(choice) = patch.loader {
+            if instance.quick {
+                return Err(Error::Other(
+                    "«Быстрая игра» — только ванилла: для модов сделайте сборку".into(),
+                ));
+            }
+            (instance.loader, instance.loader_version) = choice.checked()?;
         }
         if let Some(settings) = patch.settings {
             crate::config::check_memory(settings.memory_mb)?;
@@ -319,6 +365,7 @@ impl Builds {
                 name: "Быстрая игра".into(),
                 version: version.to_string(),
                 loader: Loader::Vanilla,
+                loader_version: None,
                 group: None,
                 pinned: false,
                 created: now(),
@@ -879,11 +926,23 @@ mod tests {
     #[test]
     fn create_update_and_unique_ids() {
         let (_d, b) = builds();
-        let a = b.create("Выживание", "1.21.1", Some("Серверы")).unwrap();
-        let a2 = b.create("Выживание", "1.21.1", None).unwrap();
+        let a = b
+            .create(
+                "Выживание",
+                "1.21.1",
+                LoaderChoice::default(),
+                Some("Серверы"),
+            )
+            .unwrap();
+        let a2 = b
+            .create("Выживание", "1.21.1", LoaderChoice::default(), None)
+            .unwrap();
         assert_eq!(a.id, "vyzhivanie");
         assert_eq!(a2.id, "vyzhivanie-2");
-        assert!(b.create("  ", "1.21.1", None).is_err());
+        assert!(
+            b.create("  ", "1.21.1", LoaderChoice::default(), None)
+                .is_err()
+        );
 
         let u = b
             .update(
@@ -898,10 +957,29 @@ mod tests {
                         own_servers: true,
                         ..Default::default()
                     }),
+                    loader: Some(LoaderChoice {
+                        loader: Loader::Fabric,
+                        version: Some(" 0.16.10 ".into()),
+                    }),
                 },
             )
             .unwrap();
         assert_eq!(u.name, "Новое имя");
+        assert_eq!(
+            (u.loader, u.loader_version.as_deref()),
+            (Loader::Fabric, Some("0.16.10"))
+        );
+        let no_version = Patch {
+            loader: Some(LoaderChoice {
+                loader: Loader::Forge,
+                version: None,
+            }),
+            ..Default::default()
+        };
+        assert!(
+            b.update(&a.id, no_version).is_err(),
+            "Forge без версии не бывает"
+        );
         assert_eq!(u.settings.memory_mb, Some(3072));
         // Пустые аргументы — значит «как в общих настройках».
         assert_eq!(u.settings.jvm_args, None);
@@ -932,7 +1010,9 @@ mod tests {
     #[test]
     fn trash_restore_and_purge() {
         let (_d, b) = builds();
-        let a = b.create("Тест", "1.21.1", None).unwrap();
+        let a = b
+            .create("Тест", "1.21.1", LoaderChoice::default(), None)
+            .unwrap();
         std::fs::write(b.data.instance(&a.id).join("options.txt"), b"fov:90").unwrap();
         b.trash(&a.id).unwrap();
         assert!(b.list().unwrap().is_empty());
@@ -958,7 +1038,9 @@ mod tests {
     #[test]
     fn archive_round_trip() {
         let (_d, b) = builds();
-        let a = b.create("Архив", "1.12.2", None).unwrap();
+        let a = b
+            .create("Архив", "1.12.2", LoaderChoice::default(), None)
+            .unwrap();
         let saves = b.data.instance(&a.id).join("saves").join("Мир");
         std::fs::create_dir_all(&saves).unwrap();
         std::fs::write(saves.join("level.dat"), vec![7u8; 4096]).unwrap();
@@ -985,7 +1067,9 @@ mod tests {
     #[test]
     fn duplicate_and_adopt() {
         let (_d, b) = builds();
-        let a = b.create("Сборка", "1.21.1", None).unwrap();
+        let a = b
+            .create("Сборка", "1.21.1", LoaderChoice::default(), None)
+            .unwrap();
         let c = b.duplicate(&a.id).unwrap();
         assert_eq!(c.name, "Сборка (копия)");
         assert_ne!(c.id, a.id);

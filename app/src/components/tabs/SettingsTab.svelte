@@ -1,6 +1,8 @@
 <script lang="ts">
-  // Настройки сборки: память и аргументы JVM поверх общих настроек.
-  import { api, type BuildSettings, type Config, type Entry } from "../../lib/api";
+  // Настройки сборки: загрузчик модов, память и аргументы JVM поверх общих настроек.
+  import { api, type BuildSettings, type Config, type Entry, type Loader } from "../../lib/api";
+  import { LOADERS, loaderLabel, loaderTitle } from "../../lib/loaders";
+  import LoaderVersion from "../LoaderVersion.svelte";
   import { refresh } from "../../lib/builds.svelte";
   import { openSettings } from "../../lib/nav.svelte";
   import { attempt, toast } from "../../lib/toast.svelte";
@@ -31,6 +33,26 @@
       draft.own_servers !== current.own_servers,
   );
 
+  // Загрузчик меняется отдельной кнопкой: это не мелкая настройка.
+  let loader: Loader = $state("vanilla");
+  let loaderVersion: string | null = $state(null);
+  $effect(() => {
+    loader = entry.loader;
+    loaderVersion = entry.loader_version ?? null;
+  });
+  const loaderChanged = $derived(
+    loader !== entry.loader || (loader !== "vanilla" && loaderVersion !== (entry.loader_version ?? null)),
+  );
+
+  async function saveLoader() {
+    const choice = { loader, version: loader === "vanilla" ? null : loaderVersion };
+    const ok = await attempt("Загрузчик", () => api.update(entry.id, { loader: choice }).then(() => true));
+    if (ok) {
+      toast(`Загрузчик: ${loaderLabel({ loader: choice.loader, loader_version: choice.version })}. Поставится при запуске.`);
+      refresh();
+    }
+  }
+
   const inheritMemory = $derived.by(() => {
     if (!config || !memory) return "Как в общих настройках";
     const mb = config.game.memory_mb ?? memory.auto_mb;
@@ -45,6 +67,34 @@
     }
   }
 </script>
+
+{#if !entry.quick}
+  <div class="card block">
+    <h3>Загрузчик модов</h3>
+    <div class="chips" role="radiogroup" aria-label="Загрузчик модов">
+      {#each LOADERS as l (l.id)}
+        <button class="chip" role="radio" aria-checked={loader === l.id} class:on={loader === l.id} onclick={() => (loader = l.id)}>
+          {l.id === "vanilla" ? "Ванилла" : l.title}
+        </button>
+      {/each}
+    </div>
+    {#if loader !== "vanilla"}
+      <LoaderVersion {loader} game={entry.version} bind:value={loaderVersion} />
+    {/if}
+    {#if loaderChanged}
+      <p class="muted small">
+        {loader !== entry.loader && entry.loader !== "vanilla"
+          ? `Моды для ${loaderTitle(entry.loader)} с ${loaderTitle(loader)} не работают — их придётся заменить. Миры и настройки останутся.`
+          : "Новый загрузчик скачается и поставится при следующем запуске."}
+      </p>
+      <div>
+        <button class="btn btn-primary" disabled={loader !== "vanilla" && !loaderVersion} onclick={saveLoader}>
+          Сменить загрузчик
+        </button>
+      </div>
+    {/if}
+  </div>
+{/if}
 
 <div class="card block">
   <h3>Общее для всех сборок</h3>
@@ -111,6 +161,11 @@
     align-items: center;
     gap: var(--s2);
     cursor: pointer;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s2);
   }
   .link {
     padding: 0;

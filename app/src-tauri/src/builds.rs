@@ -3,7 +3,8 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use majorlauncher_core::builds::{Entry, Patch, State as BuildState, TrashEntry};
+use majorlauncher_core::builds::{Entry, LoaderChoice, Patch, State as BuildState, TrashEntry};
+use majorlauncher_core::loaders::{self, Loader, LoaderVersion};
 use majorlauncher_core::{Builds, Instance, content, install};
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -53,6 +54,28 @@ pub async fn versions_list(
         .collect())
 }
 
+/// Для каких версий игры есть загрузчик (мастер прячет остальные).
+#[tauri::command]
+pub async fn loader_games(state: State<'_, AppState>, loader: Loader) -> CmdResult<Vec<String>> {
+    let data = state.data()?;
+    loaders::games(&data, &state.http, loader)
+        .await
+        .map_err(text)
+}
+
+/// Версии загрузчика для версии игры, новые первыми.
+#[tauri::command]
+pub async fn loader_versions(
+    state: State<'_, AppState>,
+    loader: Loader,
+    game: String,
+) -> CmdResult<Vec<LoaderVersion>> {
+    let data = state.data()?;
+    loaders::versions(&data, &state.http, loader, &game)
+        .await
+        .map_err(text)
+}
+
 #[tauri::command]
 pub async fn builds_list(state: State<'_, AppState>) -> CmdResult<Vec<Entry>> {
     let b = builds(&state)?;
@@ -69,10 +92,16 @@ pub fn build_create(
     state: State<AppState>,
     name: String,
     version: String,
+    loader: Option<LoaderChoice>,
     group: Option<String>,
 ) -> CmdResult<Instance> {
     builds(&state)?
-        .create(&name, &version, group.as_deref())
+        .create(
+            &name,
+            &version,
+            loader.unwrap_or_default(),
+            group.as_deref(),
+        )
         .map_err(text)
 }
 

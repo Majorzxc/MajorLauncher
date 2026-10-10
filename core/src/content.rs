@@ -107,6 +107,40 @@ pub fn set_enabled(game_dir: &Path, folder: Folder, file: &str, enabled: bool) -
     Ok(new)
 }
 
+/// Добавить файлы, выбранные игроком, в папку сборки (копией): моды — `.jar`,
+/// ресурспаки и шейдеры — `.zip`. Возвращает ошибки по файлам, остальные
+/// добавляются.
+pub fn add_files(game_dir: &Path, folder: Folder, paths: &[PathBuf]) -> Vec<String> {
+    let ext = match folder {
+        Folder::Mods => "jar",
+        Folder::ResourcePacks | Folder::ShaderPacks => "zip",
+        Folder::Screenshots => return vec!["в скриншоты файлы не добавляются".into()],
+    };
+    let dir = game_dir.join(folder.dir());
+    let mut errors = Vec::new();
+    for src in paths {
+        let name = src
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if !name.to_lowercase().ends_with(&format!(".{ext}")) {
+            errors.push(format!("«{name}» — не .{ext}"));
+            continue;
+        }
+        let to = dir.join(&name);
+        let off = dir.join(format!("{name}{DISABLED}"));
+        if to.exists() || off.exists() {
+            errors.push(format!("«{name}» уже есть в сборке"));
+            continue;
+        }
+        let copied = std::fs::create_dir_all(&dir).and_then(|_| std::fs::copy(src, &to));
+        if let Err(e) = copied {
+            errors.push(format!("«{name}»: {e}"));
+        }
+    }
+    errors
+}
+
 /// Путь к файлу внутри папки сборки. Имена с `/`, `\` и `..` отклоняются.
 pub fn inside(game_dir: &Path, folder: Folder, file: &str) -> Result<PathBuf> {
     check_name(file)?;
@@ -540,6 +574,25 @@ mod tests {
         );
         set_enabled(game.path(), Folder::Mods, &off, true).unwrap();
         assert!(mods.join("sodium.jar").exists());
+
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("iris.jar"), "i").unwrap();
+        std::fs::write(src.path().join("pack.zip"), "p").unwrap();
+        let errors = add_files(
+            game.path(),
+            Folder::Mods,
+            &[
+                src.path().join("iris.jar"),
+                src.path().join("pack.zip"),
+                src.path().join("iris.jar"),
+            ],
+        );
+        assert_eq!(
+            errors.len(),
+            2,
+            "{errors:?}: zip не мод, второй iris уже есть"
+        );
+        assert!(mods.join("iris.jar").exists());
 
         assert!(inside(game.path(), Folder::Mods, "../evil.jar").is_err());
         assert!(inside(game.path(), Folder::Mods, "C:evil.jar").is_err());

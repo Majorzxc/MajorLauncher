@@ -6,7 +6,10 @@
 
   let { id, large = false }: { id: string; large?: boolean } = $props();
   const label = $derived(busyLabel(id));
-  const loading = $derived(play.status.build === id && play.status.phase === "downloading");
+  // Полоса внутри кнопки: проценты загрузки или шаги установки загрузчика.
+  const loading = $derived(
+    play.status.build === id && (play.status.phase === "downloading" || play.status.phase === "installing"),
+  );
 </script>
 
 <button class="play" class:large class:busy={!!label} disabled={!!label} onclick={() => start(id)}>

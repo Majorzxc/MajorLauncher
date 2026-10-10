@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::rules::Rule;
 
@@ -73,6 +74,9 @@ pub struct VersionJson {
     /// форматы есть у версии. Сравнивается как строка.
     #[serde(rename = "releaseTime", default)]
     pub release_time: String,
+    /// Версия с загрузчиком: поверх какой ванильной версии она стоит.
+    #[serde(rename = "inheritsFrom", default)]
+    pub inherits_from: Option<String>,
     #[serde(rename = "mainClass")]
     pub main_class: String,
     /// Новые версии (1.13+): аргументы с правилами.
@@ -161,6 +165,11 @@ pub struct Library {
     pub downloads: Option<LibraryDownloads>,
     /// Базовый адрес Maven-репозитория — у библиотек загрузчиков модов.
     pub url: Option<String>,
+    /// Хеш и размер без блока `downloads` — так их даёт Fabric.
+    pub sha1: Option<String>,
+    pub size: Option<u64>,
+    /// Старые установщики Forge: `false` — библиотека нужна только серверу.
+    pub clientreq: Option<bool>,
     #[serde(default)]
     pub rules: Vec<Rule>,
     /// Старый формат нативных библиотек: ОС → классификатор.
@@ -195,6 +204,81 @@ pub struct AssetIndex {
 pub struct AssetObject {
     pub hash: String,
     pub size: u64,
+}
+
+/// Ключ библиотеки без версии: `группа:имя[:классификатор]`. По нему версия
+/// с загрузчиком заменяет библиотеку ванили своей (Forge 1.12.2 везёт свой log4j).
+pub fn library_key(name: &str) -> String {
+    let coords = name.split('@').next().unwrap_or(name);
+    let parts: Vec<&str> = coords.split(':').collect();
+    match parts.as_slice() {
+        [g, a, _, c, ..] => format!("{g}:{a}:{c}"),
+        [g, a, ..] => format!("{g}:{a}"),
+        _ => coords.to_string(),
+    }
+}
+
+/// Описание версии с загрузчиком (`inheritsFrom`) поверх описания ванили —
+/// так же, как это делает официальный лаунчер: главный класс и аргументы
+/// загрузчика, его библиотеки раньше ванильных, остальное — от ванили.
+pub fn inherit(child: &Value, parent: &Value) -> Value {
+    let mut out = parent.clone();
+    let (Some(out_map), Some(child_map)) = (out.as_object_mut(), child.as_object()) else {
+        return out;
+    };
+    for (key, value) in child_map {
+        match key.as_str() {
+            "jar" | "_comment_" => {}
+            "libraries" => {}
+            "arguments" => {
+                let merged = out_map
+                    .entry("arguments")
+                    .or_insert_with(|| Value::Object(Default::default()));
+                for side in ["game", "jvm"] {
+                    let extra = value
+                        .get(side)
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    if let Some(obj) = merged.as_object_mut() {
+                        let list = obj.entry(side).or_insert_with(|| Value::Array(Vec::new()));
+                        if let Some(list) = list.as_array_mut() {
+                            list.extend(extra);
+                        }
+                    }
+                }
+            }
+            // Пустой `logging: {}` у Forge не отменяет настройку логов ванили.
+            "logging" if value.get("client").is_none() => {}
+            _ => {
+                out_map.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    let child_libs = child
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let parent_libs = parent
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    let libraries: Vec<Value> = child_libs
+        .into_iter()
+        .chain(parent_libs)
+        .filter(|lib| {
+            let name = lib.get("name").and_then(Value::as_str).unwrap_or_default();
+            // Нативные библиотеки ванили (одно имя, разные правила) не схлопываем.
+            lib.get("natives").is_some()
+                || lib.get("rules").is_some()
+                || seen.insert(library_key(name))
+        })
+        .collect();
+    out_map.insert("libraries".into(), Value::Array(libraries));
+    out
 }
 
 /// Путь внутри Maven-репозитория по координатам библиотеки:
@@ -239,6 +323,68 @@ mod tests {
             Some("a/b/c/1.0/c-1.0.zip")
         );
         assert_eq!(maven_path("bad"), None);
+    }
+
+    #[test]
+    fn child_version_overrides_parent() {
+        let parent = serde_json::json!({
+            "id": "1.12.2", "mainClass": "net.minecraft.client.main.Main",
+            "minecraftArguments": "--username ${auth_player_name}",
+            "assetIndex": {"id": "1.12"}, "logging": {"client": {"argument": "x"}},
+            "libraries": [
+                {"name": "org.apache.logging.log4j:log4j-core:2.8.1"},
+                {"name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.4", "natives": {"windows": "natives-windows"}},
+                {"name": "com.mojang:realms:1.10"}
+            ]
+        });
+        let child = serde_json::json!({
+            "id": "1.12.2-forge", "inheritsFrom": "1.12.2", "mainClass": "net.minecraft.launchwrapper.Launch",
+            "minecraftArguments": "--username ${auth_player_name} --tweakClass X", "logging": {},
+            "libraries": [{"name": "org.apache.logging.log4j:log4j-core:2.15.0"}, {"name": "net.minecraft:launchwrapper:1.12"}]
+        });
+        let v = inherit(&child, &parent);
+        assert_eq!(v["id"], "1.12.2-forge");
+        assert_eq!(v["mainClass"], "net.minecraft.launchwrapper.Launch");
+        assert!(
+            v["minecraftArguments"]
+                .as_str()
+                .unwrap()
+                .contains("tweakClass")
+        );
+        assert_eq!(v["assetIndex"]["id"], "1.12");
+        assert_eq!(
+            v["logging"]["client"]["argument"], "x",
+            "пустой logging не стирает ванильный"
+        );
+        let names: Vec<&str> = v["libraries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "org.apache.logging.log4j:log4j-core:2.15.0",
+                "net.minecraft:launchwrapper:1.12",
+                "org.lwjgl.lwjgl:lwjgl-platform:2.9.4",
+                "com.mojang:realms:1.10"
+            ]
+        );
+
+        let parent = serde_json::json!({"id": "1.21.1", "mainClass": "M", "arguments": {"game": ["--a"], "jvm": ["-b"]}, "libraries": []});
+        let child = serde_json::json!({"id": "fabric", "mainClass": "K", "arguments": {"game": [], "jvm": ["-DFabricMcEmu= M "]}, "libraries": []});
+        let v = inherit(&child, &parent);
+        assert_eq!(
+            v["arguments"]["jvm"],
+            serde_json::json!(["-b", "-DFabricMcEmu= M "])
+        );
+        assert_eq!(v["arguments"]["game"], serde_json::json!(["--a"]));
+        assert_eq!(
+            library_key("a.b:c:1.0:natives-windows"),
+            "a.b:c:natives-windows"
+        );
+        assert_eq!(library_key("a.b:c:1.0"), "a.b:c");
     }
 
     #[test]

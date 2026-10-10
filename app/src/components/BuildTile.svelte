@@ -3,6 +3,7 @@
   import { ago, playtime, size } from "../lib/format";
   import Icon from "./Icon.svelte";
   import Identicon from "./Identicon.svelte";
+  import { loaderLabel } from "../lib/loaders";
 
   let {
     entry,
@@ -61,7 +62,7 @@
 
   <div class="info">
     <b class="name">{entry.name}</b>
-    <span class="muted">{entry.version} · Без модов</span>
+    <span class="muted">{entry.version} · {loaderLabel(entry)}</span>
     {#if archived}
       <span class="muted row">
         <Icon name="archive" size={14} />в архиве{#if entry.archive_size !== null}, {size(entry.archive_size)}{/if}

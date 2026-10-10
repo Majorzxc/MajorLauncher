@@ -1,16 +1,19 @@
 <script lang="ts">
-  // Моды, ресурспаки, шейдеры: файлы в папке сборки. Моды можно выключать.
-  import { api, type FileEntry, type Folder } from "../../lib/api";
+  // Моды, ресурспаки, шейдеры: файлы в папке сборки. Моды можно выключать,
+  // файлы — добавить с диска (каталог Modrinth — этап 5).
+  import { open } from "@tauri-apps/plugin-dialog";
+  import { api, type FileEntry, type Folder, type Loader } from "../../lib/api";
   import { date, size } from "../../lib/format";
   import type { IconName } from "../../lib/icons";
-  import { attempt } from "../../lib/toast.svelte";
+  import { inTauri } from "../../lib/tauri";
+  import { attempt, toast } from "../../lib/toast.svelte";
   import Icon from "../Icon.svelte";
 
-  let { id, folder }: { id: string; folder: Exclude<Folder, "screenshots"> } = $props();
+  let { id, folder, loader }: { id: string; folder: Exclude<Folder, "screenshots">; loader: Loader } = $props();
 
   const ICON: Record<typeof folder, IconName> = { mods: "mods", resourcepacks: "resourcepack", shaderpacks: "shader" };
   const EMPTY: Record<typeof folder, string> = {
-    mods: "Модов нет. В ванильной сборке они и не загрузятся: Fabric и Forge появятся на этапе 4, каталог Modrinth — на этапе 5.",
+    mods: "Модов нет. Добавьте файлы .jar кнопкой «Добавить» или положите их в папку. Каталог Modrinth — на этапе 5.",
     resourcepacks: "Ресурспаков нет. Положите zip-файлы в папку — игра увидит их в настройках.",
     shaderpacks: "Шейдеров нет. Для них нужен мод Iris или OptiFine.",
   };
@@ -32,16 +35,39 @@
     load();
   });
 
+  async function add() {
+    if (!inTauri) return toast("В браузере файлы не выбрать", { error: true });
+    const jar = folder === "mods";
+    const picked = await open({
+      multiple: true,
+      title: jar ? "Моды (.jar)" : "Архивы (.zip)",
+      filters: [{ name: jar ? "Моды" : "Архивы", extensions: [jar ? "jar" : "zip"] }],
+    });
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    if (!paths.length) return;
+    const errors = await attempt("Файлы", () => api.addFiles(id, folder, paths));
+    errors?.forEach((e) => toast(e, { error: true }));
+    if (errors && errors.length < paths.length) toast(`Добавлено: ${paths.length - errors.length}`);
+    load();
+  }
+
   async function toggle(f: FileEntry) {
     await attempt("Мод", () => api.setEnabled(id, folder, f.file, !f.enabled));
     load();
   }
 </script>
 
+{#if folder === "mods" && loader === "vanilla"}
+  <p class="warn">
+    <Icon name="warning" size={18} />В ванильной сборке моды не загрузятся: выберите загрузчик на вкладке «Настройки».
+  </p>
+{/if}
+
 <div class="bar">
   <span class="muted small grow">
     {#if list?.length}{list.length} · {list.filter((f) => f.enabled).length} включено{/if}
   </span>
+  <button class="btn btn-sm" onclick={add}><Icon name="plus" size={16} />Добавить</button>
   <button class="btn btn-sm" onclick={() => attempt("Папка", () => api.open(id, { kind: "folder", name: folder }))}>
     <Icon name="folder" size={16} />Открыть папку
   </button>

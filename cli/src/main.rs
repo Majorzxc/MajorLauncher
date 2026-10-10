@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
+use majorlauncher_core::loaders::{self, Loader};
 use majorlauncher_core::{
     Accounts, DataDir, DownloadOptions, Downloader, Error, Event, LaunchOptions, Mode, Progress,
     Session, install, launch,
@@ -47,6 +48,15 @@ enum Command {
     },
     /// Пересчитать хеши всех файлов версии и докачать повреждённые.
     Verify { version: String },
+    /// Загрузчики модов: без версии игры — для каких версий есть, с версией —
+    /// версии загрузчика (звёздочка — рекомендованная).
+    Loaders {
+        /// fabric, forge или neoforge.
+        loader: String,
+        game: Option<String>,
+        #[arg(long, default_value_t = 15)]
+        limit: usize,
+    },
     /// Аккаунты: офлайн-ники и Ely.by. Без подкоманды — список.
     Accounts {
         #[command(subcommand)]
@@ -56,6 +66,10 @@ enum Command {
     /// с аккаунтом по умолчанию.
     Launch {
         version: String,
+        /// Загрузчик модов: fabric, forge, neoforge; версия через двоеточие
+        /// (fabric:0.16.10), без неё — рекомендованная.
+        #[arg(long)]
+        loader: Option<String>,
         /// Аккаунт из списка: ник или offline:ник / ely:ник.
         #[arg(long, conflicts_with = "nick")]
         account: Option<String>,
@@ -161,8 +175,42 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
         Command::Accounts { action } => {
             accounts(&data, &dl, action.unwrap_or(AccountsAction::List)).await?;
         }
+        Command::Loaders {
+            loader,
+            game,
+            limit,
+        } => {
+            let loader = parse_loader(&loader)?;
+            match game {
+                None => {
+                    let games = loaders::games(&data, &dl, loader).await?;
+                    println!(
+                        "{} есть для {} версий игры, последние:",
+                        loader.title(),
+                        games.len()
+                    );
+                    let mut games = games;
+                    games.sort_by(|a, b| loaders_cmp(b, a));
+                    for g in games.iter().take(limit) {
+                        println!("  {g}");
+                    }
+                }
+                Some(game) => {
+                    let list = loaders::versions(&data, &dl, loader, &game).await?;
+                    if list.is_empty() {
+                        println!("{} для {game} нет", loader.title());
+                    }
+                    for v in list.iter().take(limit) {
+                        let mark = if v.recommended { "*" } else { " " };
+                        let beta = if v.stable { "" } else { "  (бета)" };
+                        println!("{mark} {}{beta}", v.version);
+                    }
+                }
+            }
+        }
         Command::Launch {
             version,
+            loader,
             account,
             nick,
             memory,
@@ -170,6 +218,33 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
             dry_run,
         } => {
             let started = Instant::now();
+            let version = match loader {
+                None => version,
+                Some(spec) => {
+                    let (name, wanted) = match spec.split_once(':') {
+                        Some((n, v)) => (n, Some(v.to_string())),
+                        None => (spec.as_str(), None),
+                    };
+                    let loader = parse_loader(name)?;
+                    let wanted = match wanted {
+                        Some(v) => v,
+                        None => loaders::versions(&data, &dl, loader, &version)
+                            .await?
+                            .into_iter()
+                            .find(|v| v.recommended)
+                            .map(|v| v.version)
+                            .ok_or_else(|| {
+                                Error::Other(format!("{} для {version} нет", loader.title()))
+                            })?,
+                    };
+                    println!("{} {wanted}", loader.title());
+                    let id =
+                        loaders::ensure(&data, &dl, loader, &version, Some(&wanted), progress())
+                            .await?;
+                    finish_line();
+                    id
+                }
+            };
             // Вход и проверка файлов идут одновременно: оба ждут сеть или диск.
             let (session, prepared) = tokio::join!(
                 session(&data, &dl, account, nick),
@@ -228,6 +303,26 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn parse_loader(name: &str) -> majorlauncher_core::Result<Loader> {
+    Loader::parse(name)
+        .filter(|l| *l != Loader::Vanilla)
+        .ok_or_else(|| {
+            Error::Other(format!(
+                "загрузчик «{name}» не знаю: fabric, forge или neoforge"
+            ))
+        })
+}
+
+/// Версии игры по числам: 1.21.1 новее 1.9.4.
+fn loaders_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let parts = |v: &str| -> Vec<u64> {
+        v.split(|c: char| !c.is_ascii_digit())
+            .filter_map(|p| p.parse().ok())
+            .collect()
+    };
+    parts(a).cmp(&parts(b))
 }
 
 async fn session(
@@ -363,6 +458,9 @@ fn progress() -> Progress {
                 }
             }
             Event::Extracting => eprint!("\rРаспаковка нативных библиотек…{:<30}", ""),
+            Event::Loader { step, total } => {
+                eprint!("\rУстановка загрузчика: шаг {step} из {total}…{:<20}", "")
+            }
         }
         let _ = std::io::stderr().flush();
     })

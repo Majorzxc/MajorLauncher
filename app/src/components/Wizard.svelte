@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { api, type VersionInfo } from "../lib/api";
+  import { api, type Loader, type VersionInfo } from "../lib/api";
+  import { LOADERS, loaderTitle } from "../lib/loaders";
+  import LoaderVersion from "./LoaderVersion.svelte";
   import { builds } from "../lib/builds.svelte";
   import { pickCover } from "../lib/cover";
   import type { IconName } from "../lib/icons";
@@ -28,12 +30,27 @@
   let versionsError = $state("");
   let filter = $state("");
   let version = $state("");
-  const LOADERS = [
-    { title: "Без загрузчика", hint: "Чистая игра" },
-    { title: "Fabric", hint: "этап 4" },
-    { title: "Forge", hint: "этап 4" },
-    { title: "NeoForge", hint: "этап 4" },
-  ];
+  // Загрузчик выбирается первым: список версий игры сужается до тех, где он есть.
+  let loader: Loader = $state("vanilla");
+  let loaderVersion: string | null = $state(null);
+  let loaderGames: Set<string> | null = $state(null);
+  let loaderError = $state("");
+
+  $effect(() => {
+    const l = loader;
+    loaderGames = null;
+    loaderError = "";
+    if (l === "vanilla") return;
+    let stale = false;
+    api
+      .loaderGames(l)
+      .then((games) => {
+        if (stale) return;
+        loaderGames = new Set(games);
+      })
+      .catch((e) => !stale && (loaderError = String(e)));
+    return () => (stale = true);
+  });
 
   $effect(() => {
     const snap = snapshots;
@@ -47,7 +64,17 @@
       .catch((e) => (versionsError = String(e)));
   });
 
-  const shownVersions = $derived(versions.filter((v) => v.id.includes(filter.trim())).slice(0, 200));
+  // Выбранной версии для загрузчика нет — берём последний релиз, где он есть
+  // (списки версий и загрузчика приходят в любом порядке).
+  $effect(() => {
+    if (loaderGames && versions.length && !loaderGames.has(version)) {
+      version = versions.find((v) => v.kind === "release" && loaderGames!.has(v.id))?.id ?? "";
+    }
+  });
+
+  const shownVersions = $derived(
+    versions.filter((v) => v.id.includes(filter.trim()) && (!loaderGames || loaderGames.has(v.id))).slice(0, 200),
+  );
 
   // Шаг 3.
   let name = $state("");
@@ -55,7 +82,7 @@
   let group: string | null = $state(null);
   let cover: string | null = $state(null);
   $effect(() => {
-    if (!nameTouched) name = version;
+    if (!nameTouched) name = loader === "vanilla" ? version : `${version} ${loaderTitle(loader)}`;
   });
 
   let error = $state("");
@@ -71,14 +98,17 @@
   ]);
 
   const canNext = $derived(
-    (step === 0) || (step === 1 && !!version) || (step === 2 && name.trim().length > 0) || step === 3,
+    step === 0 ||
+      (step === 1 && !!version && (loader === "vanilla" || !!loaderVersion)) ||
+      (step === 2 && name.trim().length > 0) ||
+      step === 3,
   );
 
   async function create() {
     creating = true;
     error = "";
     try {
-      const b = await api.create(name, version, group);
+      const b = await api.create(name, version, { loader, version: loaderVersion }, group);
       if (cover) {
         await api.setCover(b.id, cover);
         builds.covers[b.id] = `data:image/png;base64,${cover}`;
@@ -115,12 +145,21 @@
       </div>
     {:else if step === 1}
       <div class="versions">
+        <div class="loaders" role="radiogroup" aria-label="Загрузчик модов">
+          {#each LOADERS as l (l.id)}
+            <button class="loader" role="radio" aria-checked={loader === l.id} class:on={loader === l.id} onclick={() => (loader = l.id)}>
+              <b>{l.title}</b><span class="muted">{l.hint}</span>
+            </button>
+          {/each}
+        </div>
         <div class="vbar">
           <input placeholder="Найти версию: 1.21, 26.3…" bind:value={filter} />
           <label class="check"><input type="checkbox" bind:checked={snapshots} />Показывать снапшоты</label>
         </div>
-        {#if versionsError}
-          <p class="error"><Icon name="error" size={16} />Не удалось получить список версий: {versionsError}</p>
+        {#if versionsError || loaderError}
+          <p class="error">
+            <Icon name="error" size={16} />Не удалось получить список версий: {versionsError || loaderError}
+          </p>
         {:else}
           <div class="vlist" role="listbox" aria-label="Версия игры">
             {#each shownVersions as v (v.id)}
@@ -129,17 +168,15 @@
                 <span class="muted">{v.kind === "snapshot" ? "снапшот · " : ""}{v.date}</span>
               </button>
             {:else}
-              <p class="muted pad">{versions.length ? "Нет такой версии" : "Загружаю список версий…"}</p>
+              <p class="muted pad">
+                {!versions.length || (loader !== "vanilla" && !loaderGames) ? "Загружаю список версий…" : "Нет такой версии"}
+              </p>
             {/each}
           </div>
         {/if}
-        <div class="loaders">
-          {#each LOADERS as l, i}
-            <button class="loader" class:on={i === 0} disabled={i > 0}>
-              <b>{l.title}</b><span class="muted">{l.hint}</span>
-            </button>
-          {/each}
-        </div>
+        {#if loader !== "vanilla" && version}
+          <LoaderVersion {loader} game={version} bind:value={loaderVersion} />
+        {/if}
       </div>
     {:else if step === 2}
       <div class="look">
@@ -171,13 +208,13 @@
       <dl class="summary">
         <dt>Название</dt><dd>{name}</dd>
         <dt>Версия игры</dt><dd>{version}</dd>
-        <dt>Загрузчик</dt><dd>Без загрузчика</dd>
+        <dt>Загрузчик</dt><dd>{loader === "vanilla" ? "Без загрузчика" : `${loaderTitle(loader)} ${loaderVersion}`}</dd>
         <dt>Группа</dt><dd>{group ?? "без группы"}</dd>
         <dt>Миры</dt><dd>{worldsFrom ? `копия из «${sources.find((x) => x.value === worldsFrom)?.label}»` : "новые"}</dd>
       </dl>
       <p class="muted">
-        Сборка создастся сразу. Игра и нужная Java скачаются при первом запуске. Ваши настройки игры, список серверов и
-        ресурспаки из библиотеки попадут в неё сами.
+        Сборка создастся сразу. Игра{loader === "vanilla" ? "" : `, ${loaderTitle(loader)}`} и нужная Java скачаются при
+        первом запуске. Ваши настройки игры, список серверов и ресурспаки из библиотеки попадут в неё сами.
       </p>
       {#if error}<p class="error"><Icon name="error" size={16} />{error}</p>{/if}
     {/if}
@@ -302,7 +339,7 @@
     accent-color: var(--accent);
   }
   .vlist {
-    height: 190px;
+    height: 170px;
     overflow: auto;
     border: 1px solid var(--border);
     border-radius: var(--r);
@@ -344,7 +381,10 @@
     gap: var(--s2);
   }
   .loader {
-    padding: var(--s3);
+    padding: var(--s2) var(--s3);
+  }
+  .loader span {
+    font-size: var(--fs-12);
   }
   .look {
     display: flex;

@@ -16,8 +16,8 @@ use crate::download::{Downloader, Task};
 use crate::error::{Error, IoContext, Result, json};
 use crate::java;
 use crate::meta::{
-    AssetIndex, LIBRARIES_URL, RESOURCES_URL, VERSION_MANIFEST_URL, VersionJson, VersionManifest,
-    maven_path,
+    self, AssetIndex, LIBRARIES_URL, RESOURCES_URL, VERSION_MANIFEST_URL, VersionJson,
+    VersionManifest, maven_path,
 };
 use crate::paths::DataDir;
 use crate::rules::{self, Features};
@@ -41,6 +41,8 @@ pub enum Event {
     FileDone { bytes: u64 },
     /// Распаковываем нативные библиотеки.
     Extracting,
+    /// Ставим загрузчик модов: шаг из скольких (Forge патчит игру в несколько шагов).
+    Loader { step: usize, total: usize },
 }
 
 pub type Progress = Arc<dyn Fn(Event) + Send + Sync>;
@@ -85,21 +87,24 @@ pub async fn prepare(
 
     let mut tasks = Vec::new();
 
-    // Клиент.
+    // Клиент. У версии с загрузчиком он тот же, что у ванили: качаем в папку
+    // ванили, а в свою папку версия получает жёсткую ссылку — Forge ждёт
+    // клиент под именем своей версии.
     let client = &version.downloads.client;
+    let vanilla_jar = data.client_jar(version.inherits_from.as_deref().unwrap_or(&id));
     let client_jar = data.client_jar(&id);
     tasks.push(Task {
         url: client.url.clone(),
-        path: client_jar.clone(),
+        path: vanilla_jar.clone(),
         sha1: Some(client.sha1.clone()),
         size: Some(client.size),
     });
 
     // Библиотеки.
-    let (classpath_libs, natives, lib_tasks) = libraries(data, &version)?;
+    let (classpath_libs, natives, lib_tasks, local_only) = libraries(data, &version)?;
     tasks.extend(lib_tasks);
     let mut classpath = classpath_libs;
-    classpath.push(client_jar);
+    classpath.push(client_jar.clone());
 
     // Настройка логов: Mojang обновила её после Log4Shell — без неё старые версии уязвимы.
     let log_config = match version.logging.as_ref().and_then(|l| l.client.as_ref()) {
@@ -162,6 +167,16 @@ pub async fn prepare(
         cache.save()?;
         result?;
     }
+    if vanilla_jar != client_jar {
+        link_file(&vanilla_jar, &client_jar)?;
+    }
+    // Файлы, которые не качаются, а появляются при установке загрузчика.
+    if let Some(missing) = local_only.iter().find(|p| !p.exists()) {
+        return Err(Error::Other(format!(
+            "нет файла загрузчика {} — загрузчик нужно поставить заново",
+            missing.display()
+        )));
+    }
 
     let natives_dir = data.natives_dir(&id);
     if !natives.is_empty() && !natives_up_to_date(&natives, &natives_dir) {
@@ -187,13 +202,47 @@ pub async fn prepare(
     })
 }
 
+/// Тот же файл под другим именем: жёсткая ссылка, на другом диске — копия.
+pub(crate) fn link_file(from: &Path, to: &Path) -> Result<()> {
+    let same = match (std::fs::metadata(from), std::fs::metadata(to)) {
+        (Ok(a), Ok(b)) => a.len() == b.len() && a.modified().ok() == b.modified().ok(),
+        _ => false,
+    };
+    if same {
+        return Ok(());
+    }
+    if let Some(dir) = to.parent() {
+        std::fs::create_dir_all(dir).at(dir)?;
+    }
+    let _ = std::fs::remove_file(to);
+    if std::fs::hard_link(from, to).is_err() {
+        std::fs::copy(from, to).at(to)?;
+    }
+    Ok(())
+}
+
 /// Описание версии: локальное или с сервера Mojang (с проверкой хеша).
+/// Версия с загрузчиком (`inheritsFrom`) собирается поверх своей ванили.
 async fn load_version(
     data: &DataDir,
     dl: &Downloader,
     requested: &str,
     mode: Mode,
 ) -> Result<VersionJson> {
+    let local = data.version_json(requested);
+    if let Some((child, parent)) = read_child(&local)? {
+        let parent = Box::pin(load_version(data, dl, &parent, mode)).await?;
+        let parent_path = data.version_json(&parent.id);
+        let parent_json: serde_json::Value = json(
+            &std::fs::read(&parent_path).at(&parent_path)?,
+            &format!("описание версии {}", parent_path.display()),
+        )?;
+        let merged = meta::inherit(&child, &parent_json);
+        return serde_json::from_value(merged).map_err(|source| Error::Json {
+            what: format!("описание версии {requested}"),
+            source,
+        });
+    }
     let is_alias = matches!(requested, "release" | "latest" | "snapshot");
     let local = data.version_json(requested);
 
@@ -231,6 +280,21 @@ async fn load_version(
         std::fs::write(&path, bytes).at(&path)?;
     }
     read_version(&path)
+}
+
+/// Описание версии с загрузчиком и id ванили под ним; `None` — обычная версия.
+fn read_child(path: &Path) -> Result<Option<(serde_json::Value, String)>> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e).at(path),
+    };
+    let value: serde_json::Value = json(&bytes, &format!("описание версии {}", path.display()))?;
+    Ok(value
+        .get("inheritsFrom")
+        .and_then(|p| p.as_str())
+        .map(str::to_string)
+        .map(|parent| (value, parent)))
 }
 
 fn read_version(path: &Path) -> Result<VersionJson> {
@@ -286,17 +350,23 @@ fn foreign_natives(name: &str) -> bool {
     })
 }
 
-type Libraries = (Vec<PathBuf>, Vec<NativeJar>, Vec<Task>);
+/// Пути для classpath, нативные jar, что скачать и что должно уже лежать
+/// (файлы, которые делает установщик загрузчика).
+type Libraries = (Vec<PathBuf>, Vec<NativeJar>, Vec<Task>, Vec<PathBuf>);
 
 fn libraries(data: &DataDir, version: &VersionJson) -> Result<Libraries> {
     let features = Features::default();
     let mut classpath = Vec::new();
     let mut natives = Vec::new();
     let mut tasks = Vec::new();
+    let mut local = Vec::new();
     let mut seen = HashSet::new();
 
     for lib in &version.libraries {
-        if !rules::allowed(&lib.rules, &features) || foreign_natives(&lib.name) {
+        if !rules::allowed(&lib.rules, &features)
+            || foreign_natives(&lib.name)
+            || lib.clientreq == Some(false)
+        {
             continue;
         }
 
@@ -311,7 +381,7 @@ fn libraries(data: &DataDir, version: &VersionJson) -> Result<Libraries> {
             None if lib.downloads.is_none() => maven_path(&lib.name).map(|rel| {
                 let base = lib.url.as_deref().unwrap_or(LIBRARIES_URL);
                 let url = format!("{}/{rel}", base.trim_end_matches('/'));
-                (rel, url, None, None)
+                (rel, url, lib.sha1.clone(), lib.size)
             }),
             None => None,
         };
@@ -319,12 +389,17 @@ fn libraries(data: &DataDir, version: &VersionJson) -> Result<Libraries> {
             let path = data.libraries().join(&rel);
             if seen.insert(path.clone()) {
                 classpath.push(path.clone());
-                tasks.push(Task {
-                    url,
-                    path,
-                    sha1,
-                    size,
-                });
+                // Пустой адрес — файл кладёт установщик загрузчика, качать неоткуда.
+                if url.is_empty() {
+                    local.push(path);
+                } else {
+                    tasks.push(Task {
+                        url,
+                        path,
+                        sha1,
+                        size,
+                    });
+                }
             }
         }
 
@@ -362,7 +437,7 @@ fn libraries(data: &DataDir, version: &VersionJson) -> Result<Libraries> {
             }
         }
     }
-    Ok((classpath, natives, tasks))
+    Ok((classpath, natives, tasks, local))
 }
 
 /// Проверить файлы параллельно, вернуть те, что надо скачать.

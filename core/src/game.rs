@@ -19,6 +19,7 @@ use crate::error::{Error, Result};
 use crate::install::{self, Mode, Progress};
 use crate::launch::{self, LaunchCommand, LaunchOptions};
 use crate::library::Library;
+use crate::loaders;
 use crate::meta::VersionManifest;
 use crate::options::{self, GameVersion, Profile};
 use crate::paths::DataDir;
@@ -59,10 +60,20 @@ pub async fn prepare(
         Error::Other("нет аккаунта: добавьте ник или войдите через Ely.by (справа вверху)".into())
     })?;
     // Вход и проверка файлов идут одновременно: оба ждут сеть или диск.
-    let (session, prepared) = tokio::join!(
-        accounts.session(data, http, &account.id),
-        install::prepare(data, http, &instance.version, Mode::Launch, progress)
-    );
+    // Загрузчик модов ставится один раз при первом запуске сборки.
+    let version = async {
+        let id = loaders::ensure(
+            data,
+            http,
+            instance.loader,
+            &instance.version,
+            instance.loader_version.as_deref(),
+            progress.clone(),
+        )
+        .await?;
+        install::prepare(data, http, &id, Mode::Launch, progress).await
+    };
+    let (session, prepared) = tokio::join!(accounts.session(data, http, &account.id), version);
     let (session, prepared) = (session?, prepared?);
     let jvm_args = instance
         .settings

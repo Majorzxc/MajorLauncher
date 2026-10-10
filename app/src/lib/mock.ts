@@ -231,16 +231,31 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       })) as Entry[] as T;
     case "builds_groups":
       return [...new Set([...d.groups, ...d.builds.flatMap((b) => (b.group ? [b.group] : []))])] as T;
+    case "loader_games":
+      await sleep(200);
+      return (a.loader === "neoforge" ? ["1.20.1", "1.20.4", "1.21.1", "26.3"] : VERSIONS.map((v) => v.id).filter((v) => v !== "1.5.2")) as T;
+    case "loader_versions": {
+      await sleep(300);
+      const base = { fabric: ["0.19.5", "0.19.4", "0.16.10"], forge: ["52.1.2", "52.0.57", "51.0.33"], neoforge: ["21.1.257", "21.1.256-beta"] }[a.loader as "fabric"] ?? [];
+      return base.map((version, i) => ({ version, stable: !version.includes("beta"), recommended: i === 0 })) as T;
+    }
     case "build_create": {
       const id = a.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "build";
-      const b = inst(id + "-" + d.builds.length, a.name, a.version, { group: a.group, created: now() });
+      const b = inst(id + "-" + d.builds.length, a.name, a.version, {
+        group: a.group,
+        created: now(),
+        loader: a.loader?.loader ?? "vanilla",
+        loader_version: a.loader?.version ?? null,
+      });
       d.builds.push(b);
       if (a.group && !d.groups.includes(a.group)) d.groups.push(a.group);
       return result(b);
     }
     case "build_update": {
       const b = find(a.id);
-      Object.assign(b, a.patch);
+      const { loader, ...rest } = a.patch;
+      Object.assign(b, rest);
+      if (loader) Object.assign(b, { loader: loader.loader, loader_version: loader.version });
       if (b.group && !d.groups.includes(b.group)) d.groups.push(b.group);
       return result(b);
     }

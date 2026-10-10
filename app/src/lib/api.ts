@@ -58,7 +58,9 @@ export interface Instance {
   id: string;
   name: string;
   version: string;
-  loader: "vanilla";
+  loader: Loader;
+  /// Версия загрузчика; у ванили нет.
+  loader_version?: string | null;
   group: string | null;
   pinned: boolean;
   created: number;
@@ -94,6 +96,20 @@ export interface Patch {
   group?: string | null;
   pinned?: boolean;
   settings?: BuildSettings;
+  loader?: LoaderChoice;
+}
+
+export type Loader = "vanilla" | "fabric" | "forge" | "neoforge";
+
+export interface LoaderChoice {
+  loader: Loader;
+  version: string | null;
+}
+
+export interface LoaderVersion {
+  version: string;
+  stable: boolean;
+  recommended: boolean;
 }
 
 export interface Account {
@@ -215,7 +231,7 @@ export interface Summary {
   days: { day: number; seconds: number }[];
 }
 
-export type Phase = "idle" | "preparing" | "downloading" | "starting" | "running";
+export type Phase = "idle" | "preparing" | "downloading" | "installing" | "starting" | "running";
 
 export interface PlayStatus {
   build: string | null;
@@ -270,6 +286,7 @@ export const api = {
   playStatus: () => call<{ status: PlayStatus; finished: Finished | null }>("play_status"),
 
   files: (id: string, folder: Folder) => call<FileEntry[]>("build_files", { id, folder }),
+  addFiles: (id: string, folder: Folder, paths: string[]) => call<string[]>("build_add_files", { id, folder, paths }),
   setEnabled: (id: string, folder: Folder, file: string, enabled: boolean) =>
     call<string>("build_set_enabled", { id, folder, file, enabled }),
   worlds: (id: string) => call<World[]>("build_worlds", { id }),
@@ -282,8 +299,10 @@ export const api = {
   versions: (snapshots: boolean) => call<VersionInfo[]>("versions_list", { snapshots }),
   builds: () => call<Entry[]>("builds_list"),
   groups: () => call<string[]>("builds_groups"),
-  create: (name: string, version: string, group: string | null) =>
-    call<Instance>("build_create", { name, version, group }),
+  create: (name: string, version: string, loader: LoaderChoice, group: string | null) =>
+    call<Instance>("build_create", { name, version, loader, group }),
+  loaderGames: (loader: Loader) => call<string[]>("loader_games", { loader }),
+  loaderVersions: (loader: Loader, game: string) => call<LoaderVersion[]>("loader_versions", { loader, game }),
   update: (id: string, patch: Patch) => call<Instance>("build_update", { id, patch }),
   duplicate: (id: string) => call<Instance>("build_duplicate", { id }),
   trash: (id: string) => call<void>("build_trash", { id }),

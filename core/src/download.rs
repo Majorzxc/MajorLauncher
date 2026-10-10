@@ -25,6 +25,19 @@ const MIRRORS: &[(&str, &str)] = &[
         "https://libraries.minecraft.net/",
         "https://bmclapi2.bangbang93.com/maven/",
     ),
+    // Загрузчики модов (этап 4): Maven Forge отвечает по нескольку секунд на файл.
+    (
+        "https://maven.minecraftforge.net/",
+        "https://bmclapi2.bangbang93.com/maven/",
+    ),
+    (
+        "https://maven.neoforged.net/releases/",
+        "https://bmclapi2.bangbang93.com/maven/",
+    ),
+    (
+        "https://maven.fabricmc.net/",
+        "https://bmclapi2.bangbang93.com/maven/",
+    ),
 ];
 
 /// Что скачать и куда. `sha1` и `size` известны почти всегда: их даёт Mojang.
@@ -128,6 +141,17 @@ impl Downloader {
             });
         }
         Ok(resp.bytes().await.map_err(network(url))?.to_vec())
+    }
+
+    /// Есть ли файл по адресу (запрос HEAD). Нет связи — «нет».
+    pub async fn exists(&self, url: &str) -> bool {
+        for attempt in 0..self.opts.retries {
+            match self.client.head(url).send().await {
+                Ok(resp) => return resp.status().is_success(),
+                Err(_) => tokio::time::sleep(backoff(attempt)).await,
+            }
+        }
+        false
     }
 
     /// Скачать в память и сверить хеш.

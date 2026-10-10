@@ -21,6 +21,7 @@ pub mod install;
 pub mod java;
 pub mod launch;
 pub mod library;
+pub mod loaders;
 pub mod meta;
 pub mod nbt;
 pub mod options;

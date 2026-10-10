@@ -11,6 +11,7 @@
   import { ago, playtime } from "../lib/format";
   import { go, nav, openBuild } from "../lib/nav.svelte";
   import { busyLabel, start } from "../lib/play.svelte";
+  import { loaderLabel } from "../lib/loaders";
 
   refresh();
 
@@ -71,7 +72,7 @@
           >
         {/if}
       </div>
-      <p class="muted">{current.version} · Ванилла · без модов</p>
+      <p class="muted">{current.version} · {loaderLabel(current)}</p>
       <p class="meta muted">
         <span><Icon name="time" size={16} />{playtime(current.playtime)} в игре</span>
         <span>{lastRun(current.last_played)}</span>

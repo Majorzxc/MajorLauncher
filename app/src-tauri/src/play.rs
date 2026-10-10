@@ -23,6 +23,8 @@ pub enum Phase {
     /// Проверяем файлы и аккаунт.
     Preparing,
     Downloading,
+    /// Ставим загрузчик модов: `done` из `total` шагов.
+    Installing,
     /// Java запущена, ждём окно игры.
     Starting,
     Running,
@@ -213,6 +215,11 @@ fn progress(app: AppHandle) -> Progress {
                     s.done = 0;
                 }
                 Event::FileDone { bytes } => s.done += bytes,
+                Event::Loader { step, total } => {
+                    s.phase = Phase::Installing;
+                    s.done = step as u64;
+                    s.total = total as u64;
+                }
             }
             s.clone()
         };

@@ -28,6 +28,19 @@ pub async fn build_files(
     blocking(move || content::files(&dir, folder).map_err(text)).await
 }
 
+/// Добавить в сборку файлы, выбранные игроком. Возвращает ошибки по файлам.
+#[tauri::command]
+pub async fn build_add_files(
+    state: State<'_, AppState>,
+    id: String,
+    folder: Folder,
+    paths: Vec<String>,
+) -> CmdResult<Vec<String>> {
+    let dir = game_dir(&state, &id)?;
+    let paths: Vec<std::path::PathBuf> = paths.into_iter().map(Into::into).collect();
+    blocking(move || Ok(content::add_files(&dir, folder, &paths))).await
+}
+
 #[tauri::command]
 pub fn build_set_enabled(
     state: State<AppState>,
