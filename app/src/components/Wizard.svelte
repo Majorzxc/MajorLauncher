@@ -7,6 +7,7 @@
   import GroupSelect from "./GroupSelect.svelte";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
+  import Select from "./Select.svelte";
 
   let { onclose, oncreated }: { onclose: () => void; oncreated: (name: string) => void } = $props();
 
@@ -60,6 +61,15 @@
   let error = $state("");
   let creating = $state(false);
 
+  // «Перенести миры из сборки» — копией; настройки игры и так общие.
+  let worldsFrom: string | null = $state(null);
+  const sources = $derived([
+    { value: null as string | null, label: "Не переносить" },
+    ...builds.list
+      .filter((b) => b.state === "active")
+      .map((b) => ({ value: b.id as string | null, label: b.quick ? "Быстрая игра" : `${b.name} · ${b.version}` })),
+  ]);
+
   const canNext = $derived(
     (step === 0) || (step === 1 && !!version) || (step === 2 && name.trim().length > 0) || step === 3,
   );
@@ -72,6 +82,9 @@
       if (cover) {
         await api.setCover(b.id, cover);
         builds.covers[b.id] = `data:image/png;base64,${cover}`;
+      }
+      if (worldsFrom) {
+        for (const w of await api.worlds(worldsFrom)) await api.copyWorld(worldsFrom, w.folder, b.id);
       }
       oncreated(b.name);
     } catch (e) {
@@ -142,6 +155,10 @@
             <span>Группа</span>
             <GroupSelect bind:value={group} />
           </div>
+          <div class="field">
+            <span>Миры из другой сборки</span>
+            <Select label="Миры из сборки" value={worldsFrom} options={sources} onchange={(v) => (worldsFrom = v)} />
+          </div>
           <div class="buttons">
             <button class="btn btn-sm" onclick={async () => (cover = (await attempt("Обложка", pickCover)) ?? cover)}>
               <Icon name="screenshot" size={16} />{cover ? "Другая обложка" : "Выбрать обложку"}
@@ -156,8 +173,12 @@
         <dt>Версия игры</dt><dd>{version}</dd>
         <dt>Загрузчик</dt><dd>Без загрузчика</dd>
         <dt>Группа</dt><dd>{group ?? "без группы"}</dd>
+        <dt>Миры</dt><dd>{worldsFrom ? `копия из «${sources.find((x) => x.value === worldsFrom)?.label}»` : "новые"}</dd>
       </dl>
-      <p class="muted">Сборка создастся сразу. Игра и нужная Java скачаются при первом запуске.</p>
+      <p class="muted">
+        Сборка создастся сразу. Игра и нужная Java скачаются при первом запуске. Ваши настройки игры, список серверов и
+        ресурспаки из библиотеки попадут в неё сами.
+      </p>
       {#if error}<p class="error"><Icon name="error" size={16} />{error}</p>{/if}
     {/if}
   </div>

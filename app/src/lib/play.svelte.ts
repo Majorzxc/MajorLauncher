@@ -36,9 +36,10 @@ export function busyLabel(id: string): string | null {
   }
 }
 
-export async function start(id: string) {
+/// Запустить сборку; `version` — для «Быстрой игры».
+export async function start(id: string, version: string | null = null) {
   try {
-    await api.play(id);
+    await api.play(id, version);
   } catch (e) {
     toast(`Не удалось запустить: ${e}`, { error: true });
   }

@@ -46,14 +46,16 @@
     <Cover id={entry.id} size={112} />
     <div class="info">
       <h1>{entry.name}</h1>
-      <p class="muted">{entry.version} · Ванилла</p>
+      <p class="muted">{entry.quick ? `Быстрая игра · любая ванильная версия, последняя — ${entry.version}` : `${entry.version} · Ванилла`}</p>
       <p class="muted small meta">
         <span><Icon name="time" size={16} />{playtime(entry.playtime)} в игре</span>
         <span>{entry.last_played ? `запуск ${ago(entry.last_played)}` : "ещё не запускалась"}</span>
       </p>
     </div>
     <div class="actions">
-      <button class="btn" onclick={() => (editing = true)}><Icon name="edit" size={18} />Изменить</button>
+      {#if !entry.quick}
+        <button class="btn" onclick={() => (editing = true)}><Icon name="edit" size={18} />Изменить</button>
+      {/if}
       <button class="btn" onclick={() => attempt("Папка", () => api.openFolder(entry.id))}>
         <Icon name="folder" size={18} />Папка
       </button>

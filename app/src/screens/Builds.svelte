@@ -85,6 +85,20 @@
       };
       return;
     }
+    if (b.quick) {
+      // «Быстрая игра» — общая ванильная папка: без переименования, архива и корзины.
+      menu = {
+        x,
+        y,
+        anchor,
+        items: [
+          { label: "Открыть", icon: "builds", onclick: () => openBuild(b.id) },
+          { label: "Открыть папку", icon: "folder", onclick: () => attempt("Папка", () => api.openFolder(b.id)) },
+          { label: "Сделать сборку из копии", icon: "copy", onclick: () => duplicate(b) },
+        ],
+      };
+      return;
+    }
     menu = {
       x,
       y,

@@ -5,9 +5,11 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use majorlauncher_core::builds::QUICK_ID;
 use majorlauncher_core::game::{self, Game};
+use majorlauncher_core::options::GameVersion;
 use majorlauncher_core::playtime::Stats;
-use majorlauncher_core::{Builds, DataDir, Event, Instance, OnLaunch, Progress};
+use majorlauncher_core::{Builds, DataDir, Event, Instance, OnLaunch, Progress, install};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -96,9 +98,20 @@ pub fn play_status(state: State<AppState>) -> StatusWithResult {
 }
 
 #[tauri::command]
-pub async fn build_play(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
+pub async fn build_play(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    version: Option<String>,
+) -> CmdResult<()> {
     let data = state.data()?;
-    let instance = Builds::new(data.clone()).get(&id).map_err(text)?;
+    let builds = Builds::new(data.clone());
+    // «Быстрая игра» запускается с версией, выбранной у кнопки.
+    let instance = match &version {
+        Some(v) if id == QUICK_ID => builds.quick(v),
+        _ => builds.get(&id),
+    }
+    .map_err(text)?;
     let settings = state.config.lock().unwrap().get().game.clone();
     {
         let mut play = state.play.lock().unwrap();
@@ -121,15 +134,48 @@ pub async fn build_play(app: AppHandle, state: State<'_, AppState>, id: String) 
         progress(app.clone()),
     )
     .await;
-    let cmd = match prepared {
-        Ok(cmd) => cmd,
+    let launch = match prepared {
+        Ok(launch) => launch,
         Err(e) => {
             reset(&app);
             return Err(text(e));
         }
     };
     update(&app, |s| s.phase = Phase::Starting);
-    let game = match game::spawn(&cmd) {
+
+    // Миры «Быстрой игры» из более новой версии — в копию перед запуском.
+    let risky = if instance.quick {
+        match install::fetch_manifest(&data, &state.http).await {
+            Ok(m) => game::risky_worlds(&data.instance(&instance.id), &instance.version, &m),
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+    // Общие настройки, серверы, ресурспаки. Ошибка здесь игру не держит —
+    // окно покажет её после игры.
+    let before = {
+        let (data, instance, version) = (data.clone(), instance.clone(), launch.version.clone());
+        tauri::async_runtime::spawn_blocking(move || {
+            let game_dir = data.instance(&instance.id);
+            game::backup_worlds(&game_dir, &risky)
+                .map_err(|e| format!("Не удалось сохранить копию миров: {e}"))?;
+            game::before_launch(&data, &instance, &version)
+                .map_err(|e| format!("Общие настройки игры не применились: {e}"))
+        })
+        .await
+        .map_err(text)?
+    };
+    // Без копии миров старую версию не запускаем: мир может испортиться.
+    if let Err(e) = &before
+        && e.starts_with("Не удалось сохранить копию")
+    {
+        reset(&app);
+        return Err(e.clone());
+    }
+    let note = before.err();
+
+    let game = match game::spawn(&launch.cmd) {
         Ok(game) => game,
         Err(e) => {
             reset(&app);
@@ -139,9 +185,10 @@ pub async fn build_play(app: AppHandle, state: State<'_, AppState>, id: String) 
     // Сразу отмечаем запуск — сборка поднимается в начало «Недавних».
     let _ = Builds::new(data.clone()).record_play(&id, game.start, 0);
     let on_launch = settings.on_launch;
+    let version = launch.version;
     std::thread::Builder::new()
         .name("game-watch".into())
-        .spawn(move || watch(app, game, instance, on_launch, data))
+        .spawn(move || watch(app, game, instance, version, on_launch, data, note))
         .map_err(text)?;
     Ok(())
 }
@@ -175,7 +222,15 @@ fn progress(app: AppHandle) -> Progress {
 }
 
 /// Ждать конца игры в отдельном потоке, потом записать время и вернуть окно.
-fn watch(app: AppHandle, game: Game, instance: Instance, on_launch: OnLaunch, data: DataDir) {
+fn watch(
+    app: AppHandle,
+    game: Game,
+    instance: Instance,
+    version: GameVersion,
+    on_launch: OnLaunch,
+    data: DataDir,
+    note: Option<String>,
+) {
     let outcome = game.wait(|| {
         // Сначала «игра идёт», потом закрываем окно: иначе закрытие
         // последнего окна завершит лаунчер вместе с подсчётом времени.
@@ -193,12 +248,21 @@ fn watch(app: AppHandle, game: Game, instance: Instance, on_launch: OnLaunch, da
         }
     });
 
+    // Изменённые в игре настройки и серверы — в общие.
+    let synced = game::after_exit(&data, &instance, &version)
+        .err()
+        .map(|e| format!("Изменения настроек игры не сохранились в общие: {e}"));
     let finished = match outcome {
         Ok(o) => {
-            let warning = Stats::new(&data)
+            let stats = Stats::new(&data)
                 .append(&o.record(&instance))
                 .err()
                 .map(|e| format!("Время этой игры не записалось в статистику: {e}"));
+            let warning = [note, synced, stats]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            let warning = (!warning.is_empty()).then(|| warning.join(" "));
             let seconds = o.end.saturating_sub(o.start);
             let _ = Builds::new(data).record_play(&instance.id, o.start, seconds);
             let crashed = o.crashed();

@@ -5,6 +5,7 @@
   import Cover from "../components/Cover.svelte";
   import Icon from "../components/Icon.svelte";
   import PlayButton from "../components/PlayButton.svelte";
+  import QuickPlay from "../components/QuickPlay.svelte";
   import { accounts } from "../lib/accounts.svelte";
   import { builds, refresh } from "../lib/builds.svelte";
   import { ago, playtime } from "../lib/format";
@@ -15,7 +16,8 @@
 
   const byRecent = $derived(
     builds.list
-      .filter((b) => b.state === "active")
+      // «Быстрая игра» — своим блоком с выбором версии, не карточкой сборки.
+      .filter((b) => b.state === "active" && !b.quick)
       .sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0) || b.created - a.created),
   );
   const current = $derived(byRecent.find((b) => b.id === nav.homeBuild) ?? byRecent[0]);
@@ -45,6 +47,7 @@
     <p class="muted">Сборка — это версия игры со своими мирами, модами и настройками.</p>
     <button class="btn btn-primary" onclick={() => go("builds")}><Icon name="plus" size={18} />Создать сборку</button>
   </div>
+  <QuickPlay />
 {:else}
   <section class="hero card">
     <button class="cover-btn" aria-label="Открыть сборку {current.name}" onclick={() => openBuild(current.id)}>
@@ -82,6 +85,8 @@
       {/if}
     </div>
   </section>
+
+  <QuickPlay />
 
   {#if recent.length}
     <h2>Недавние</h2>

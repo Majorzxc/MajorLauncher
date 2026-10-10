@@ -2,6 +2,7 @@
   // Настройки сборки: память и аргументы JVM поверх общих настроек.
   import { api, type BuildSettings, type Config, type Entry } from "../../lib/api";
   import { refresh } from "../../lib/builds.svelte";
+  import { openSettings } from "../../lib/nav.svelte";
   import { attempt, toast } from "../../lib/toast.svelte";
   import MemoryPicker from "../MemoryPicker.svelte";
 
@@ -13,12 +14,21 @@
   api.systemMemory().then((m) => (memory = m));
 
   // Черновик: сохраняется кнопкой, чтобы не писать файл на каждое движение ползунка.
-  let draft: BuildSettings = $state({ memory_mb: null, jvm_args: null });
+  const current = $derived<BuildSettings>({
+    memory_mb: entry.settings?.memory_mb ?? null,
+    jvm_args: entry.settings?.jvm_args ?? null,
+    own_options: entry.settings?.own_options ?? false,
+    own_servers: entry.settings?.own_servers ?? false,
+  });
+  let draft: BuildSettings = $state({ memory_mb: null, jvm_args: null, own_options: false, own_servers: false });
   $effect(() => {
-    draft = { memory_mb: entry.settings?.memory_mb ?? null, jvm_args: entry.settings?.jvm_args ?? null };
+    draft = { ...current };
   });
   const changed = $derived(
-    draft.memory_mb !== (entry.settings?.memory_mb ?? null) || draft.jvm_args !== (entry.settings?.jvm_args ?? null),
+    draft.memory_mb !== current.memory_mb ||
+      draft.jvm_args !== current.jvm_args ||
+      draft.own_options !== current.own_options ||
+      draft.own_servers !== current.own_servers,
   );
 
   const inheritMemory = $derived.by(() => {
@@ -35,6 +45,23 @@
     }
   }
 </script>
+
+<div class="card block">
+  <h3>Общее для всех сборок</h3>
+  <label class="opt">
+    <input type="checkbox" checked={!draft.own_options} onchange={(e) => (draft.own_options = !e.currentTarget.checked)} />
+    Общие настройки игры
+  </label>
+  <p class="muted small">
+    FOV, чувствительность, звук, клавиши и прочее — одни на все сборки.
+    <button class="link" onclick={() => openSettings("profile")}>Открыть настройки игры</button>
+  </p>
+  <label class="opt">
+    <input type="checkbox" checked={!draft.own_servers} onchange={(e) => (draft.own_servers = !e.currentTarget.checked)} />
+    Общий список серверов
+  </label>
+  <p class="muted small">Добавили сервер в одной сборке — он появится во всех.</p>
+</div>
 
 <div class="card block">
   <h3>Память для игры</h3>
@@ -83,6 +110,14 @@
     display: flex;
     align-items: center;
     gap: var(--s2);
+    cursor: pointer;
+  }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    text-decoration: underline;
     cursor: pointer;
   }
   .mono {

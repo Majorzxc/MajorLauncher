@@ -20,6 +20,10 @@ const META: &str = ".majorlauncher.json";
 const COVER: &str = ".cover.png";
 /// Сколько дней сборка лежит в корзине, прежде чем удалиться насовсем.
 pub const TRASH_DAYS: u64 = 30;
+/// Папка «Быстрой игры» — общей ванильной сборки, где версия выбирается при
+/// запуске (раздел 5.18 ТЗ). Названия сборок дают только латиницу, цифры и
+/// «-», так что с обычной сборкой папка не совпадёт.
+pub const QUICK_ID: &str = "_quick";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -52,6 +56,9 @@ pub struct Instance {
     pub playtime: u64,
     #[serde(default, skip_serializing_if = "BuildSettings::is_default")]
     pub settings: BuildSettings,
+    /// «Быстрая игра»: версия меняется при каждом запуске.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quick: bool,
 }
 
 /// Настройки сборки, которые переопределяют общие (вкладка «Настройки сборки»).
@@ -63,6 +70,12 @@ pub struct BuildSettings {
     /// Аргументы JVM; `None` — как в общих настройках.
     #[serde(default)]
     pub jvm_args: Option<String>,
+    /// Свои настройки игры: общий профиль в эту сборку не пишется.
+    #[serde(default)]
+    pub own_options: bool,
+    /// Свой список серверов вместо общего.
+    #[serde(default)]
+    pub own_servers: bool,
 }
 
 impl BuildSettings {
@@ -129,7 +142,17 @@ pub struct Builds {
     data: DataDir,
 }
 
-fn now() -> u64 {
+fn not_quick(id: &str) -> Result<()> {
+    if id == QUICK_ID {
+        return Err(Error::Other(
+            "«Быструю игру» нельзя удалить или убрать в архив; её мир можно скопировать в сборку"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
@@ -196,6 +219,7 @@ impl Builds {
             last_played: None,
             playtime: 0,
             settings: BuildSettings::default(),
+            quick: false,
         };
         write_meta(dir, &instance)?;
         Ok(Some(instance))
@@ -222,6 +246,7 @@ impl Builds {
             last_played: None,
             playtime: 0,
             settings: BuildSettings::default(),
+            quick: false,
         };
         let dir = self.data.instance(&id);
         std::fs::create_dir_all(&dir).at(&dir)?;
@@ -276,6 +301,38 @@ impl Builds {
         Ok(self.data.instance(id))
     }
 
+    /// «Быстрая игра» с выбранной версией: создаётся при первом запуске,
+    /// дальше просто запоминает последнюю версию.
+    pub fn quick(&self, version: &str) -> Result<Instance> {
+        let version = version.trim();
+        if version.is_empty() {
+            return Err(Error::Other("не выбрана версия игры".into()));
+        }
+        let dir = self.data.instance(QUICK_ID);
+        let instance = match read_meta(&dir)? {
+            Some(mut i) => {
+                i.version = version.to_string();
+                i
+            }
+            None => Instance {
+                id: QUICK_ID.into(),
+                name: "Быстрая игра".into(),
+                version: version.to_string(),
+                loader: Loader::Vanilla,
+                group: None,
+                pinned: false,
+                created: now(),
+                last_played: None,
+                playtime: 0,
+                settings: BuildSettings::default(),
+                quick: true,
+            },
+        };
+        std::fs::create_dir_all(&dir).at(&dir)?;
+        write_meta(&dir, &instance)?;
+        Ok(instance)
+    }
+
     /// Копия сборки со всеми мирами и настройками. Время в игре не копируется.
     pub fn duplicate(&self, id: &str) -> Result<Instance> {
         let source = self.get(id)?;
@@ -284,6 +341,7 @@ impl Builds {
         let dir = self.data.instance(&new_id);
         copy_dir(&self.data.instance(id), &dir)?;
         let copy = Instance {
+            quick: false,
             id: new_id,
             name,
             created: now(),
@@ -299,6 +357,7 @@ impl Builds {
     /// Переместить в корзину. Папка переезжает целиком — мгновенно, если
     /// корзина на том же диске (она всегда в той же папке данных).
     pub fn trash(&self, id: &str) -> Result<()> {
+        not_quick(id)?;
         let instance = self.get(id)?;
         let deleted_at = now();
         let trash_id = format!("{id}__{deleted_at}");
@@ -380,6 +439,7 @@ impl Builds {
 
     /// Упаковать в архив и убрать из рабочих сборок.
     pub fn archive(&self, id: &str) -> Result<()> {
+        not_quick(id)?;
         let instance = self.get(id)?;
         let dir = self.data.instance(id);
         let archive = self.data.archive();
@@ -710,7 +770,7 @@ pub(crate) fn dir_size(dir: &Path) -> u64 {
     total
 }
 
-fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+pub(crate) fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to).at(to)?;
     for entry in std::fs::read_dir(from).at(from)?.flatten() {
         let src = entry.path();
@@ -724,7 +784,7 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-fn zip_dir(dir: &Path, out: &Path) -> Result<()> {
+pub(crate) fn zip_dir(dir: &Path, out: &Path) -> Result<()> {
     let file = std::fs::File::create(out).at(out)?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
@@ -835,6 +895,8 @@ mod tests {
                     settings: Some(BuildSettings {
                         memory_mb: Some(3072),
                         jvm_args: Some("  ".into()),
+                        own_servers: true,
+                        ..Default::default()
                     }),
                 },
             )
@@ -843,10 +905,11 @@ mod tests {
         assert_eq!(u.settings.memory_mb, Some(3072));
         // Пустые аргументы — значит «как в общих настройках».
         assert_eq!(u.settings.jvm_args, None);
+        assert!(u.settings.own_servers && !u.settings.own_options);
         let too_much = Patch {
             settings: Some(BuildSettings {
                 memory_mb: Some(100),
-                jvm_args: None,
+                ..Default::default()
             }),
             ..Default::default()
         };

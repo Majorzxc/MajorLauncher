@@ -6,7 +6,7 @@
 
 use std::collections::VecDeque;
 use std::io::BufRead;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -18,9 +18,12 @@ use crate::download::Downloader;
 use crate::error::{Error, Result};
 use crate::install::{self, Mode, Progress};
 use crate::launch::{self, LaunchCommand, LaunchOptions};
+use crate::library::Library;
+use crate::meta::VersionManifest;
+use crate::options::{self, GameVersion, Profile};
 use crate::paths::DataDir;
 use crate::playtime::{PlaceTime, SessionRecord, Tracker};
-use crate::{content, system};
+use crate::{builds, content, servers, system};
 
 /// Сколько последних строк вывода держать — для сообщения о краше.
 const TAIL_LINES: usize = 200;
@@ -37,6 +40,12 @@ pub fn memory_mb(instance: &Instance, game: &GameSettings) -> u32 {
         .unwrap_or_else(|| system::auto_memory_mb(system::total_ram_mb()))
 }
 
+/// Готовый к запуску набор: команда и что нужно знать о версии.
+pub struct Launch {
+    pub cmd: LaunchCommand,
+    pub version: GameVersion,
+}
+
 /// Подготовить запуск: аккаунт по умолчанию, файлы версии, команда.
 pub async fn prepare(
     data: &DataDir,
@@ -44,7 +53,7 @@ pub async fn prepare(
     instance: &Instance,
     game: &GameSettings,
     progress: Progress,
-) -> Result<LaunchCommand> {
+) -> Result<Launch> {
     let mut accounts = Accounts::load(data)?;
     let account = accounts.default_account().cloned().ok_or_else(|| {
         Error::Other("нет аккаунта: добавьте ник или войдите через Ely.by (справа вверху)".into())
@@ -69,7 +78,107 @@ pub async fn prepare(
         console: false,
         extra_jvm_args: jvm_args,
     };
-    launch::build(data, &prepared, &session, &opts)
+    let cmd = launch::build(data, &prepared, &session, &opts)?;
+    let version = GameVersion {
+        release: prepared.version.release_time.clone(),
+        data_version: options::data_version(&data.client_jar(&prepared.version.id)),
+    };
+    Ok(Launch { cmd, version })
+}
+
+/// Перед запуском: общие настройки игры, общий список серверов, ресурспаки и
+/// шейдеры из библиотеки (раздел 5.18 ТЗ). Ошибка здесь игру не останавливает —
+/// окно покажет её после игры.
+pub fn before_launch(data: &DataDir, instance: &Instance, version: &GameVersion) -> Result<()> {
+    let game_dir = data.instance(&instance.id);
+    if !instance.settings.own_options {
+        let mut profile = Profile::load(data)?;
+        // Самый первый запуск после обновления: профилем становятся настройки
+        // этой сборки — с ними игрок и играл.
+        if profile.is_empty() && game_dir.join("options.txt").exists() {
+            options::import(&mut profile, &game_dir, version)?;
+            profile.seeded_from = Some(instance.name.clone());
+            profile.save(data)?;
+        }
+        options::apply(&profile, &game_dir, version)?;
+    }
+    if !instance.settings.own_servers {
+        servers::before_launch(data, &game_dir)?;
+    }
+    Library::new(data).link_into(&instance.id, &game_dir)
+}
+
+/// После игры: забрать изменённые настройки и список серверов в общие.
+pub fn after_exit(data: &DataDir, instance: &Instance, version: &GameVersion) -> Result<()> {
+    let game_dir = data.instance(&instance.id);
+    if !instance.settings.own_options {
+        let mut profile = Profile::load(data)?;
+        options::import(&mut profile, &game_dir, version)?;
+        profile.save(data)?;
+    }
+    if !instance.settings.own_servers {
+        servers::after_exit(data, &game_dir)?;
+    }
+    Ok(())
+}
+
+/// Мир, который открывали в более новой версии, чем запускаемая.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct RiskyWorld {
+    pub folder: String,
+    pub name: String,
+    /// В какой версии открывали последним.
+    pub version: String,
+}
+
+/// Миры «Быстрой игры», которым опасна версия `target`: мир из новой версии
+/// в старой может испортиться (пропадут чанки или предметы).
+pub fn risky_worlds(game_dir: &Path, target: &str, manifest: &VersionManifest) -> Vec<RiskyWorld> {
+    let released = |id: &str| {
+        manifest
+            .versions
+            .iter()
+            .find(|v| v.id == id)
+            .map(|v| v.release_time.clone())
+    };
+    let Some(target_time) = released(target) else {
+        return Vec::new();
+    };
+    let Ok(read) = std::fs::read_dir(game_dir.join("saves")) else {
+        return Vec::new();
+    };
+    let mut out: Vec<RiskyWorld> = read
+        .flatten()
+        .filter_map(|e| {
+            let info = content::level_info(&e.path().join("level.dat"))?;
+            let version = info.version?;
+            if released(&version)? <= target_time {
+                return None;
+            }
+            let folder = e.file_name().into_string().ok()?;
+            Some(RiskyWorld {
+                name: info.name.unwrap_or_else(|| folder.clone()),
+                folder,
+                version,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// Копии миров в `backups/` папки игры (zip) перед запуском старой версии.
+pub fn backup_worlds(game_dir: &Path, worlds: &[RiskyWorld]) -> Result<()> {
+    let stamp = builds::now();
+    for w in worlds {
+        let out = game_dir
+            .join("backups")
+            .join(format!("{}_{}_{stamp}.zip", w.folder, w.version));
+        std::fs::create_dir_all(out.parent().expect("есть папка"))
+            .map_err(|e| Error::Other(e.to_string()))?;
+        builds::zip_dir(&game_dir.join("saves").join(&w.folder), &out)?;
+    }
+    Ok(())
 }
 
 /// Запущенная игра.
@@ -268,6 +377,63 @@ mod tests {
             tail: tail.iter().map(|s| s.to_string()).collect(),
             had_window: true,
         }
+    }
+
+    /// Быстрая игра: мир из 1.21.10 под угрозой при запуске 1.21.1, мир из
+    /// 1.12.2 и мир без версии (до 1.9) — нет.
+    #[test]
+    fn worlds_from_newer_versions_are_risky() {
+        use crate::nbt::{Tag, write_file};
+        let game = tempfile::tempdir().unwrap();
+        let world = |folder: &str, version: Option<&str>| {
+            let mut data = vec![("LevelName".into(), Tag::String(format!("Мир {folder}")))];
+            if let Some(v) = version {
+                data.push((
+                    "Version".into(),
+                    Tag::Compound(vec![("Name".into(), Tag::String(v.into()))]),
+                ));
+            }
+            let dir = game.path().join("saves").join(folder);
+            std::fs::create_dir_all(&dir).unwrap();
+            write_file(
+                &dir.join("level.dat"),
+                &Tag::Compound(vec![("Data".into(), Tag::Compound(data))]),
+            )
+            .unwrap();
+        };
+        world("new", Some("1.21.10"));
+        world("old", Some("1.12.2"));
+        world("ancient", None);
+        let manifest: VersionManifest = serde_json::from_str(
+            r#"{"latest":{"release":"1.21.10","snapshot":"1.21.10"},"versions":[
+              {"id":"1.21.10","type":"release","url":"u","sha1":"s","time":"t","releaseTime":"2025-10-07T09:00:00+00:00"},
+              {"id":"1.21.1","type":"release","url":"u","sha1":"s","time":"t","releaseTime":"2024-08-08T11:51:42+00:00"},
+              {"id":"1.12.2","type":"release","url":"u","sha1":"s","time":"t","releaseTime":"2017-09-18T08:39:46+00:00"}]}"#,
+        )
+        .unwrap();
+        let risky = risky_worlds(game.path(), "1.21.1", &manifest);
+        assert_eq!(
+            risky,
+            vec![RiskyWorld {
+                folder: "new".into(),
+                name: "Мир new".into(),
+                version: "1.21.10".into()
+            }]
+        );
+        assert!(risky_worlds(game.path(), "1.21.10", &manifest).is_empty());
+
+        backup_worlds(game.path(), &risky).unwrap();
+        let backups: Vec<_> = std::fs::read_dir(game.path().join("backups"))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert_eq!(backups.len(), 1);
+        assert!(
+            backups[0]
+                .file_name()
+                .to_string_lossy()
+                .starts_with("new_1.21.10_")
+        );
     }
 
     #[test]

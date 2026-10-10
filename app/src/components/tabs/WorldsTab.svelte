@@ -1,9 +1,12 @@
 <script lang="ts">
   // Миры сборки: название из level.dat, размер, когда играл.
-  import { api, type World } from "../../lib/api";
+  import { api, QUICK_ID, type World } from "../../lib/api";
+  import { builds } from "../../lib/builds.svelte";
   import { ago, size } from "../../lib/format";
-  import { attempt } from "../../lib/toast.svelte";
+  import { attempt, toast } from "../../lib/toast.svelte";
   import Icon from "../Icon.svelte";
+  import Modal from "../Modal.svelte";
+  import Select from "../Select.svelte";
 
   let { id }: { id: string } = $props();
   let list: World[] | null = $state(null);
@@ -17,6 +20,23 @@
     }
   }
   load();
+
+  // «Скопировать мир в другую сборку».
+  let copying: World | null = $state(null);
+  let target: string | null = $state(null);
+  const targets = $derived([
+    { value: null as string | null, label: "Выберите сборку…" },
+    ...builds.list
+      .filter((b) => b.state === "active" && b.id !== id)
+      .map((b) => ({ value: b.id as string | null, label: b.id === QUICK_ID ? "Быстрая игра" : `${b.name} · ${b.version}` })),
+  ]);
+  async function copy() {
+    const w = copying!;
+    const to = target!;
+    copying = null;
+    const folder = await attempt("Копирование мира", () => api.copyWorld(id, w.folder, to));
+    if (folder) toast(`Мир «${w.name}» скопирован в «${targets.find((t) => t.value === to)?.label}»`);
+  }
 </script>
 
 <div class="bar">
@@ -39,8 +59,15 @@
           {w.name}
           {#if w.name !== w.folder}<span class="muted small">· папка {w.folder}</span>{/if}
         </span>
+        {#if w.version}<span class="muted small">{w.version}</span>{/if}
         <span class="muted small">{size(w.size)}</span>
         <span class="muted small when">{ago(w.last_played)}</span>
+        <button
+          class="btn btn-sm btn-quiet"
+          aria-label="Скопировать мир {w.name} в другую сборку"
+          title="Скопировать в другую сборку"
+          onclick={() => ((copying = w), (target = null))}><Icon name="copy" size={16} /></button
+        >
         <button
           class="btn btn-sm btn-quiet"
           aria-label="Открыть папку мира {w.name}"
@@ -51,6 +78,20 @@
       </li>
     {/each}
   </ul>
+{/if}
+
+{#if copying}
+  <Modal title="Скопировать «{copying.name}»" width={460} onclose={() => (copying = null)}>
+    <p class="muted small">
+      Копия мира появится в выбранной сборке, этот мир останется на месте. Открывать мир в версии старее той, где в нём
+      играли, опасно: он может испортиться.
+    </p>
+    <Select label="Сборка" value={target} options={targets} onchange={(v) => (target = v)} />
+    {#snippet footer()}
+      <button class="btn btn-quiet" onclick={() => (copying = null)}>Отмена</button>
+      <button class="btn btn-primary" disabled={!target} onclick={copy}>Скопировать</button>
+    {/snippet}
+  </Modal>
 {/if}
 
 <style>

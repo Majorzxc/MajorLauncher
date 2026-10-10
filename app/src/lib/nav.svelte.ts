@@ -16,6 +16,14 @@ export const nav = $state({
   homeBuild: null as string | null,
 });
 
+/// Какую страницу настроек открыть при переходе (одноразово).
+export const settingsPage = $state({ value: null as null | "profile" | "look" | "game" | "data" | "about" });
+
+export function openSettings(page: NonNullable<typeof settingsPage.value>) {
+  settingsPage.value = page;
+  go("settings");
+}
+
 export function go(section: SectionId) {
   nav.section = section;
   nav.build = null;

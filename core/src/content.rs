@@ -4,13 +4,13 @@
 //! Окно передаёт только имя файла внутри известной папки — путь строит ядро
 //! и не выпускает его за пределы папки сборки.
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IoContext, Result};
+use crate::nbt::{self, Tag};
 use crate::paths::DataDir;
 
 /// Папки с файлами, которые игрок кладёт в сборку.
@@ -24,7 +24,7 @@ pub enum Folder {
 }
 
 impl Folder {
-    fn dir(self) -> &'static str {
+    pub(crate) fn dir(self) -> &'static str {
         match self {
             Folder::Mods => "mods",
             Folder::ResourcePacks => "resourcepacks",
@@ -129,6 +129,8 @@ pub struct World {
     pub size: u64,
     /// Когда в мире играли последний раз (время изменения level.dat).
     pub last_played: u64,
+    /// В какой версии игры мир открывали последним.
+    pub version: Option<String>,
     /// Значок мира `icon.png` как data URL — он маленький, 64×64.
     pub icon: Option<String>,
 }
@@ -157,8 +159,10 @@ pub fn worlds(game_dir: &Path) -> Result<Vec<World>> {
                 base64::engine::general_purpose::STANDARD.encode(png)
             )
         });
+        let info = level_info(&level).unwrap_or_default();
         out.push(World {
-            name: level_name(&level).unwrap_or_else(|| folder.clone()),
+            name: info.name.unwrap_or_else(|| folder.clone()),
+            version: info.version,
             folder,
             size: crate::builds::dir_size(&dir),
             last_played: mtime(&meta),
@@ -167,6 +171,27 @@ pub fn worlds(game_dir: &Path) -> Result<Vec<World>> {
     }
     out.sort_by_key(|w| std::cmp::Reverse(w.last_played));
     Ok(out)
+}
+
+/// Скопировать мир в другую сборку. Если там уже есть папка с таким именем,
+/// копия получает « (2)», « (3)»… Возвращает имя новой папки.
+pub fn copy_world(from_game: &Path, folder: &str, to_game: &Path) -> Result<String> {
+    check_name(folder)?;
+    let from = from_game.join("saves").join(folder);
+    if !from.join("level.dat").exists() {
+        return Err(Error::Other(format!("мира «{folder}» нет")));
+    }
+    let saves = to_game.join("saves");
+    let mut name = folder.to_string();
+    let mut n = 2;
+    while saves.join(&name).exists() {
+        name = format!("{folder} ({n})");
+        n += 1;
+    }
+    crate::builds::copy_dir(&from, &saves.join(&name))?;
+    // Замок открытого мира копировать незачем: игра создаст свой.
+    let _ = std::fs::remove_file(saves.join(&name).join("session.lock"));
+    Ok(name)
 }
 
 /// Мир, в котором игрок сейчас, — папка и название: тот, чей `session.lock`
@@ -201,22 +226,38 @@ pub fn world_names(game_dir: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
-/// `LevelName` из level.dat (NBT в gzip). Разбирать весь NBT не нужно:
-/// достаточно найти строковый тег с этим именем.
+/// Что лаунчеру нужно из level.dat.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LevelInfo {
+    /// Название мира в игре.
+    pub name: Option<String>,
+    /// В какой версии мир открывали последним («1.21.1»); есть с 1.9.
+    pub version: Option<String>,
+    /// Номер формата данных этой версии; есть с 1.9.
+    pub data_version: Option<i32>,
+}
+
+pub fn level_info(level_dat: &Path) -> Option<LevelInfo> {
+    let root = nbt::read_file(level_dat)?;
+    let data = root.get("Data")?;
+    Some(LevelInfo {
+        name: data
+            .get("LevelName")
+            .and_then(Tag::as_str)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        version: data
+            .get("Version")
+            .and_then(|v| v.get("Name"))
+            .and_then(Tag::as_str)
+            .map(str::to_string),
+        data_version: data.get("DataVersion").and_then(Tag::as_int),
+    })
+}
+
+/// Название мира из level.dat.
 pub fn level_name(level_dat: &Path) -> Option<String> {
-    let file = std::fs::File::open(level_dat).ok()?;
-    let mut bytes = Vec::new();
-    // level.dat небольшой, но ограничиваем на случай чужого мусора в папке.
-    flate2::read::GzDecoder::new(file)
-        .take(16 * 1024 * 1024)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    const TAG: &[u8] = b"\x08\x00\x09LevelName";
-    let at = bytes.windows(TAG.len()).position(|w| w == TAG)? + TAG.len();
-    let len = u16::from_be_bytes([*bytes.get(at)?, *bytes.get(at + 1)?]) as usize;
-    let raw = bytes.get(at + 2..at + 2 + len)?;
-    let name = String::from_utf8_lossy(raw).trim().to_string();
-    (!name.is_empty()).then_some(name)
+    level_info(level_dat)?.name
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -389,6 +430,26 @@ mod tests {
     }
 
     #[test]
+    fn worlds_copy_between_builds() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        level_dat(&a.path().join("saves/New World"), "Мой мир");
+        std::fs::write(a.path().join("saves/New World/session.lock"), "x").unwrap();
+        assert_eq!(
+            copy_world(a.path(), "New World", b.path()).unwrap(),
+            "New World"
+        );
+        assert_eq!(
+            copy_world(a.path(), "New World", b.path()).unwrap(),
+            "New World (2)"
+        );
+        assert!(!b.path().join("saves/New World/session.lock").exists());
+        assert_eq!(worlds(b.path()).unwrap().len(), 2);
+        assert!(copy_world(a.path(), "../x", b.path()).is_err());
+        assert!(copy_world(a.path(), "нет такого", b.path()).is_err());
+    }
+
+    #[test]
     fn mods_toggle_and_stay_inside() {
         let game = tempfile::tempdir().unwrap();
         let mods = game.path().join("mods");
@@ -440,5 +501,21 @@ mod tests {
 
         let cover = image::load_from_memory(&cover_from(&shots.join("a.png")).unwrap()).unwrap();
         assert_eq!((cover.width(), cover.height()), (256, 256));
+    }
+}
+
+#[cfg(test)]
+mod real_files {
+    /// Ручная проверка на настоящих мирах: LEVEL_DAT=путь cargo test real_level -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn real_level_dat() {
+        for p in std::env::var("LEVEL_DAT")
+            .unwrap_or_default()
+            .split(';')
+            .filter(|p| !p.is_empty())
+        {
+            println!("{p}: {:?}", super::level_info(std::path::Path::new(p)));
+        }
     }
 }

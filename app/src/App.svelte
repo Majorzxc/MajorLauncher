@@ -8,6 +8,7 @@
   import Builds from "./screens/Builds.svelte";
   import FirstRun from "./screens/FirstRun.svelte";
   import Home from "./screens/Home.svelte";
+  import Library from "./screens/Library.svelte";
   import Placeholder from "./screens/Placeholder.svelte";
   import Settings from "./screens/Settings.svelte";
   import Stats from "./screens/Stats.svelte";
@@ -61,6 +62,8 @@
       <Builds />
     {:else if nav.section === "stats"}
       <Stats />
+    {:else if nav.section === "mods"}
+      <Library />
     {:else if nav.section === "settings"}
       <Settings />
     {:else}

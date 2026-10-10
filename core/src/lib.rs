@@ -20,11 +20,15 @@ pub mod game;
 pub mod install;
 pub mod java;
 pub mod launch;
+pub mod library;
 pub mod meta;
+pub mod nbt;
+pub mod options;
 pub mod paths;
 pub mod playtime;
 pub mod rules;
 pub mod secrets;
+pub mod servers;
 pub mod system;
 pub mod verify;
 

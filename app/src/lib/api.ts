@@ -20,6 +20,10 @@ export interface Config {
 export interface BuildSettings {
   memory_mb: number | null;
   jvm_args: string | null;
+  /// Свои настройки игры вместо общих.
+  own_options?: boolean;
+  /// Свой список серверов вместо общего.
+  own_servers?: boolean;
 }
 
 export interface DirCheck {
@@ -41,6 +45,8 @@ export interface Instance {
   last_played: number | null;
   playtime: number;
   settings?: BuildSettings;
+  /// «Быстрая игра»: версия выбирается при запуске.
+  quick?: boolean;
 }
 
 export interface Entry extends Instance {
@@ -95,7 +101,53 @@ export interface World {
   name: string;
   size: number;
   last_played: number;
+  /// В какой версии открывали последним.
+  version: string | null;
   icon: string | null;
+}
+
+export const QUICK_ID = "_quick";
+
+export interface RiskyWorld {
+  folder: string;
+  name: string;
+  version: string;
+}
+
+export type Group = "view" | "controls" | "keys" | "sound" | "chat" | "interface" | "language" | "graphics" | "packs";
+
+export type SettingKind =
+  | { type: "bool" }
+  | { type: "slider"; min: number; max: number; step: number; mul: number; add: number; unit: string }
+  | { type: "int"; min: number; max: number; special: [number, string] | null }
+  | { type: "choice"; options: [string, string][]; quoted: boolean };
+
+export interface Setting {
+  key: string;
+  group: Group;
+  label: string;
+  hint?: string;
+  kind: SettingKind;
+  default: string;
+  since?: string;
+}
+
+export interface OptionsView {
+  settings: Setting[];
+  values: Record<string, string>;
+  shared: Group[];
+  seeded_from: string | null;
+  keys: number;
+  packs: string[] | null;
+}
+
+export interface LibraryItem {
+  folder: "resourcepacks" | "shaderpacks";
+  file: string;
+  size: number;
+  added: number;
+  all_builds: boolean;
+  builds: string[];
 }
 
 export interface LogFile {
@@ -181,7 +233,20 @@ export const api = {
     call<ElyLogin>("account_add_ely", { login, password, code }),
   removeAccount: (id: string) => call<Account[]>("account_remove", { id }),
 
-  play: (id: string) => call<void>("build_play", { id }),
+  play: (id: string, version: string | null = null) => call<void>("build_play", { id, version }),
+  quickCheck: (version: string) => call<RiskyWorld[]>("quick_check", { version }),
+  copyWorld: (id: string, folder: string, to: string) => call<string>("build_copy_world", { id, folder, to }),
+
+  options: () => call<OptionsView>("options_get"),
+  setOption: (key: string, value: string) => call<OptionsView>("options_set", { key, value }),
+  setShared: (group: Group, shared: boolean) => call<OptionsView>("options_set_shared", { group, shared }),
+  seedOptions: (id: string) => call<OptionsView>("options_seed", { id }),
+
+  library: () => call<LibraryItem[]>("library_list"),
+  libraryAdd: (folder: LibraryItem["folder"], paths: string[]) => call<string[]>("library_add", { folder, paths }),
+  librarySet: (folder: LibraryItem["folder"], file: string, allBuilds: boolean, builds: string[]) =>
+    call<LibraryItem>("library_set", { folder, file, allBuilds, builds }),
+  libraryRemove: (folder: LibraryItem["folder"], file: string) => call<void>("library_remove", { folder, file }),
   playStatus: () => call<{ status: PlayStatus; finished: Finished | null }>("play_status"),
 
   files: (id: string, folder: Folder) => call<FileEntry[]>("build_files", { id, folder }),

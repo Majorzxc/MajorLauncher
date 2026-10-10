@@ -8,6 +8,7 @@
 mod accounts;
 mod builds;
 mod content;
+mod game_options;
 mod play;
 mod settings;
 
@@ -192,6 +193,16 @@ fn main() {
             content::build_cover_from_screenshot,
             content::build_open,
             content::stats_summary,
+            game_options::options_get,
+            game_options::options_set,
+            game_options::options_set_shared,
+            game_options::options_seed,
+            game_options::quick_check,
+            game_options::build_copy_world,
+            game_options::library_list,
+            game_options::library_add,
+            game_options::library_set,
+            game_options::library_remove,
             play::build_play,
             play::play_status,
         ])

@@ -4,13 +4,17 @@
   import { api } from "../lib/api";
   import { size } from "../lib/format";
   import GameOptions from "../components/GameOptions.svelte";
+  import GameProfile from "../components/GameProfile.svelte";
+  import { settingsPage } from "../lib/nav.svelte";
   import HexInput from "../components/HexInput.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
   import { apply, save, theme, type Appearance, type ThemeMode } from "../lib/theme.svelte";
 
-  type Page = "look" | "game" | "data" | "about";
-  let page: Page = $state("look");
+  type Page = "profile" | "look" | "game" | "data" | "about";
+  // Страница настроек из адреса (#settings/profile) — чтобы открыть «Настройки игры» по ссылке.
+  let page: Page = $state(settingsPage.value ?? "look");
+  settingsPage.value = null;
   const version = call<string>("core_version");
   const dataDir = api.config().then((c) => (c.data_dir ? api.inspectDir(c.data_dir) : null));
 
@@ -51,11 +55,14 @@
 
 <div class="settings">
   <nav class="pages" aria-label="Разделы настроек">
+    <button class="page" aria-current={page === "profile" ? "page" : undefined} onclick={() => (page = "profile")}>
+      Настройки игры
+    </button>
     <button class="page" aria-current={page === "look" ? "page" : undefined} onclick={() => (page = "look")}>
       Внешний вид
     </button>
     <button class="page" aria-current={page === "game" ? "page" : undefined} onclick={() => (page = "game")}>
-      Игра
+      Запуск игры
     </button>
     <button class="page" aria-current={page === "data" ? "page" : undefined} onclick={() => (page = "data")}>
       Папка данных
@@ -158,8 +165,11 @@
       >
         <Icon name="restore" size={18} /> Сбросить свои цвета
       </button>
+    {:else if page === "profile"}
+      <h1>Настройки игры</h1>
+      <GameProfile />
     {:else if page === "game"}
-      <h1>Игра</h1>
+      <h1>Запуск игры</h1>
       <GameOptions />
     {:else if page === "data"}
       <h1>Папка данных</h1>

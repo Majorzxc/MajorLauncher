@@ -69,6 +69,10 @@ pub struct VersionJson {
     pub id: String,
     #[serde(rename = "type", default)]
     pub kind: String,
+    /// Дата выхода (ISO 8601): по ней лаунчер понимает, какие настройки и
+    /// форматы есть у версии. Сравнивается как строка.
+    #[serde(rename = "releaseTime", default)]
+    pub release_time: String,
     #[serde(rename = "mainClass")]
     pub main_class: String,
     /// Новые версии (1.13+): аргументы с правилами.
