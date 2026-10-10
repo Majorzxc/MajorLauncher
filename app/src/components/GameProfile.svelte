@@ -297,7 +297,8 @@
     accent-color: var(--accent);
   }
   .num {
-    width: 96px;
+    /* Число — узко, «Без ограничения» — шире: ползунок уступает место. */
+    min-width: 64px;
     text-align: right;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
