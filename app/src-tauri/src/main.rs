@@ -10,6 +10,7 @@ mod builds;
 mod catalog;
 mod content;
 mod game_options;
+mod mods;
 mod play;
 mod settings;
 
@@ -252,6 +253,12 @@ fn main() {
             game_options::library_set,
             game_options::library_remove,
             play::build_play,
+            play::build_verify,
+            mods::mods_report,
+            mods::mods_apply,
+            mods::mods_remove,
+            mods::mods_update,
+            mods::mods_pin,
             play::play_status,
         ])
         .build(tauri::generate_context!())

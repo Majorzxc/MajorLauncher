@@ -116,6 +116,54 @@ export interface PlanItem {
   replaces: string | null;
 }
 
+// Моды в сборке (разделы 5.4 и 5.6 ТЗ).
+export interface KnownMod {
+  project_id: string;
+  version_id: string;
+  title: string;
+  version_number: string;
+  icon_url: string | null;
+}
+
+export interface ModInfo {
+  file: string;
+  name: string;
+  version: string;
+  enabled: boolean;
+  size: number;
+  sha1: string;
+  loaders: string[];
+  modrinth: KnownMod | null;
+  trusted: boolean;
+  pinned: boolean;
+  update: { version_id: string; version_number: string } | null;
+  malware: string | null;
+}
+
+export type ModAction =
+  | { kind: "disable"; file: string }
+  | { kind: "delete"; file: string }
+  | { kind: "trust"; sha1: string }
+  | { kind: "install"; project: string; title: string }
+  | { kind: "search"; query: string }
+  | { kind: "loader" }
+  | { kind: "redownload"; version_id: string; file: string }
+  | { kind: "keep_newest"; disable: string[] }
+  | { kind: "update"; version_id: string; file: string };
+
+export interface ModIssue {
+  level: "block" | "warn" | "tip";
+  text: string;
+  file: string | null;
+  action: ModAction | null;
+}
+
+export interface ModsReport {
+  mods: ModInfo[];
+  issues: ModIssue[];
+  online: boolean;
+}
+
 export interface Plan {
   items: PlanItem[];
   present: string[];
@@ -338,7 +386,15 @@ export interface Summary {
   days: { day: number; seconds: number }[];
 }
 
-export type Phase = "idle" | "preparing" | "downloading" | "installing" | "starting" | "running";
+export type Phase = "idle" | "preparing" | "verifying" | "downloading" | "installing" | "starting" | "running";
+
+/// Итог «Проверить файлы».
+export interface Checked {
+  /// Файлов игры, библиотек, ассетов и Java скачано заново.
+  fixed: number;
+  /// Модов из каталога, которые с ним не совпадают.
+  mods_changed: number;
+}
 
 export interface PlayStatus {
   build: string | null;
@@ -376,7 +432,14 @@ export const api = {
     call<ElyLogin>("account_add_ely", { login, password, code }),
   removeAccount: (id: string) => call<Account[]>("account_remove", { id }),
 
-  play: (id: string, version: string | null = null) => call<void>("build_play", { id, version }),
+  play: (id: string, version: string | null = null, force = false) =>
+    call<ModIssue[] | null>("build_play", { id, version, force }),
+  verify: (id: string) => call<Checked>("build_verify", { id }),
+  modsReport: (id: string, online: boolean) => call<ModsReport>("mods_report", { id, online }),
+  modsApply: (id: string, action: ModAction) => call<void>("mods_apply", { id, action }),
+  modsRemove: (id: string, file: string) => call<void>("mods_remove", { id, file }),
+  modsUpdate: (id: string, only: [string, string][]) => call<string[]>("mods_update", { id, only }),
+  modsPin: (id: string, project: string, pinned: boolean) => call<Instance>("mods_pin", { id, project, pinned }),
   quickCheck: (version: string) => call<RiskyWorld[]>("quick_check", { version }),
   copyWorld: (id: string, folder: string, to: string) => call<string>("build_copy_world", { id, folder, to }),
 

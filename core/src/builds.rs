@@ -56,6 +56,9 @@ pub struct Instance {
     /// «Быстрая игра»: версия меняется при каждом запуске.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub quick: bool,
+    /// Моды, которые не обновлять (id проектов Modrinth).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pinned_mods: Vec<String>,
 }
 
 /// Настройки сборки, которые переопределяют общие (вкладка «Настройки сборки»).
@@ -250,6 +253,7 @@ impl Builds {
             playtime: 0,
             settings: BuildSettings::default(),
             quick: false,
+            pinned_mods: Vec::new(),
         };
         write_meta(dir, &instance)?;
         Ok(Some(instance))
@@ -285,6 +289,7 @@ impl Builds {
             playtime: 0,
             settings: BuildSettings::default(),
             quick: false,
+            pinned_mods: Vec::new(),
         };
         let dir = self.data.instance(&id);
         std::fs::create_dir_all(&dir).at(&dir)?;
@@ -325,6 +330,17 @@ impl Builds {
         }
         write_meta(&self.data.instance(id), &instance)?;
         self.remember_group(instance.group.as_deref())?;
+        Ok(instance)
+    }
+
+    /// Закрепить мод (id проекта Modrinth): «Обновить всё» его пропускает.
+    pub fn pin_mod(&self, id: &str, project: &str, pinned: bool) -> Result<Instance> {
+        let mut instance = self.get(id)?;
+        instance.pinned_mods.retain(|p| p != project);
+        if pinned {
+            instance.pinned_mods.push(project.to_string());
+        }
+        write_meta(&self.data.instance(id), &instance)?;
         Ok(instance)
     }
 
@@ -373,6 +389,7 @@ impl Builds {
                 playtime: 0,
                 settings: BuildSettings::default(),
                 quick: true,
+                pinned_mods: Vec::new(),
             },
         };
         std::fs::create_dir_all(&dir).at(&dir)?;
@@ -389,6 +406,7 @@ impl Builds {
         copy_dir(&self.data.instance(id), &dir)?;
         let copy = Instance {
             quick: false,
+            pinned_mods: Vec::new(),
             id: new_id,
             name,
             created: now(),

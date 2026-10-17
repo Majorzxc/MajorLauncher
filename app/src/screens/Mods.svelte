@@ -1,6 +1,5 @@
 <script lang="ts">
   // Раздел «Моды»: каталог Modrinth и библиотека (раздел 5.4 ТЗ).
-  import PlanDialog from "../components/catalog/PlanDialog.svelte";
   import { catalog } from "../lib/catalog.svelte";
   import Catalog from "./Catalog.svelte";
   import Library from "./Library.svelte";
@@ -21,16 +20,6 @@
   <Library />
 {/if}
 
-{#if catalog.ask}
-  <PlanDialog
-    plan={catalog.ask.plan}
-    ondone={(ok) => {
-      const r = catalog.ask!.resolve;
-      catalog.ask = null;
-      r(ok);
-    }}
-  />
-{/if}
 
 <style>
   .views {

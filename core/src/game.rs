@@ -97,6 +97,65 @@ pub async fn prepare(
     Ok(Launch { cmd, version })
 }
 
+/// Итог «Проверить файлы».
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct Checked {
+    /// Сколько файлов игры, библиотек, ассетов и Java скачано заново.
+    pub fixed: usize,
+    /// Сколько модов из каталога не совпадают с ним (их — на вкладке «Моды»).
+    pub mods_changed: usize,
+}
+
+/// «Проверить файлы»: хеш каждого файла версии, библиотек, ассетов и Java
+/// пересчитывается заново, повреждённые и пропавшие скачиваются. Обычный запуск
+/// сверяет файлы по размеру и дате и не видит порчу, при которой они не
+/// меняются (так диск однажды испортил файлы Java). Моды тоже пересчитываются.
+pub async fn verify(
+    data: &DataDir,
+    http: &Downloader,
+    instance: &Instance,
+    progress: Progress,
+) -> Result<Checked> {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let fixed = Arc::new(AtomicUsize::new(0));
+    let counting: Progress = {
+        let fixed = fixed.clone();
+        Arc::new(move |event| {
+            if let install::Event::Downloading { files, .. } = event {
+                fixed.fetch_add(files, Ordering::Relaxed);
+            }
+            progress(event);
+        })
+    };
+    let id = loaders::ensure(
+        data,
+        http,
+        instance.loader,
+        &instance.version,
+        instance.loader_version.as_deref(),
+        counting.clone(),
+    )
+    .await?;
+    install::prepare(data, http, &id, Mode::Verify, counting).await?;
+
+    let (d, build) = (data.clone(), instance.id.clone());
+    tokio::task::spawn_blocking(move || crate::mods::rehash(&d, &build))
+        .await
+        .map_err(|e| Error::Other(format!("проверка модов прервана: {e}")))??;
+    let report = crate::mods::report(http, data, &instance.id, false).await?;
+    let mods_changed = report
+        .issues
+        .iter()
+        .filter(|i| matches!(i.action, Some(crate::mods::Action::Redownload { .. })))
+        .count();
+    Ok(Checked {
+        fixed: fixed.load(Ordering::Relaxed),
+        mods_changed,
+    })
+}
+
 /// Перед запуском: общие настройки игры, общий список серверов, ресурспаки и
 /// шейдеры из библиотеки (раздел 5.18 ТЗ). Ошибка здесь игру не останавливает —
 /// окно покажет её после игры.

@@ -3,7 +3,7 @@
 // заново открытое окно в play_status).
 
 import { listen } from "@tauri-apps/api/event";
-import { api, type Finished, type PlayStatus } from "./api";
+import { api, type ModIssue, type Finished, type PlayStatus } from "./api";
 import { refresh } from "./builds.svelte";
 import { duration } from "./format";
 import { inTauri } from "./tauri";
@@ -13,6 +13,8 @@ export const play = $state({
   status: { build: null, phase: "idle", done: 0, total: 0 } as PlayStatus,
   /// Игра закрылась с ошибкой — окно с подробностями.
   crash: null as Finished | null,
+  /// Запуск остановлен: в сборке проблемы, которые не дадут игре запуститься.
+  blocked: null as null | { id: string; version: string | null; issues: ModIssue[] },
 });
 
 export function percent(s: PlayStatus): number {
@@ -27,6 +29,8 @@ export function busyLabel(id: string): string | null {
   switch (s.phase) {
     case "preparing":
       return "Подготовка…";
+    case "verifying":
+      return "Проверка файлов…";
     case "downloading":
       return `Загрузка ${percent(s)}%`;
     case "installing":
@@ -38,10 +42,12 @@ export function busyLabel(id: string): string | null {
   }
 }
 
-/// Запустить сборку; `version` — для «Быстрой игры».
-export async function start(id: string, version: string | null = null) {
+/// Запустить сборку; `version` — для «Быстрой игры». Если в сборке есть
+/// проблемы, которые не дадут игре запуститься, — окно спросит «Всё равно играть?».
+export async function start(id: string, version: string | null = null, force = false) {
   try {
-    await api.play(id, version);
+    const blocked = await api.play(id, version, force);
+    if (blocked?.length) play.blocked = { id, version, issues: blocked };
   } catch (e) {
     toast(`Не удалось запустить: ${e}`, { error: true });
   }

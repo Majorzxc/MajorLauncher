@@ -5,6 +5,7 @@
   import Icon from "../components/Icon.svelte";
   import PlayButton from "../components/PlayButton.svelte";
   import FilesTab from "../components/tabs/FilesTab.svelte";
+  import ModsTab from "../components/tabs/ModsTab.svelte";
   import LogsTab from "../components/tabs/LogsTab.svelte";
   import SettingsTab from "../components/tabs/SettingsTab.svelte";
   import ShotsTab from "../components/tabs/ShotsTab.svelte";
@@ -12,7 +13,7 @@
   import { api } from "../lib/api";
   import { builds, refresh } from "../lib/builds.svelte";
   import { ago, playtime } from "../lib/format";
-  import { go } from "../lib/nav.svelte";
+  import { go, nav } from "../lib/nav.svelte";
   import { attempt } from "../lib/toast.svelte";
   import { loaderLabel } from "../lib/loaders";
 
@@ -29,7 +30,16 @@
     { id: "logs", title: "Логи" },
     { id: "settings", title: "Настройки" },
   ];
-  let tab: Tab = $state("worlds");
+  // Вкладку можно задать при переходе («Моды» из предупреждения на главной).
+  let tab: Tab = $state((nav.buildTab as Tab | null) ?? "worlds");
+  nav.buildTab = null;
+  // Переход на другую вкладку этой же сборки (страница уже открыта).
+  $effect(() => {
+    if (nav.buildTab) {
+      tab = nav.buildTab as Tab;
+      nav.buildTab = null;
+    }
+  });
   let editing = $state(false);
 
   if (!builds.loaded) refresh();
@@ -80,7 +90,9 @@
 
   <div class="body">
     {#if tab === "mods" || tab === "resourcepacks" || tab === "shaderpacks"}
-      {#key tab}<FilesTab id={entry.id} folder={tab} loader={entry.loader} />{/key}
+      {#key tab}
+        {#if tab === "mods"}<ModsTab {entry} />{:else}<FilesTab id={entry.id} folder={tab} loader={entry.loader} />{/if}
+      {/key}
     {:else if tab === "worlds"}
       <WorldsTab id={entry.id} />
     {:else if tab === "screenshots"}

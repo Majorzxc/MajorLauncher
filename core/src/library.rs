@@ -165,7 +165,8 @@ impl Library {
     }
 
     /// Куда класть файл из каталога. Имя занято другим файлом — к имени
-    /// добавляется версия.
+    /// добавляется версия. Под этим именем записана эта же версия, но файл
+    /// повреждён («Скачать заново») — он заменяется.
     pub(crate) fn store_name(
         &self,
         folder: Folder,
@@ -174,7 +175,19 @@ impl Library {
         version_id: &str,
     ) -> String {
         let path = self.path(folder, file);
+        let same_version = || {
+            self.load().is_ok_and(|lib| {
+                lib.items.iter().any(|i| {
+                    i.folder == folder
+                        && i.file == file
+                        && i.source
+                            .as_ref()
+                            .is_some_and(|s| s.version_id == version_id)
+                })
+            })
+        };
         let taken = path.exists()
+            && !same_version()
             && !crate::verify::sha1_file(&path).is_ok_and(|h| h.eq_ignore_ascii_case(sha1));
         if !taken {
             return file.to_string();
@@ -220,6 +233,58 @@ impl Library {
         };
         self.save(&lib)?;
         Ok(item)
+    }
+
+    /// Забрать файл из сборки в библиотеку (перенос): мод убран из сборки, но
+    /// не потерян. Имя занято другим файлом — к имени добавляется время.
+    pub(crate) fn adopt(&self, folder: Folder, path: &Path) -> Result<Item> {
+        let name = path
+            .file_name()
+            .map(|n| {
+                n.to_string_lossy()
+                    .trim_end_matches(".disabled")
+                    .to_string()
+            })
+            .ok_or_else(|| Error::Other("непонятное имя файла".into()))?;
+        let mut file = name.clone();
+        if self.path(folder, &file).exists() {
+            file = match name.rsplit_once('.') {
+                Some((stem, ext)) => format!("{stem}-{}.{ext}", now()),
+                None => format!("{name}-{}", now()),
+            };
+        }
+        let to = self.path(folder, &file);
+        std::fs::create_dir_all(to.parent().expect("есть папка")).at(&to)?;
+        if std::fs::rename(path, &to).is_err() {
+            std::fs::copy(path, &to).at(&to)?;
+            std::fs::remove_file(path).at(path)?;
+        }
+        let mut lib = self.load()?;
+        let item = Item {
+            folder,
+            size: std::fs::metadata(&to).at(&to)?.len(),
+            file,
+            added: now(),
+            all_builds: false,
+            builds: Vec::new(),
+            source: None,
+        };
+        lib.items.push(item.clone());
+        self.save(&lib)?;
+        Ok(item)
+    }
+
+    /// Убрать файл из библиотеки совсем (вредоносный код).
+    pub(crate) fn forget(&self, folder: Folder, file: &str) -> Result<()> {
+        let mut lib = self.load()?;
+        lib.items
+            .retain(|i| !(i.folder == folder && i.file == file));
+        self.save(&lib)?;
+        let path = self.path(folder, file);
+        match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e).at(&path),
+            _ => Ok(()),
+        }
     }
 
     /// Ресурспак или шейдер из каталога — ещё и в эту сборку.
@@ -327,5 +392,34 @@ mod tests {
         assert!(!b.join("resourcepacks/Faithful.zip").exists());
         assert!(c.join("resourcepacks/Faithful.zip").exists());
         assert!(lib.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn damaged_catalog_file_is_replaced_not_duplicated() {
+        let root = tempfile::tempdir().unwrap();
+        let data = DataDir::new(root.path().join("data"));
+        let lib = Library::new(&data);
+        let path = lib.store_path(Folder::Mods, "sodium.jar");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "испорчен").unwrap();
+        let source = |version: &str| Source {
+            project_id: "AANobbMI".into(),
+            version_id: version.into(),
+            title: "Sodium".into(),
+            version_number: "0.6".into(),
+            sha1: "aaaa".into(),
+        };
+        lib.register(Folder::Mods, "sodium.jar", source("v1"))
+            .unwrap();
+        // Та же версия — заменить испорченный файл.
+        assert_eq!(
+            lib.store_name(Folder::Mods, "sodium.jar", "aaaa", "v1"),
+            "sodium.jar"
+        );
+        // Другая версия с тем же именем файла — рядом.
+        assert_eq!(
+            lib.store_name(Folder::Mods, "sodium.jar", "bbbb", "v2"),
+            "sodium-v2.jar"
+        );
     }
 }

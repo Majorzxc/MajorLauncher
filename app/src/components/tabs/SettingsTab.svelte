@@ -4,7 +4,8 @@
   import { LOADERS, loaderLabel, loaderTitle } from "../../lib/loaders";
   import LoaderVersion from "../LoaderVersion.svelte";
   import { refresh } from "../../lib/builds.svelte";
-  import { openSettings } from "../../lib/nav.svelte";
+  import { openBuild, openSettings } from "../../lib/nav.svelte";
+  import { busyLabel, play } from "../../lib/play.svelte";
   import { attempt, toast } from "../../lib/toast.svelte";
   import MemoryPicker from "../MemoryPicker.svelte";
 
@@ -58,6 +59,26 @@
     const mb = config.game.memory_mb ?? memory.auto_mb;
     return `Как в общих настройках — ${mb} МБ${config.game.memory_mb === null ? " (авто)" : ""}`;
   });
+
+  // «Проверить файлы»: полная сверка хешей, повреждённое скачивается заново.
+  let verifying = $state(false);
+  const busy = $derived(play.status.phase !== "idle");
+  async function verify() {
+    verifying = true;
+    try {
+      const r = await api.verify(entry.id);
+      const parts = [];
+      if (r.fixed > 0) parts.push(`скачано заново файлов: ${r.fixed}`);
+      if (r.mods_changed > 0) parts.push(`модов не совпадает с каталогом: ${r.mods_changed}`);
+      if (parts.length === 0) toast("Файлы проверены — всё в порядке");
+      else toast(`Файлы проверены: ${parts.join(", ")}`);
+      if (r.mods_changed > 0) openBuild(entry.id, "mods");
+    } catch (e) {
+      toast(`Проверка файлов: ${e}`, { error: true });
+    } finally {
+      verifying = false;
+    }
+  }
 
   async function saveSettings() {
     const ok = await attempt("Настройки сборки", () => api.update(entry.id, { settings: draft }).then(() => true));
@@ -143,6 +164,20 @@
   <button class="btn btn-primary" disabled={!changed} onclick={saveSettings}>Сохранить</button>
 </div>
 
+<div class="card block verify">
+  <h3>Проверить файлы</h3>
+  <p class="muted small">
+    Хеш каждого файла игры, библиотек, Java и модов пересчитывается заново; повреждённые скачиваются снова.
+    Помогает, если игра падает непонятно почему, а обычная проверка перед запуском ничего не находит.
+    Может занять минуту-две.
+  </p>
+  <div>
+    <button class="btn" disabled={busy || verifying} onclick={verify}>
+      {verifying ? (busyLabel(entry.id) ?? "Проверка файлов…") : "Проверить файлы"}
+    </button>
+  </div>
+</div>
+
 <style>
   .block {
     display: flex;
@@ -151,6 +186,9 @@
     padding: var(--s5);
     margin-bottom: var(--s4);
     max-width: 720px;
+  }
+  .verify {
+    margin-top: var(--s6);
   }
   h3 {
     margin: 0;

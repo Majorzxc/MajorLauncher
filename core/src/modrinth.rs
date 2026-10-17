@@ -327,6 +327,42 @@ pub async fn briefs(dl: &Downloader, ids: &[&str]) -> Result<Vec<Brief>> {
     get(dl, &url("/projects", &[("ids", list(ids))])?).await
 }
 
+/// Версии по SHA-1 файлов: опознать моды, скачанные не через каталог.
+/// Ответ — только опознанные хеши.
+pub async fn by_hashes(
+    dl: &Downloader,
+    hashes: &[String],
+) -> Result<std::collections::HashMap<String, Version>> {
+    if hashes.is_empty() {
+        return Ok(Default::default());
+    }
+    let body = serde_json::json!({ "hashes": hashes, "algorithm": "sha1" });
+    let bytes = dl.post_json(&format!("{API}/version_files"), &body).await?;
+    json(&bytes, "ответ Modrinth")
+}
+
+/// Новейшие версии для файлов под эту версию игры и загрузчик.
+pub async fn updates(
+    dl: &Downloader,
+    hashes: &[String],
+    loaders: &[&str],
+    game: &str,
+) -> Result<std::collections::HashMap<String, Version>> {
+    if hashes.is_empty() {
+        return Ok(Default::default());
+    }
+    let body = serde_json::json!({
+        "hashes": hashes,
+        "algorithm": "sha1",
+        "loaders": loaders,
+        "game_versions": [game],
+    });
+    let bytes = dl
+        .post_json(&format!("{API}/version_files/update"), &body)
+        .await?;
+    json(&bytes, "ответ Modrinth")
+}
+
 /// id и slug проектов — латиница, цифры, «-» и «_»; остальное не пускаем в адрес.
 fn encode(id: &str) -> String {
     id.chars()

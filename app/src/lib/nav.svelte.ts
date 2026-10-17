@@ -14,6 +14,8 @@ export const nav = $state({
   build: buildFromHash,
   /// Сборка, выбранная на главном экране; null — последняя запущенная.
   homeBuild: null as string | null,
+  /// Вкладка, с которой открыть страницу сборки (одноразово).
+  buildTab: null as string | null,
 });
 
 /// Какую страницу настроек открыть при переходе (одноразово).
@@ -29,7 +31,8 @@ export function go(section: SectionId) {
   nav.build = null;
 }
 
-export function openBuild(id: string) {
+export function openBuild(id: string, tab: string | null = null) {
   nav.section = "builds";
   nav.build = id;
+  nav.buildTab = tab;
 }

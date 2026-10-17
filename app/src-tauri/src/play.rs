@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use majorlauncher_core::builds::QUICK_ID;
 use majorlauncher_core::game::{self, Game};
+use majorlauncher_core::mods::{self, Issue};
 use majorlauncher_core::options::GameVersion;
 use majorlauncher_core::playtime::Stats;
 use majorlauncher_core::{Builds, DataDir, Event, Instance, OnLaunch, Progress, install};
@@ -22,6 +23,8 @@ pub enum Phase {
     Idle,
     /// Проверяем файлы и аккаунт.
     Preparing,
+    /// «Проверить файлы»: пересчитываем хеши всех файлов сборки.
+    Verifying,
     Downloading,
     /// Ставим загрузчик модов: `done` из `total` шагов.
     Installing,
@@ -105,9 +108,21 @@ pub async fn build_play(
     state: State<'_, AppState>,
     id: String,
     version: Option<String>,
-) -> CmdResult<()> {
+    force: Option<bool>,
+) -> CmdResult<Option<Vec<Issue>>> {
     let data = state.data()?;
     let builds = Builds::new(data.clone());
+    // Проблемы, которые не дадут игре запуститься (раздел 5.6 ТЗ): окно
+    // покажет их и спросит «Всё равно играть?». Только известное, без сети.
+    if !force.unwrap_or(false) && id != QUICK_ID {
+        let report = mods::report(&state.http, &data, &id, false)
+            .await
+            .map_err(text)?;
+        let blocking: Vec<Issue> = report.blocking().into_iter().cloned().collect();
+        if !blocking.is_empty() {
+            return Ok(Some(blocking));
+        }
+    }
     // «Быстрая игра» запускается с версией, выбранной у кнопки.
     let instance = match &version {
         Some(v) if id == QUICK_ID => builds.quick(v),
@@ -196,7 +211,37 @@ pub async fn build_play(
         .name("game-watch".into())
         .spawn(move || watch(app, game, instance, version, on_launch, data, note))
         .map_err(text)?;
-    Ok(())
+    Ok(None)
+}
+
+/// «Проверить файлы» (страница сборки → «Настройки сборки»). Занимает кнопку
+/// «Играть» этой сборки, как подготовка к запуску.
+#[tauri::command]
+pub async fn build_verify(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<game::Checked> {
+    let data = state.data()?;
+    let instance = Builds::new(data.clone()).get(&id).map_err(text)?;
+    {
+        let mut play = state.play.lock().unwrap();
+        if play.status.phase != Phase::Idle {
+            return Err("игра запущена или готовится к запуску — проверьте файлы после неё".into());
+        }
+        if state.relocating() {
+            return Err("идёт перенос папки данных — подождите, пока он закончится".into());
+        }
+        play.status = PlayStatus {
+            build: Some(id.clone()),
+            phase: Phase::Verifying,
+            ..Default::default()
+        };
+    }
+    let _ = app.emit("play", state.play.lock().unwrap().status.clone());
+    let result = game::verify(&data, &state.http, &instance, progress(app.clone())).await;
+    reset(&app);
+    result.map_err(text)
 }
 
 /// Полоса прогресса: события ядра → окно, не чаще раза в 100 мс.

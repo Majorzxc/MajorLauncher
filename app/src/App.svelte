@@ -9,6 +9,9 @@
   import FirstRun from "./screens/FirstRun.svelte";
   import Home from "./screens/Home.svelte";
   import CropCover from "./components/CropCover.svelte";
+  import BlockedDialog from "./components/BlockedDialog.svelte";
+  import PlanDialog from "./components/catalog/PlanDialog.svelte";
+  import { catalog } from "./lib/catalog.svelte";
   import { cropper, finish } from "./lib/crop.svelte";
   import Mods from "./screens/Mods.svelte";
   import Placeholder from "./screens/Placeholder.svelte";
@@ -85,6 +88,19 @@
   {/if}
 </div>
 <Toasts />
+{#if catalog.ask}
+  <PlanDialog
+    plan={catalog.ask.plan}
+    ondone={(ok) => {
+      const r = catalog.ask!.resolve;
+      catalog.ask = null;
+      r(ok);
+    }}
+  />
+{/if}
+{#if play.blocked}
+  <BlockedDialog info={play.blocked} onclose={() => (play.blocked = null)} />
+{/if}
 {#if cropper.request}
   {#key cropper.request}<CropCover src={cropper.request.src} ondone={finish} />{/key}
 {/if}

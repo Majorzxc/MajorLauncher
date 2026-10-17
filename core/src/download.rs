@@ -143,6 +143,34 @@ impl Downloader {
         Ok(resp.bytes().await.map_err(network(url))?.to_vec())
     }
 
+    /// POST с JSON (запросы к API Modrinth по хешам), с повторами.
+    pub async fn post_json(&self, url: &str, body: &serde_json::Value) -> Result<Vec<u8>> {
+        let mut last = None;
+        for attempt in 0..self.opts.retries {
+            let sent = self.client.post(url).json(body).send().await;
+            match sent {
+                Ok(resp) if resp.status().is_success() => {
+                    return Ok(resp.bytes().await.map_err(network(url))?.to_vec());
+                }
+                Ok(resp) if resp.status().is_client_error() => {
+                    return Err(Error::HttpStatus {
+                        url: url.to_string(),
+                        status: resp.status().as_u16(),
+                    });
+                }
+                Ok(resp) => {
+                    last = Some(Error::HttpStatus {
+                        url: url.to_string(),
+                        status: resp.status().as_u16(),
+                    })
+                }
+                Err(e) => last = Some(network(url)(e)),
+            }
+            tokio::time::sleep(backoff(attempt)).await;
+        }
+        Err(last.expect("хотя бы одна попытка"))
+    }
+
     /// Есть ли файл по адресу (запрос HEAD). Нет связи — «нет».
     pub async fn exists(&self, url: &str) -> bool {
         for attempt in 0..self.opts.retries {

@@ -121,6 +121,9 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
           ? { build: "vyzhivanie", name: "Выживание с друзьями", seconds: 0, code: 1, crashed: true, no_window: true, tail: ["Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space", "	at net.minecraft.client.main.Main.main(Main.java:42)"], warning: null }
           : null,
       } as T;
+    case "build_verify":
+      await sleep(1500);
+      return { fixed: 2, mods_changed: 1 } as T;
     case "build_play":
       await sleep(400);
       throw new Error("в браузере игру не запустить");

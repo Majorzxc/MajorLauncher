@@ -6,6 +6,7 @@
   import Icon from "../components/Icon.svelte";
   import PlayButton from "../components/PlayButton.svelte";
   import QuickPlay from "../components/QuickPlay.svelte";
+  import { api } from "../lib/api";
   import { accounts } from "../lib/accounts.svelte";
   import { builds, refresh } from "../lib/builds.svelte";
   import { ago, playtime } from "../lib/format";
@@ -23,6 +24,25 @@
   );
   const current = $derived(byRecent.find((b) => b.id === nav.homeBuild) ?? byRecent[0]);
   const recent = $derived(byRecent.filter((b) => b.id !== current?.id).slice(0, 4));
+
+  // Значок с числом предупреждений про моды (раздел 6.1 ТЗ): только известное,
+  // без запросов к Modrinth.
+  let problems = $state<{ count: number; block: boolean } | null>(null);
+  $effect(() => {
+    const id = current?.id;
+    problems = null;
+    if (!id || current?.quick) return;
+    let stale = false;
+    api
+      .modsReport(id, false)
+      .then((r) => {
+        if (stale) return;
+        const serious = r.issues.filter((i) => i.level !== "tip");
+        problems = serious.length ? { count: serious.length, block: serious.some((i) => i.level === "block") } : null;
+      })
+      .catch(() => {});
+    return () => (stale = true);
+  });
 
   let menu: { x: number; y: number; anchor: Element } | null = $state(null);
   const switchItems = $derived<MenuItem[]>(
@@ -57,6 +77,16 @@
     <div class="info">
       <div class="title">
         <h1>{current.name}</h1>
+        {#if problems}
+          <button
+            class="problems"
+            class:block={problems.block}
+            title="Предупреждения про моды — открыть"
+            onclick={() => openBuild(current.id, "mods")}
+          >
+            <Icon name="warning" size={16} />{problems.count}
+          </button>
+        {/if}
         {#if byRecent.length > 1}
           <button
             class="btn btn-quiet btn-sm switch"
@@ -127,6 +157,23 @@
 {/if}
 
 <style>
+  .problems {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s1);
+    height: 28px;
+    padding: 0 var(--s2);
+    border: 1px solid var(--warning);
+    border-radius: 999px;
+    background: none;
+    color: var(--warning);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .problems.block {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
   h1 {
     margin: 0;
     font-size: var(--fs-32);

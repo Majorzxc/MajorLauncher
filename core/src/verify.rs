@@ -157,6 +157,24 @@ impl VerifyCache {
         self.is_valid_full(path, expected)
     }
 
+    /// SHA-1 файла: из кэша, если размер и дата не менялись, иначе пересчёт.
+    pub fn sha1(&self, path: &Path) -> Result<String> {
+        if let Some(current) = stamp(path)
+            && let Some(entry) = self.entries.lock().unwrap().get(path)
+            && entry.stamp == current
+        {
+            return Ok(entry.sha1.clone());
+        }
+        self.sha1_full(path)
+    }
+
+    /// SHA-1 файла с пересчётом мимо кэша (кэш обновляется).
+    pub fn sha1_full(&self, path: &Path) -> Result<String> {
+        let sha1 = sha1_file(path)?;
+        self.record(path, &sha1);
+        Ok(sha1)
+    }
+
     /// Полная проверка с пересчётом хеша, мимо кэша.
     pub fn is_valid_full(&self, path: &Path, expected: &str) -> bool {
         match sha1_file(path) {
