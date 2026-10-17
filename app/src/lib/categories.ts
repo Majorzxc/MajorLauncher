@@ -70,6 +70,11 @@ const NAMES: Record<string, string> = {
   "512x+": "512× и больше",
   "core-shaders": "Шейдеры ядра",
   modded: "Для модов",
+  challenging: "Испытания",
+  "kitchen-sink": "Всё и сразу",
+  lightweight: "Лёгкие",
+  multiplayer: "Для мультиплеера",
+  quests: "Квесты",
 };
 
 /// Группы категорий Modrinth.

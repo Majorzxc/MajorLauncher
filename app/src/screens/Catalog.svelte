@@ -7,7 +7,7 @@
   import Select from "../components/Select.svelte";
   import { api, type Hit, type Loader, type ProjectType, type Sort, type VersionInfo } from "../lib/api";
   import { builds, refresh } from "../lib/builds.svelte";
-  import { busy, catalog, defaultPick, install, installed, refreshInstalled, target } from "../lib/catalog.svelte";
+  import { busy, catalog, defaultPick, install, installModpack, installed, refreshInstalled, searchTarget } from "../lib/catalog.svelte";
   import { categoryName, headerName } from "../lib/categories";
   import { ago, count } from "../lib/format";
   import { loaderLabel, loaderTitle } from "../lib/loaders";
@@ -85,7 +85,6 @@
   $effect(() => {
     const kind = catalog.kind;
     cats = [];
-    if (kind === "modpack") return;
     api
       .catalogCategories(kind)
       .then((c) => kind === catalog.kind && (cats = c))
@@ -124,13 +123,13 @@
   let generation = 0;
 
   async function search(offset: number) {
-    if (!catalog.pick || catalog.kind === "modpack") return;
+    if (!catalog.pick) return;
     const mine = ++generation;
     loading = true;
     error = "";
     try {
       const r = await api.catalogSearch({
-        target: target(catalog.pick),
+        target: searchTarget(catalog.pick),
         kind: catalog.kind,
         query: catalog.query,
         sort: catalog.sort,
@@ -154,7 +153,7 @@
   $effect(() => {
     // Всё, от чего зависит выдача.
     void [catalog.kind, catalog.query, catalog.sort, catalog.all, pickKey, JSON.stringify(catalog.pick)];
-    void [catalog.categories.join(","), catalog.env, catalog.openSource];
+    void [catalog.categories.join(","), catalog.env, catalog.openSource, catalog.packGame, catalog.packLoader];
     clearTimeout(timer);
     timer = setTimeout(() => search(0), 300);
     return () => clearTimeout(timer);
@@ -179,6 +178,18 @@
     {/each}
   </nav>
 
+  {#if catalog.kind === "modpack"}
+  <div class="bar">
+    <span class="muted">Сборка ставится как новая — вместе с модами, их настройками и нужным загрузчиком.</span>
+    <span class="grow"></span>
+    <div class="filter">
+      <Select label="Версия игры" value={catalog.packGame} options={gameOptions} onchange={(v) => (catalog.packGame = v)} />
+    </div>
+    <div class="filter">
+      <Select label="Загрузчик" value={catalog.packLoader} options={loaderOptions} onchange={(v) => (catalog.packLoader = v)} />
+    </div>
+  </div>
+  {:else}
   <div class="bar">
     <span class="label">Куда ставить</span>
     <div class="target"><Select label="Куда ставить" icon="builds" value={pickKey} options={targets} onchange={choose} /></div>
@@ -205,6 +216,7 @@
       <span class="muted small">создастся при первой установке</span>
     {/if}
   </div>
+  {/if}
 
   <div class="bar">
     <label class="search">
@@ -217,9 +229,11 @@
       />
     </label>
     <div class="sort"><Select label="Сортировка" icon="sort" value={catalog.sort} options={SORTS} onchange={(v) => (catalog.sort = v)} /></div>
-    <label class="opt" title="Показать и то, что не подходит к выбранной сборке">
-      <input type="checkbox" bind:checked={catalog.all} />Показать всё
-    </label>
+    {#if catalog.kind !== "modpack"}
+      <label class="opt" title="Показать и то, что не подходит к выбранной сборке">
+        <input type="checkbox" bind:checked={catalog.all} />Показать всё
+      </label>
+    {/if}
   </div>
 
   {#if vanillaMods}
@@ -229,9 +243,6 @@
     </p>
   {/if}
 
-  {#if catalog.kind === "modpack"}
-    <p class="note">Готовые сборки из каталога — в части 5.3: там же импорт файлов .mrpack.</p>
-  {:else}
   <div class="layout">
     <aside class="filters" aria-label="Фильтры">
       <div class="fhead">
@@ -272,7 +283,7 @@
       <p class="note">Ничего не нашлось{catalog.all ? "" : " для выбранной сборки — попробуйте «Показать всё»"}.</p>
     {:else}
       <p class="muted small found">
-        {loading && !hits.length ? "Ищем…" : `Найдено: ${count(total)}${catalog.all ? "" : " · подходит к выбранной сборке"}`}
+        {loading && !hits.length ? "Ищем…" : `Найдено: ${count(total)}${catalog.all || catalog.kind === "modpack" ? "" : " · подходит к выбранной сборке"}`}
       </p>
       <ul class="hits">
         {#each hits as h (h.id)}
@@ -295,7 +306,11 @@
               </span>
             </button>
             <div class="act">
-              {#if have}
+              {#if catalog.kind === "modpack"}
+              <button class="btn btn-sm" disabled={busy.has(h.id)} onclick={() => installModpack(h.id, null, h.title)}>
+                <Icon name="plus" size={16} />{busy.has(h.id) ? "Ставим…" : "Создать сборку"}
+              </button>
+            {:else if have}
                 <span class="have"><Icon name="check" size={16} />{pick?.kind === "library" ? "В библиотеке" : have.enabled ? "Установлен" : "Выключен"}</span>
               {:else}
                 <button class="btn btn-sm" disabled={busy.has(h.id) || vanillaMods} onclick={() => install(h.id, catalog.kind)}>
@@ -314,7 +329,6 @@
     {/if}
     </div>
   </div>
-  {/if}
 {/if}
 
 {#if newDialog}

@@ -5,7 +5,7 @@
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { api, type CatalogTarget, type Installed, type Loader, type Plan, type ProjectType, type Sort } from "./api";
 import { builds, refresh } from "./builds.svelte";
-import { nav } from "./nav.svelte";
+import { nav, openBuild } from "./nav.svelte";
 import { toast } from "./toast.svelte";
 
 /// Куда ставить. «Новая сборка» создаётся при первой установке.
@@ -24,6 +24,9 @@ export const catalog = $state({
   categories: [] as string[],
   env: null as null | "client" | "server",
   openSource: false,
+  /// Фильтры вкладки «Сборки»: сборка ставится новой, «Куда ставить» ей не нужно.
+  packGame: null as string | null,
+  packLoader: null as Loader | null,
   pick: null as Pick | null,
   /// Открытый проект (страница в лаунчере).
   project: null as string | null,
@@ -89,7 +92,29 @@ function ask(plan: Plan): Promise<boolean> {
 
 /// Поставить проект (и его обязательные зависимости) туда, куда выбрано.
 /// `version` — конкретная версия со страницы проекта; без неё — лучшая подходящая.
+/// Цель поиска и списка версий: у вкладки «Сборки» — свои фильтры.
+export function searchTarget(pick: Pick): CatalogTarget {
+  return catalog.kind === "modpack" ? { kind: "library", game: catalog.packGame, loader: catalog.packLoader } : target(pick);
+}
+
+/// Сборка из каталога — всегда новая сборка.
+export async function installModpack(project: string, version: string | null, title: string | null) {
+  busy.add(project);
+  toast(`Ставлю сборку${title ? ` «${title}»` : ""} — ход виден в «Загрузках»`);
+  try {
+    const b = await api.modpackInstall(project, version, title);
+    await refresh();
+    toast(`Сборка «${b.name}» готова. Игра и загрузчик скачаются при первом запуске.`);
+    openBuild(b.id, "mods");
+  } catch (e) {
+    toast(`Не удалось поставить сборку: ${e}`, { error: true });
+  } finally {
+    busy.delete(project);
+  }
+}
+
 export async function install(project: string, kind: ProjectType, version: string | null = null) {
+  if (kind === "modpack") return installModpack(project, version, null);
   const pick = catalog.pick;
   if (!pick) return;
   busy.add(project);

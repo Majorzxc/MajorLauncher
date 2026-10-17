@@ -399,6 +399,16 @@ export interface Checked {
   mods_changed: number;
 }
 
+/// Что внутри файла .mrpack.
+export interface PackInfo {
+  name: string;
+  game: string;
+  loader: Loader;
+  loader_version: string | null;
+  files: number;
+  size: number;
+}
+
 /// Мод в библиотеке модов.
 export interface LibMod {
   key: string;
@@ -531,6 +541,10 @@ export const api = {
     call<Plan>("catalog_plan", { target, kind, project, version }),
   catalogInstall: (target: CatalogTarget, kind: ProjectType, versions: string[], label: string | null = null) =>
     call<string[]>("catalog_install", { target, kind, versions, label }),
+  modpackInstall: (project: string, version: string | null, label: string | null) =>
+    call<Instance>("modpack_install", { project, version, label }),
+  mrpackInspect: (path: string) => call<PackInfo>("mrpack_inspect", { path }),
+  mrpackImport: (path: string, name: string | null) => call<Instance>("mrpack_import", { path, name }),
   tasksList: () => call<Task[]>("tasks_list"),
   tasksClear: () => call<void>("tasks_clear"),
   loaderVersions: (loader: Loader, game: string) => call<LoaderVersion[]>("loader_versions", { loader, game }),

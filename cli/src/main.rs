@@ -48,6 +48,20 @@ enum Command {
     },
     /// Пересчитать хеши всех файлов версии и докачать повреждённые.
     Verify { version: String },
+    /// Сборка из каталога Modrinth (id или slug проекта).
+    Modpack {
+        project: String,
+        /// Версия сборки (id); без неё — новейшая стабильная.
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Сборка из файла .mrpack.
+    Mrpack {
+        file: std::path::PathBuf,
+        /// Своё название.
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Моды сборки: что за мод, обновления и предупреждения (id сборки).
     Mods {
         build: String,
@@ -178,6 +192,45 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                 prepared.version.id,
                 started.elapsed().as_secs_f64()
             );
+        }
+        Command::Modpack { project, version } => {
+            let started = Instant::now();
+            let i = majorlauncher_core::mrpack::install_from_catalog(
+                &dl,
+                &data,
+                &project,
+                version.as_deref(),
+                &pack_progress(),
+            )
+            .await?;
+            finish_line();
+            println!(
+                "Сборка «{}» ({}, {}) готова за {:.1} с",
+                i.name,
+                i.version,
+                i.loader.title(),
+                started.elapsed().as_secs_f64()
+            );
+        }
+        Command::Mrpack { file, name } => {
+            let info = majorlauncher_core::mrpack::inspect(&file)?;
+            println!(
+                "«{}»: {} {}, файлов {}",
+                info.name,
+                info.game,
+                info.loader.title(),
+                info.files
+            );
+            let i = majorlauncher_core::mrpack::install(
+                &dl,
+                &data,
+                &file,
+                name.as_deref(),
+                &pack_progress(),
+            )
+            .await?;
+            finish_line();
+            println!("Сборка «{}» готова (id {})", i.name, i.id);
         }
         Command::Mods { build, offline } => {
             let r = majorlauncher_core::mods::report(&dl, &data, &build, !offline).await?;
@@ -498,6 +551,12 @@ fn progress() -> Progress {
         }
         let _ = std::io::stderr().flush();
     })
+}
+
+/// Прогресс установки сборки: те же события, что у версии игры.
+fn pack_progress() -> impl Fn(Event) + Sync {
+    let p = progress();
+    move |e| p(e)
 }
 
 fn finish_line() {

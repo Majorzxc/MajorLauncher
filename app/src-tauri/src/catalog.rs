@@ -78,6 +78,66 @@ pub async fn catalog_plan(
     .map_err(text)
 }
 
+/// Сборка из каталога: новая сборка из `.mrpack` выбранной (или новейшей) версии.
+#[tauri::command]
+pub async fn modpack_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project: String,
+    version: Option<String>,
+    label: Option<String>,
+) -> CmdResult<majorlauncher_core::Instance> {
+    let data = state.data()?;
+    let task = crate::tasks::start(
+        &app,
+        label.unwrap_or_else(|| "Сборка из каталога".into()),
+        "новая сборка",
+    );
+    let progress = task.progress();
+    let result = majorlauncher_core::mrpack::install_from_catalog(
+        &state.http,
+        &data,
+        &project,
+        version.as_deref(),
+        &progress,
+    )
+    .await;
+    task.finish(&result);
+    result.map_err(text)
+}
+
+/// Что внутри файла `.mrpack` — для окна перед импортом.
+#[tauri::command]
+pub async fn mrpack_inspect(path: String) -> CmdResult<majorlauncher_core::mrpack::PackInfo> {
+    crate::builds::blocking(move || {
+        majorlauncher_core::mrpack::inspect(std::path::Path::new(&path)).map_err(text)
+    })
+    .await
+}
+
+/// Новая сборка из файла `.mrpack`.
+#[tauri::command]
+pub async fn mrpack_import(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    name: Option<String>,
+) -> CmdResult<majorlauncher_core::Instance> {
+    let data = state.data()?;
+    let file = std::path::PathBuf::from(&path);
+    let title = file.file_stem().map_or_else(
+        || "Сборка из файла".into(),
+        |s| s.to_string_lossy().into_owned(),
+    );
+    let task = crate::tasks::start(&app, title, "новая сборка");
+    let progress = task.progress();
+    let result =
+        majorlauncher_core::mrpack::install(&state.http, &data, &file, name.as_deref(), &progress)
+            .await;
+    task.finish(&result);
+    result.map_err(text)
+}
+
 /// Куда ставится — для панели «Загрузки».
 pub fn place(data: &DataDir, target: &Target) -> String {
     match target {

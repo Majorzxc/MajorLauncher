@@ -2,6 +2,7 @@
   import ContextMenu, { type MenuItem } from "../components/ContextMenu.svelte";
   import BuildTile from "../components/BuildTile.svelte";
   import EditBuild from "../components/EditBuild.svelte";
+  import ImportPack from "../components/ImportPack.svelte";
   import Icon from "../components/Icon.svelte";
   import Modal from "../components/Modal.svelte";
   import Select from "../components/Select.svelte";
@@ -31,6 +32,7 @@
   let menu: { x: number; y: number; items: MenuItem[]; anchor?: Element } | null = $state(null);
   let editing: Entry | null = $state(null);
   let creating = $state(false);
+  let importer = $state<ImportPack | null>(null);
   let addingGroup = $state(false);
   let newGroup = $state("");
   let confirm: { title: string; text: string; action: string; run: () => void } | null = $state(null);
@@ -277,8 +279,12 @@
       options={SORTS}
     />
     <span class="spacer"></span>
+    <button class="btn" title="Сборка из файла .mrpack (Modrinth, Prism, Modrinth App)" onclick={() => importer?.pick()}
+      ><Icon name="import" size={18} />Из файла .mrpack</button
+    >
     <button class="btn btn-primary" onclick={() => (creating = true)}><Icon name="plus" size={18} />Новая сборка</button>
   </div>
+  <ImportPack bind:this={importer} />
 
   <div class="chips" role="tablist" aria-label="Группы">
     <button class="chip" class:on={isFilter({ kind: "all" })} onclick={() => (filter = { kind: "all" })}>

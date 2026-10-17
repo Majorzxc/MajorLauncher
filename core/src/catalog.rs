@@ -46,7 +46,7 @@ fn folder(kind: ProjectType) -> Result<Folder> {
         ProjectType::ResourcePack => Ok(Folder::ResourcePacks),
         ProjectType::Shader => Ok(Folder::ShaderPacks),
         ProjectType::Modpack => Err(Error::Other(
-            "сборки из каталога появятся в части 5.3".into(),
+            "сборка из каталога ставится как новая сборка, а не в существующую".into(),
         )),
     }
 }
@@ -60,10 +60,10 @@ fn filter(data: &DataDir, target: &Target, kind: ProjectType) -> Result<Filter> 
         Target::New { game, loader } => (Some(game.clone()), Some(*loader)),
         Target::Library { game, loader } => (game.clone(), *loader),
     };
-    // Загрузчик важен только модам: ресурспаки и шейдеры от него не зависят.
+    // Загрузчик важен модам и сборкам: ресурспаки и шейдеры от него не зависят.
     let loaders = match (kind, loader, &game) {
-        (ProjectType::Mod, Some(l), Some(g)) => modrinth::loader_names(l, g),
-        (ProjectType::Mod, Some(l), None) => modrinth::loader_names(l, ""),
+        (ProjectType::Mod | ProjectType::Modpack, Some(l), Some(g)) => modrinth::loader_names(l, g),
+        (ProjectType::Mod | ProjectType::Modpack, Some(l), None) => modrinth::loader_names(l, ""),
         _ => Vec::new(),
     };
     Ok(Filter { game, loaders })

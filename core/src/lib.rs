@@ -29,6 +29,7 @@ pub mod modlib;
 pub mod modmeta;
 pub mod modrinth;
 pub mod mods;
+pub mod mrpack;
 pub mod nbt;
 pub mod options;
 pub mod paths;

@@ -3,7 +3,7 @@
   // версии с отметкой «подходит к сборке», установка нужной версии.
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type CatalogVersion, type Project, type ProjectType } from "../../lib/api";
-  import { busy, catalog, install, installed, target } from "../../lib/catalog.svelte";
+  import { busy, catalog, install, installModpack, installed, searchTarget } from "../../lib/catalog.svelte";
   import { categoryName } from "../../lib/categories";
   import { ago, count, size } from "../../lib/format";
   import { renderMarkdown } from "../../lib/markdown";
@@ -35,7 +35,7 @@
 
   $effect(() => {
     if (tab !== "versions" || !project || !catalog.pick) return;
-    const [pid, all, t, k] = [project.id, allVersions, target(catalog.pick), kind];
+    const [pid, all, t, k] = [project.id, allVersions, searchTarget(catalog.pick), kind];
     versions = null;
     versionsError = "";
     api
@@ -105,10 +105,10 @@
       {:else}
         <button
           class="btn btn-primary"
-          disabled={busy.has(project.id) || kind === "modpack"}
-          onclick={() => install(project!.id, kind)}
+          disabled={busy.has(project.id)}
+          onclick={() => (kind === "modpack" ? installModpack(project!.id, null, project!.title) : install(project!.id, kind))}
         >
-          <Icon name="download" size={18} />{busy.has(project.id) ? "Ставим…" : "Установить"}
+          <Icon name="download" size={18} />{busy.has(project.id) ? "Ставим…" : kind === "modpack" ? "Создать сборку" : "Установить"}
         </button>
       {/if}
       <div class="links">
@@ -168,8 +168,8 @@
             </span>
             <button
               class="btn btn-sm"
-              disabled={busy.has(v.project_id) || have?.version_id === v.id || kind === "modpack"}
-              onclick={() => install(v.project_id, kind, v.id)}
+              disabled={busy.has(v.project_id) || have?.version_id === v.id}
+              onclick={() => (kind === "modpack" ? installModpack(v.project_id, v.id, project!.title) : install(v.project_id, kind, v.id))}
             >
               <Icon name="download" size={16} />Установить
             </button>
