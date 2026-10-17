@@ -23,8 +23,8 @@ export function actionLabel(a: ModAction): string {
       return "Сменить загрузчик";
     case "redownload":
       return "Скачать заново";
-    case "keep_newest":
-      return "Оставить новую";
+    case "disable_extra":
+      return a.disable.length > 1 ? "Выключить лишние" : "Выключить лишнюю";
     case "update":
       return "Обновить";
   }
@@ -36,7 +36,7 @@ export async function runAction(id: string, a: ModAction): Promise<boolean> {
     case "disable":
     case "delete":
     case "trust":
-    case "keep_newest":
+    case "disable_extra":
       return !!(await attempt("Моды", () => api.modsApply(id, a).then(() => true)));
     case "install":
       catalog.pick = { kind: "build", id };

@@ -11,6 +11,7 @@
 {#if typing}
   <div class="new">
     <input
+      type="search"
       placeholder="Название новой группы"
       maxlength="32"
       bind:value={draft}

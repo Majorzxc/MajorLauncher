@@ -21,6 +21,8 @@
   /// Последний отчёт запрашивали у Modrinth (а не только из кэша).
   let asked = $state(false);
   let busy = $state(false);
+  /// Какой мод сейчас обновляется (кнопка в его строке).
+  let working = $state<string | null>(null);
   let removing = $state<ModInfo | null>(null);
 
   // Сначала то, что уже известно (мгновенно), потом — свежее с Modrinth.
@@ -56,10 +58,15 @@
 
   async function act(a: ModAction) {
     busy = true;
+    if (a.kind === "update" || a.kind === "redownload") working = a.file;
     try {
-      if (await runAction(id, a)) await load(false);
+      // Новый файл (обновление, установка) надо опознать на Modrinth, иначе он
+      // до перезахода на вкладку будет «не опознан».
+      const fresh = a.kind === "update" || a.kind === "install" || a.kind === "redownload";
+      if (await runAction(id, a)) await load(fresh);
     } finally {
       busy = false;
+      working = null;
     }
   }
 
@@ -79,6 +86,7 @@
 
   async function updateAll() {
     busy = true;
+    checking = true;
     const titles = await attempt("Обновление", () => api.modsUpdate(id, []));
     busy = false;
     if (titles) toast(titles.length ? `Обновлено: ${titles.join(", ")}` : "Обновлять нечего");
@@ -174,7 +182,11 @@
             title={m.pinned ? "Закреплён — «Обновить всё» его пропускает" : "Обновить"}
             onclick={() => act({ kind: "update", version_id: m.update!.version_id, file: m.file })}
           >
-            <Icon name="download" size={14} />{m.update.version_number}
+            {#if working === m.file}
+              Обновляю…
+            {:else}
+              <Icon name="download" size={14} />{m.update.version_number}
+            {/if}
           </button>
         {/if}
         {#if m.modrinth}

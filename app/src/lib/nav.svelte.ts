@@ -18,6 +18,10 @@ export const nav = $state({
   buildTab: null as string | null,
 });
 
+/// Последняя открытая вкладка каждой сборки: возврат на страницу сборки
+/// (в том числе кнопками «назад» и «вперёд») открывает её же.
+export const lastTab: Record<string, string> = {};
+
 /// Какую страницу настроек открыть при переходе (одноразово).
 export const settingsPage = $state({ value: null as null | "profile" | "look" | "game" | "data" | "about" });
 

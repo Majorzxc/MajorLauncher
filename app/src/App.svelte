@@ -10,6 +10,8 @@
   import Home from "./screens/Home.svelte";
   import CropCover from "./components/CropCover.svelte";
   import BlockedDialog from "./components/BlockedDialog.svelte";
+  import Tooltip from "./components/Tooltip.svelte";
+  import { goBack, goForward, track } from "./lib/history.svelte";
   import PlanDialog from "./components/catalog/PlanDialog.svelte";
   import { catalog } from "./lib/catalog.svelte";
   import { cropper, finish } from "./lib/crop.svelte";
@@ -41,6 +43,21 @@
     ready = true;
     if (!needsDataDir) connect();
   });
+
+  // История переходов: боковые кнопки мыши и Alt+← / Alt+→.
+  $effect(track);
+  function mouse(e: MouseEvent) {
+    if (e.button === 3 || e.button === 4) {
+      e.preventDefault();
+      if (e.type === "mouseup") (e.button === 3 ? goBack : goForward)();
+    }
+  }
+  function keys(e: KeyboardEvent) {
+    if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      e.preventDefault();
+      (e.key === "ArrowLeft" ? goBack : goForward)();
+    }
+  }
 
   const downloading = $derived(play.status.phase === "downloading" ? play.status : null);
   const downloadingName = $derived(builds.list.find((b) => b.id === play.status.build)?.name ?? "");
@@ -87,7 +104,9 @@
     </div>
   {/if}
 </div>
+<svelte:window onmousedown={mouse} onmouseup={mouse} onkeydown={keys} />
 <Toasts />
+<Tooltip />
 {#if catalog.ask}
   <PlanDialog
     plan={catalog.ask.plan}

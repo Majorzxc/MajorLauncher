@@ -64,6 +64,7 @@
     <label class="field">
       <span>Название</span>
       <input
+        type="search"
         bind:value={name}
         maxlength="64"
         onkeydown={(e) => e.key === "Enter" && save()}

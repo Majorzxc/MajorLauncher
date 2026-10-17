@@ -13,7 +13,7 @@
   import { api } from "../lib/api";
   import { builds, refresh } from "../lib/builds.svelte";
   import { ago, playtime } from "../lib/format";
-  import { go, nav } from "../lib/nav.svelte";
+  import { go, lastTab, nav } from "../lib/nav.svelte";
   import { attempt } from "../lib/toast.svelte";
   import { loaderLabel } from "../lib/loaders";
 
@@ -31,8 +31,13 @@
     { id: "settings", title: "Настройки" },
   ];
   // Вкладку можно задать при переходе («Моды» из предупреждения на главной).
-  let tab: Tab = $state((nav.buildTab as Tab | null) ?? "worlds");
+  // Страница создаётся заново для каждой сборки ({#key} в App) — id не меняется.
+  // svelte-ignore state_referenced_locally
+  let tab: Tab = $state((nav.buildTab ?? lastTab[id] ?? "worlds") as Tab);
   nav.buildTab = null;
+  $effect(() => {
+    lastTab[id] = tab;
+  });
   // Переход на другую вкладку этой же сборки (страница уже открыта).
   $effect(() => {
     if (nav.buildTab) {

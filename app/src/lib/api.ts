@@ -148,7 +148,7 @@ export type ModAction =
   | { kind: "search"; query: string }
   | { kind: "loader" }
   | { kind: "redownload"; version_id: string; file: string }
-  | { kind: "keep_newest"; disable: string[] }
+  | { kind: "disable_extra"; disable: string[] }
   | { kind: "update"; version_id: string; file: string };
 
 export interface ModIssue {

@@ -267,7 +267,7 @@
   <div class="head">
     <label class="search">
       <Icon name="search" size={18} />
-      <input placeholder="Поиск по названию или версии" bind:value={query} />
+      <input type="search" placeholder="Поиск по названию или версии" bind:value={query} />
     </label>
     <Select
       label="Сортировка"

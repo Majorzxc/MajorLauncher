@@ -25,15 +25,18 @@
     <button
       class="btn btn-quiet"
       onclick={() => {
+        // Сначала запомнить: после onclose() свойство info уже null.
+        const { id, version } = info;
         onclose();
-        start(info.id, info.version, true);
+        start(id, version, true);
       }}>Всё равно играть</button
     >
     <button
       class="btn btn-primary"
       onclick={() => {
+        const { id } = info;
         onclose();
-        openBuild(info.id, "mods");
+        openBuild(id, "mods");
       }}>Открыть моды</button
     >
   {/snippet}

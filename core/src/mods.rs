@@ -106,8 +106,8 @@ pub enum Action {
     Loader,
     /// Скачать эту версию заново (файл изменён).
     Redownload { version_id: String, file: String },
-    /// Выключить старые копии мода, оставить новую.
-    KeepNewest { disable: Vec<String> },
+    /// Выключить лишние копии мода, оставить подходящую.
+    DisableExtra { disable: Vec<String> },
     /// Обновить мод.
     Update { version_id: String, file: String },
 }
@@ -542,6 +542,51 @@ fn mc_ok(d: &modmeta::Dep, game: &str) -> bool {
     })
 }
 
+/// Копия мода подходит к сборке по версии игры и загрузчику: из нескольких
+/// копий одного мода оставлять надо её.
+fn fits(l: &Local, known: Option<&Known>, build: Loader, game: &str) -> bool {
+    let mc = l
+        .meta
+        .mods
+        .iter()
+        .flat_map(|m| &m.depends)
+        .filter(|d| d.kind == DepKind::Required && d.id == "minecraft")
+        .all(|d| mc_ok(d, game));
+    let mc = mc
+        && (!l.meta.mods.is_empty()
+            || known.is_none_or(|k| k.game_versions.iter().any(|g| g == game)));
+    mc && (l.meta.loaders.is_empty() || loader_ok(build, game, &l.meta.loaders))
+}
+
+/// Зависимость требует ровно эту версию или ограничивает её сверху: такой
+/// мод не обновляем — новая версия выйдет за границу.
+fn caps(d: &modmeta::Dep) -> bool {
+    d.ranges.iter().any(|r| match d.style {
+        modmeta::RangeStyle::Semver => r
+            .split_whitespace()
+            .any(|c| c != "*" && !c.starts_with('>')),
+        modmeta::RangeStyle::Maven => {
+            let r = r.trim();
+            r.starts_with(['[', '(']) && !r.ends_with(",)") && !r.ends_with(",]")
+        }
+    })
+}
+
+/// Версия мода, по которой можно судить: не пустая и не заготовка `${version}`.
+fn real_version(v: Option<&String>) -> Option<&str> {
+    v.map(String::as_str)
+        .filter(|v| !v.is_empty() && !v.contains("${"))
+}
+
+/// Несовместимость (`breaks`, `conflicts`) касается стоящей версии. Версию не
+/// узнать (id приносит другой мод) — судим только по «любая версия».
+fn hits(d: &modmeta::Dep, version: Option<&String>) -> bool {
+    match real_version(version) {
+        Some(v) => d.accepts(v),
+        None => d.ranges.iter().all(|r| r.trim() == "*"),
+    }
+}
+
 fn loader_ok(build: Loader, game: &str, mod_loaders: &[ModLoader]) -> bool {
     mod_loaders.iter().any(|l| match (build, l) {
         (Loader::Fabric, ModLoader::Fabric) => true,
@@ -571,17 +616,70 @@ pub fn check(cx: &Context) -> Report {
     let mut issues = Vec::new();
     let mut mods = Vec::new();
 
-    let enabled: Vec<&Local> = cx.local.iter().filter(|l| l.enabled).collect();
+    // Один мод несколькими копиями. Оставить надо подходящую к сборке (а из
+    // них — новую); остальные лишние. Fabric и Quilt сами грузят подходящую
+    // копию, Forge и NeoForge на копиях падают.
+    let mut groups: HashMap<String, Vec<&Local>> = HashMap::new();
+    for l in cx.local.iter().filter(|l| l.enabled) {
+        let key = l
+            .meta
+            .mods
+            .first()
+            .map(|m| m.id.clone())
+            .or_else(|| cx.known.get(&l.sha1).map(|k| k.project_id.clone()));
+        if let Some(key) = key {
+            groups.entry(key).or_default().push(l);
+        }
+    }
+    let version_of = |l: &Local| {
+        cx.known
+            .get(&l.sha1)
+            .map(|k| k.version_number.clone())
+            .or_else(|| l.meta.mods.first().map(|m| m.version.clone()))
+            .unwrap_or_default()
+    };
+    let mut copies: Vec<(&Local, Vec<&Local>)> = Vec::new();
+    for list in groups.into_values().filter(|l| l.len() > 1) {
+        let fit: Vec<&Local> = list
+            .iter()
+            .copied()
+            .filter(|l| fits(l, cx.known.get(&l.sha1), inst.loader, game))
+            .collect();
+        let pool = if fit.is_empty() { &list } else { &fit };
+        let keep = *pool
+            .iter()
+            .max_by(|a, b| crate::loaders::compare_versions(&version_of(a), &version_of(b)))
+            .expect("в группе есть моды");
+        let extra = list.into_iter().filter(|l| l.file != keep.file).collect();
+        copies.push((keep, extra));
+    }
+    let spare: HashSet<&str> = copies
+        .iter()
+        .flat_map(|(_, extra)| extra.iter().map(|l| l.file.as_str()))
+        .collect();
+
+    let enabled: Vec<&Local> = cx
+        .local
+        .iter()
+        .filter(|l| l.enabled && !spare.contains(l.file.as_str()))
+        .collect();
     // Что стоит: id из jar (с версиями), то, что моды приносят с собой, и проекты Modrinth.
     let mut present: HashSet<String> = HashSet::new();
     let mut versions: HashMap<String, String> = HashMap::new();
     let mut projects: HashSet<String> = HashSet::new();
     // Версии, которые другой мод требует ровно такими: их не обновляем.
     let mut held: HashSet<String> = HashSet::new();
+    // То же по сведениям из jar: id модов, версию которых другой мод держит.
+    let mut held_ids: HashSet<String> = HashSet::new();
     for l in &enabled {
         for m in &l.meta.mods {
             present.insert(m.id.clone());
             versions.insert(m.id.clone(), m.version.clone());
+            for d in &m.depends {
+                if d.kind == DepKind::Required && d.id != m.id && caps(d) {
+                    held_ids.insert(d.id.clone());
+                }
+            }
         }
         present.extend(l.meta.provides.iter().cloned());
         if let Some(k) = cx.known.get(&l.sha1) {
@@ -619,8 +717,13 @@ pub fn check(cx: &Context) -> Report {
             .unwrap_or_default();
         let pinned = known.is_some_and(|k| inst.pinned_mods.contains(&k.project_id));
         // Версию держит другой мод (требует ровно её) — обновлять нельзя.
-        let held_here = known.is_some_and(|k| held.contains(&k.version_id));
-        let update = cx.updates.get(&l.sha1).cloned().filter(|_| !held_here);
+        let held_here = known.is_some_and(|k| held.contains(&k.version_id))
+            || first.is_some_and(|m| held_ids.contains(&m.id));
+        let update = cx
+            .updates
+            .get(&l.sha1)
+            .cloned()
+            .filter(|_| !held_here && !spare.contains(l.file.as_str()));
         let trusted = cx.trusted.contains(&l.sha1);
         let file = Some(l.file.clone());
         let issue = |level, text: String, action| Issue {
@@ -636,7 +739,7 @@ pub fn check(cx: &Context) -> Report {
                 format!("«{name}»: найден известный вредоносный код ({what}). Удалите файл и смените пароли, если играли с ним."),
                 Some(Action::Delete { file: l.file.clone() }),
             ));
-        } else if l.enabled {
+        } else if l.enabled && !spare.contains(l.file.as_str()) {
             let disable = || {
                 Some(Action::Disable {
                     file: l.file.clone(),
@@ -723,13 +826,26 @@ pub fn check(cx: &Context) -> Report {
                             issues.push(issue(
                                 Level::Block,
                                 format!(
-                                    "«{name}» нужен «{}» версии {}, а стоит {}.",
+                                    "«{name}» нужен «{}» версии {}, а стоит {}.{}",
                                     d.id,
                                     d.ranges.join(" или "),
-                                    versions[&d.id]
+                                    versions[&d.id],
+                                    if update.is_some() {
+                                        " Новая версия этого мода, скорее всего, подходит."
+                                    } else {
+                                        ""
+                                    }
                                 ),
-                                Some(Action::Search {
-                                    query: d.id.clone(),
+                                // Свежая версия мода обычно собрана под свежую
+                                // зависимость (XaeroPlus под новый Xaero's World Map).
+                                Some(match &update {
+                                    Some(u) => Action::Update {
+                                        version_id: u.version_id.clone(),
+                                        file: l.file.clone(),
+                                    },
+                                    None => Action::Search {
+                                        query: d.id.clone(),
+                                    },
                                 }),
                             ));
                         }
@@ -754,7 +870,9 @@ pub fn check(cx: &Context) -> Report {
                             ));
                         }
                         DepKind::Breaks
-                            if present.contains(&d.id) && first.is_none_or(|f| f.id != d.id) =>
+                            if present.contains(&d.id)
+                                && first.is_none_or(|f| f.id != d.id)
+                                && hits(d, versions.get(&d.id)) =>
                         {
                             issues.push(issue(
                                 Level::Block,
@@ -765,7 +883,9 @@ pub fn check(cx: &Context) -> Report {
                                 disable(),
                             ));
                         }
-                        DepKind::Conflicts if present.contains(&d.id) => {
+                        DepKind::Conflicts
+                            if present.contains(&d.id) && hits(d, versions.get(&d.id)) =>
+                        {
                             issues.push(issue(
                                 Level::Warn,
                                 format!(
@@ -882,44 +1002,47 @@ pub fn check(cx: &Context) -> Report {
         });
     }
 
-    // Один мод дважды: оставить новую версию.
-    let mut by_id: HashMap<String, Vec<&ModInfo>> = HashMap::new();
-    for (m, l) in mods.iter().zip(cx.local) {
-        if !m.enabled {
-            continue;
-        }
-        let key = m
-            .modrinth
-            .as_ref()
-            .map(|k| k.project_id.clone())
-            .or_else(|| l.meta.mods.first().map(|x| x.id.clone()));
-        if let Some(key) = key {
-            by_id.entry(key).or_default().push(m);
-        }
-    }
-    for list in by_id.values().filter(|l| l.len() > 1) {
-        let newest = list
+    // Один мод несколькими копиями.
+    let fabric_like = inst.loader == Loader::Fabric;
+    for (keep, extra) in &copies {
+        let info = |l: &Local| {
+            mods.iter()
+                .find(|m| m.file == l.file)
+                .expect("мод в списке")
+        };
+        let kept = info(keep);
+        let others = extra
             .iter()
-            .max_by(|a, b| crate::loaders::compare_versions(&a.version, &b.version))
-            .expect("в группе есть моды");
-        let older: Vec<String> = list
-            .iter()
-            .filter(|m| m.file != newest.file)
-            .map(|m| m.file.clone())
-            .collect();
+            .map(|l| info(l).version.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let count = extra.len() + 1;
+        let (level, text) = if fabric_like {
+            (
+                Level::Warn,
+                format!(
+                    "«{}» стоит {count} раза. {} загрузит подходящую копию ({}), лишние ({others}) лучше выключить.",
+                    kept.name,
+                    inst.loader.title(),
+                    kept.version
+                ),
+            )
+        } else {
+            (
+                Level::Block,
+                format!(
+                    "«{}» стоит {count} раза — с копиями игра не запустится. Оставьте {}, выключите {others}.",
+                    kept.name, kept.version
+                ),
+            )
+        };
         issues.push(Issue {
-            level: Level::Block,
-            text: format!(
-                "«{}» стоит {} раза: {}. Оставьте одну копию.",
-                newest.name,
-                list.len(),
-                list.iter()
-                    .map(|m| m.version.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            file: Some(newest.file.clone()),
-            action: Some(Action::KeepNewest { disable: older }),
+            level,
+            text,
+            file: Some(keep.file.clone()),
+            action: Some(Action::DisableExtra {
+                disable: extra.iter().map(|l| l.file.clone()).collect(),
+            }),
         });
     }
 
@@ -987,7 +1110,7 @@ pub fn apply(data: &DataDir, build: &str, action: &Action) -> Result<()> {
         }
         Action::Delete { file } => remove(data, build, file),
         Action::Trust { sha1 } => trust(data, sha1),
-        Action::KeepNewest { disable } => {
+        Action::DisableExtra { disable } => {
             for file in disable {
                 content::set_enabled(&game_dir, Folder::Mods, file, false)?;
             }
@@ -1173,11 +1296,18 @@ mod tests {
             .unwrap();
         assert_eq!(
             dup.action,
-            Some(Action::KeepNewest {
+            Some(Action::DisableExtra {
                 disable: vec!["a1.jar".into()]
             })
         );
-        assert!(r.issues.iter().all(|i| i.level == Level::Block));
+        // Fabric сам выбирает подходящую копию: копии — предупреждение.
+        assert_eq!(dup.level, Level::Warn);
+        assert!(
+            r.issues
+                .iter()
+                .filter(|i| i.file.as_deref() != Some("a2.jar"))
+                .all(|i| i.level == Level::Block)
+        );
 
         // Sodium поставили — зависимость закрыта; мод Fabric в Forge-сборке — ошибка.
         let mut fixed = mods.clone();
@@ -1226,6 +1356,152 @@ mod tests {
                 .iter()
                 .any(|i| matches!(i.action, Some(Action::Loader)))
         );
+    }
+
+    /// Случаи из настоящей сборки автора (Fabric 1.21.10, 17.10.2026): игра
+    /// с ними запускается, лаунчер не должен ничего блокировать.
+    #[test]
+    fn real_fabric_build_has_no_false_alarms() {
+        let inst = instance(Loader::Fabric, "0.19.5");
+        let mut inst = inst;
+        inst.version = "1.21.10".into();
+        let breaks = |id: &str, range: &str| Dep {
+            id: id.into(),
+            kind: DepKind::Breaks,
+            ranges: vec![range.into()],
+            style: RangeStyle::Semver,
+        };
+        let mc = |range: &str| dep("minecraft", DepKind::Required, range);
+        let mods = vec![
+            fabric_mod(
+                "appleskin.jar",
+                "appleskin",
+                "3.0.7+mc1.21.9",
+                vec![breaks("roughlyenoughitems", "<6.0.306-alpha")],
+            ),
+            fabric_mod("rei.jar", "roughlyenoughitems", "21.9.812", vec![]),
+            fabric_mod(
+                "cullleaves.jar",
+                "cullleaves",
+                "4.1.0",
+                vec![breaks("sodium", "<0.6.0")],
+            ),
+            fabric_mod("sodium.jar", "sodium", "0.7.3+mc1.21.10", vec![]),
+            fabric_mod(
+                "malilib.jar",
+                "malilib",
+                "0.26.6",
+                vec![breaks("iris", "<1.9.4-")],
+            ),
+            fabric_mod(
+                "iris.jar",
+                "iris",
+                "1.9.6+mc1.21.9",
+                vec![breaks("worldeditcui", "<1.18.1")],
+            ),
+            fabric_mod(
+                "itemscroller.jar",
+                "itemscroller",
+                "0.29.2",
+                vec![breaks("malilib", "<0.26.3-")],
+            ),
+            fabric_mod(
+                "wecui.jar",
+                "worldeditcui",
+                "1.21.10+01",
+                vec![Dep {
+                    id: "worldedit".into(),
+                    kind: DepKind::Breaks,
+                    ranges: vec!["7.3.1".into(), "7.3.16".into()],
+                    style: RangeStyle::Semver,
+                }],
+            ),
+            fabric_mod("worldedit.jar", "worldedit", "7.3.17+7262-c7fbe08", vec![]),
+            fabric_mod(
+                "esb-21.10.jar",
+                "easyshulkerboxes",
+                "21.10.1",
+                vec![mc(">=1.21.10- <1.21.11-")],
+            ),
+            fabric_mod(
+                "esb-21.11.jar",
+                "easyshulkerboxes",
+                "21.11.0",
+                vec![
+                    mc(">=1.21.11- <1.21.12-"),
+                    dep("puzzleslib", DepKind::Required, ">=21.11.2"),
+                ],
+            ),
+            fabric_mod("puzzleslib.jar", "puzzleslib", "21.10.8", vec![]),
+        ];
+        let r = run(&inst, &mods, false);
+        let blocking: Vec<&str> = r.blocking().iter().map(|i| i.text.as_str()).collect();
+        assert!(blocking.is_empty(), "{blocking:?}");
+        // Лишняя копия — под 1.21.11; выключить надо её, а не подходящую.
+        let dup = r
+            .issues
+            .iter()
+            .find(|i| matches!(i.action, Some(Action::DisableExtra { .. })))
+            .expect("копии найдены");
+        assert_eq!(
+            dup.action,
+            Some(Action::DisableExtra {
+                disable: vec!["esb-21.11.jar".into()]
+            })
+        );
+
+        // А попавшая в диапазон версия — несовместимость.
+        let mut old = mods.clone();
+        old[1] = fabric_mod("rei.jar", "roughlyenoughitems", "6.0.100", vec![]);
+        assert!(
+            run(&inst, &old, false)
+                .blocking()
+                .iter()
+                .any(|i| i.text.contains("roughlyenoughitems"))
+        );
+    }
+
+    /// XaeroPlus требует World Map ровно 1.39.17: обновление не предлагаем.
+    #[test]
+    fn exact_dependency_holds_update() {
+        let inst = instance(Loader::Fabric, "0.19.5");
+        let wm = fabric_mod("wm.jar", "xaeroworldmap", "1.39.17", vec![]);
+        let plus = fabric_mod(
+            "plus.jar",
+            "xaeroplus",
+            "2.29.1",
+            vec![dep("xaeroworldmap", DepKind::Required, "1.39.17")],
+        );
+        let updates = HashMap::from([(
+            wm.sha1.clone(),
+            Update {
+                version_id: "new".into(),
+                version_number: "1.47.0".into(),
+            },
+        )]);
+        let ask = |list: &[Local]| {
+            check(&Context {
+                instance: &inst,
+                local: list,
+                known: &HashMap::new(),
+                unknown: &HashSet::new(),
+                updates: &updates,
+                trusted: &HashSet::new(),
+                library: &HashMap::new(),
+                shaders: false,
+                online: true,
+            })
+        };
+        let r = ask(&[wm.clone(), plus]);
+        assert!(
+            r.mods.iter().all(|m| m.update.is_none()),
+            "держит XaeroPlus"
+        );
+        let r = ask(&[wm]);
+        assert!(r.mods[0].update.is_some(), "без XaeroPlus обновлять можно");
+        assert!(caps(&dep("x", DepKind::Required, "<0.27")));
+        assert!(!caps(&dep("x", DepKind::Required, ">=0.134.0")));
+        assert!(!caps(&dep("x", DepKind::Required, "*")));
     }
 
     #[test]

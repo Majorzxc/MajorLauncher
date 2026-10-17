@@ -165,6 +165,7 @@
     <label class="search">
       <Icon name="search" size={18} />
       <input
+        type="search"
         bind:value={catalog.query}
         placeholder={catalog.kind === "mod" ? "Найти мод: sodium, jei, create…" : "Найти…"}
         spellcheck="false"

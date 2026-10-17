@@ -48,6 +48,13 @@ enum Command {
     },
     /// Пересчитать хеши всех файлов версии и докачать повреждённые.
     Verify { version: String },
+    /// Моды сборки: что за мод, обновления и предупреждения (id сборки).
+    Mods {
+        build: String,
+        /// Только кэш, без запросов к Modrinth.
+        #[arg(long)]
+        offline: bool,
+    },
     /// Загрузчики модов: без версии игры — для каких версий есть, с версией —
     /// версии загрузчика (звёздочка — рекомендованная).
     Loaders {
@@ -171,6 +178,33 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                 prepared.version.id,
                 started.elapsed().as_secs_f64()
             );
+        }
+        Command::Mods { build, offline } => {
+            let r = majorlauncher_core::mods::report(&dl, &data, &build, !offline).await?;
+            for m in &r.mods {
+                let mark = if m.enabled { ' ' } else { '-' };
+                let source = if m.modrinth.is_some() {
+                    "Modrinth"
+                } else {
+                    "не опознан"
+                };
+                let update = m
+                    .update
+                    .as_ref()
+                    .map(|u| format!(" → {}", u.version_number))
+                    .unwrap_or_default();
+                println!(
+                    "{mark} {} {} ({source}){update}  [{}]",
+                    m.name, m.version, m.file
+                );
+            }
+            println!();
+            for i in &r.issues {
+                println!("{:?}: {}", i.level, i.text);
+            }
+            if !r.online && !offline {
+                println!("Modrinth не ответил — показано известное");
+            }
         }
         Command::Accounts { action } => {
             accounts(&data, &dl, action.unwrap_or(AccountsAction::List)).await?;

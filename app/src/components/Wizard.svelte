@@ -153,7 +153,7 @@
           {/each}
         </div>
         <div class="vbar">
-          <input placeholder="Найти версию: 1.21, 26.3…" bind:value={filter} />
+          <input type="search" placeholder="Найти версию: 1.21, 26.3…" bind:value={filter} />
           <label class="check"><input type="checkbox" bind:checked={snapshots} />Показывать снапшоты</label>
         </div>
         {#if versionsError || loaderError}
@@ -186,7 +186,7 @@
         <div class="fields">
           <label class="field">
             <span>Название</span>
-            <input bind:value={name} maxlength="64" oninput={() => (nameTouched = true)} />
+            <input type="search" bind:value={name} maxlength="64" oninput={() => (nameTouched = true)} />
           </label>
           <div class="field">
             <span>Группа</span>

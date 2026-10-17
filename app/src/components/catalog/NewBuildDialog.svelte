@@ -65,7 +65,7 @@
     {/if}
     <label class="row">
       <span class="label">Название</span>
-      <input class="input grow" bind:value={name} maxlength="64" oninput={() => (touched = true)} />
+      <input type="search" class="input grow" bind:value={name} maxlength="64" oninput={() => (touched = true)} />
     </label>
     <p class="muted small">Сборка появится, когда вы поставите в неё первый мод. Каталог сразу покажет то, что к ней подходит.</p>
   </div>

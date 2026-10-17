@@ -110,7 +110,7 @@
 
   <label class="search">
     <Icon name="search" size={18} />
-    <input placeholder="Поиск: FOV, покачивание, чувствительность…" bind:value={query} />
+    <input type="search" placeholder="Поиск: FOV, покачивание, чувствительность…" bind:value={query} />
   </label>
 
   {#each groups as g (g.id)}
