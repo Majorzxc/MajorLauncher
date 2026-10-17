@@ -22,7 +22,7 @@ pub enum ProjectType {
 }
 
 impl ProjectType {
-    fn facet(self) -> &'static str {
+    pub fn facet(self) -> &'static str {
         match self {
             ProjectType::Mod => "mod",
             ProjectType::ResourcePack => "resourcepack",
@@ -75,6 +75,34 @@ pub struct Search<'a> {
     pub loaders: Vec<&'a str>,
     pub sort: Sort,
     pub offset: u32,
+    /// Категории: все выбранные сразу (как на сайте Modrinth).
+    pub categories: &'a [String],
+    /// Где работает: нужен на клиенте или на сервере.
+    pub environment: Option<Environment>,
+    /// Только с открытым исходным кодом.
+    pub open_source: bool,
+}
+
+/// Где должен работать проект (фильтр «Клиент / Сервер»).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Environment {
+    Client,
+    Server,
+}
+
+/// Категория Modrinth для фильтра.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Category {
+    pub name: String,
+    pub project_type: String,
+    /// Группа: categories, features, resolutions, performance impact.
+    pub header: String,
+}
+
+/// Все категории Modrinth (тег-лист, меняется редко).
+pub async fn categories(dl: &Downloader) -> Result<Vec<Category>> {
+    get(dl, &url("/tag/category", &[])?).await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -270,6 +298,26 @@ pub async fn search(dl: &Downloader, s: &Search<'_>) -> Result<SearchResult> {
                 .map(|l| format!("categories:{l}"))
                 .collect(),
         );
+    }
+    for c in s.categories {
+        let c = encode(c);
+        if !c.is_empty() {
+            facets.push(vec![format!("categories:{c}")]);
+        }
+    }
+    match s.environment {
+        Some(Environment::Client) => facets.push(vec![
+            "client_side:required".into(),
+            "client_side:optional".into(),
+        ]),
+        Some(Environment::Server) => facets.push(vec![
+            "server_side:required".into(),
+            "server_side:optional".into(),
+        ]),
+        None => {}
+    }
+    if s.open_source {
+        facets.push(vec!["open_source:true".into()]);
     }
     let mut params = vec![
         ("query", s.query.trim().to_string()),

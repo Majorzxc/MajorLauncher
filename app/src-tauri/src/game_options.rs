@@ -140,6 +140,40 @@ pub async fn build_copy_world(
     blocking(move || content::copy_world(&from, &folder, &target).map_err(text)).await
 }
 
+/// Библиотека модов: все моды игрока и где они стоят.
+#[tauri::command]
+pub async fn library_mods(
+    state: State<'_, AppState>,
+) -> CmdResult<majorlauncher_core::modlib::ModLibrary> {
+    let data = state.data()?;
+    blocking(move || majorlauncher_core::modlib::list(&data).map_err(text)).await
+}
+
+/// Добавить моды в сборку. Возвращает, сколько добавлено.
+#[tauri::command]
+pub async fn library_mods_add(
+    state: State<'_, AppState>,
+    keys: Vec<String>,
+    build: String,
+) -> CmdResult<usize> {
+    let data = state.data()?;
+    blocking(move || majorlauncher_core::modlib::add_to_build(&data, &keys, &build).map_err(text))
+        .await
+}
+
+/// Удалить пустующие моды (`keys` — только эти). Возвращает освобождённые байты.
+#[tauri::command]
+pub async fn library_mods_remove_unused(
+    state: State<'_, AppState>,
+    keys: Option<Vec<String>>,
+) -> CmdResult<u64> {
+    let data = state.data()?;
+    blocking(move || {
+        majorlauncher_core::modlib::remove_unused(&data, keys.as_deref()).map_err(text)
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn library_list(state: State<AppState>) -> CmdResult<Vec<Item>> {
     Library::new(&state.data()?).list().map_err(text)

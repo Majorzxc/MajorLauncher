@@ -121,6 +121,32 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
           ? { build: "vyzhivanie", name: "Выживание с друзьями", seconds: 0, code: 1, crashed: true, no_window: true, tail: ["Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space", "	at net.minecraft.client.main.Main.main(Main.java:42)"], warning: null }
           : null,
       } as T;
+    case "tasks_list":
+      return (url.has("tasks")
+        ? [
+            { id: 1, title: "Sodium, Iris Shaders", place: "в сборку «Выживание с друзьями»", done: 1.4e6, total: 3.1e6, files_done: 1, files_total: 2, stage: null, state: "running", error: null, started: now() - 5, finished: null },
+            { id: 2, title: "Файлы игры 1.21.1 · NeoForge 21.1.257", place: "для сборки «Нео тест»", done: 0, total: 0, files_done: 0, files_total: 0, stage: "Ставим загрузчик 3/6", state: "running", error: null, started: now() - 20, finished: null },
+            { id: 3, title: "Обновление: AppleSkin", place: "в сборку «Нео тест»", done: 75e3, total: 75e3, files_done: 1, files_total: 1, stage: null, state: "done", error: null, started: now() - 300, finished: now() - 298 },
+            { id: 4, title: "Скачать заново", place: "в сборку «Нео тест»", done: 0, total: 1.1e6, files_done: 0, files_total: 1, stage: null, state: "failed", error: "нет связи с cdn.modrinth.com", started: now() - 600, finished: now() - 590 },
+          ]
+        : []) as T;
+    case "build_log_text": {
+      const lines: string[] = [];
+      for (let i = 0; i < 3000; i++) {
+        const t = `[12:${String(Math.floor(i / 60) % 60).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}]`;
+        if (i % 97 === 5) lines.push(`${t} [Render thread/ERROR]: Failed to load texture minecraft:block/${i}`, "java.io.FileNotFoundException: minecraft:block", "\tat net.minecraft.client.Texture.load(Texture.java:42)");
+        else if (i % 31 === 3) lines.push(`${t} [Worker-Main-2/WARN]: Missing sound for event: ambient.cave_${i}`);
+        else lines.push(`${t} [Render thread/INFO]: Loaded chunk ${i} in 3 ms`);
+      }
+      return { text: lines.join("\n"), truncated: false } as T;
+    }
+    case "build_screenshot_full":
+      return "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="100%" height="100%" fill="#2b6b3a"/><text x="50%" y="50%" fill="#fff" font-size="96" text-anchor="middle">' + a.file + "</text></svg>") as T;
+    case "build_trash_screenshot":
+    case "build_reveal":
+      return undefined as T;
+    case "tasks_clear":
+      return undefined as T;
     case "build_verify":
       await sleep(1500);
       return { fixed: 2, mods_changed: 1 } as T;
@@ -237,10 +263,17 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
     // Каталог: в браузере — настоящий Modrinth (он отвечает и сайтам).
     case "catalog_search": {
       const r = a.req;
-      const facets = JSON.stringify([[`project_type:${r.kind}`]]);
+      const groups: string[][] = [[`project_type:${r.kind}`], ...r.categories.map((c: string) => [`categories:${c}`])];
+      if (r.environment) groups.push([`${r.environment}_side:required`, `${r.environment}_side:optional`]);
+      if (r.open_source) groups.push(["open_source:true"]);
+      const facets = JSON.stringify(groups);
       const q = new URLSearchParams({ query: r.query, index: r.sort, offset: String(r.offset), limit: "20", facets });
       const found = await (await fetch(`https://api.modrinth.com/v2/search?${q}`)).json();
       return { ...found, hits: found.hits.map((h: { project_id: string }) => ({ ...h, id: h.project_id })) } as T;
+    }
+    case "catalog_categories": {
+      const all = await (await fetch("https://api.modrinth.com/v2/tag/category")).json();
+      return all.filter((c: { project_type: string }) => c.project_type === a.kind) as T;
     }
     case "catalog_project":
       return (await (await fetch(`https://api.modrinth.com/v2/project/${a.id}`)).json()) as T;

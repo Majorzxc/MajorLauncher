@@ -31,7 +31,7 @@ export function actionLabel(a: ModAction): string {
 }
 
 /// Выполнить действие для сборки `id`. Возвращает true, если стоит перечитать отчёт.
-export async function runAction(id: string, a: ModAction): Promise<boolean> {
+export async function runAction(id: string, a: ModAction, name: string | null = null): Promise<boolean> {
   switch (a.kind) {
     case "disable":
     case "delete":
@@ -51,13 +51,13 @@ export async function runAction(id: string, a: ModAction): Promise<boolean> {
       return false;
     case "redownload": {
       const ok = await attempt("Моды", () =>
-        api.catalogInstall({ kind: "build", id }, "mod", [a.version_id]).then(() => true),
+        api.catalogInstall({ kind: "build", id }, "mod", [a.version_id], "Скачать заново").then(() => true),
       );
       if (ok) toast("Файл скачан заново");
       return !!ok;
     }
     case "update": {
-      const titles = await attempt("Обновление", () => api.modsUpdate(id, [[a.version_id, a.file]]));
+      const titles = await attempt("Обновление", () => api.modsUpdate(id, [[a.version_id, a.file]], name ? `Обновление: ${name}` : null));
       if (titles) toast(`Обновлено: ${titles.join(", ")}`);
       return !!titles;
     }

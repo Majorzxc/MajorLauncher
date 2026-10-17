@@ -20,6 +20,10 @@ export const catalog = $state({
   query: "",
   sort: "relevance" as Sort,
   all: false,
+  /// Фильтры как на Modrinth: категории (все сразу), где работает, открытый код.
+  categories: [] as string[],
+  env: null as null | "client" | "server",
+  openSource: false,
   pick: null as Pick | null,
   /// Открытый проект (страница в лаунчере).
   project: null as string | null,
@@ -111,6 +115,7 @@ export async function install(project: string, kind: ProjectType, version: strin
       target(catalog.pick!),
       kind,
       plan.items.map((i) => i.version_id),
+      plan.items.map((i) => i.title).join(", "),
     );
     toast(`Установлено: ${titles.join(", ")}`);
     await refreshInstalled();

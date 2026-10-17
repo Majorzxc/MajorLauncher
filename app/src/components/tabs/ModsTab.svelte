@@ -63,7 +63,9 @@
       // Новый файл (обновление, установка) надо опознать на Modrinth, иначе он
       // до перезахода на вкладку будет «не опознан».
       const fresh = a.kind === "update" || a.kind === "install" || a.kind === "redownload";
-      if (await runAction(id, a)) await load(fresh);
+      const file = "file" in a ? a.file : null;
+      const name = report?.mods.find((m) => m.file === file)?.name ?? null;
+      if (await runAction(id, a, name)) await load(fresh);
     } finally {
       busy = false;
       working = null;
@@ -87,7 +89,7 @@
   async function updateAll() {
     busy = true;
     checking = true;
-    const titles = await attempt("Обновление", () => api.modsUpdate(id, []));
+    const titles = await attempt("Обновление", () => api.modsUpdate(id, [], `Обновление модов (${updatable.length})`));
     busy = false;
     if (titles) toast(titles.length ? `Обновлено: ${titles.join(", ")}` : "Обновлять нечего");
     load(true);

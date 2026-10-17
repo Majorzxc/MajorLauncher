@@ -40,6 +40,9 @@ export interface SearchRequest {
   sort: Sort;
   offset: number;
   all: boolean;
+  categories: string[];
+  environment: "client" | "server" | null;
+  open_source: boolean;
 }
 
 export interface Hit {
@@ -396,6 +399,42 @@ export interface Checked {
   mods_changed: number;
 }
 
+/// Мод в библиотеке модов.
+export interface LibMod {
+  key: string;
+  file: string;
+  title: string;
+  version: string;
+  size: number;
+  in_library: boolean;
+  source: { project_id: string; version_id: string; title: string; version_number: string } | null;
+  icon_url: string | null;
+  loaders: ("fabric" | "quilt" | "forge" | "neoforge")[];
+  builds: { build: string; name: string; enabled: boolean }[];
+}
+
+export interface ModLibrary {
+  mods: LibMod[];
+  total: number;
+  unused: number;
+}
+
+/// Задача панели «Загрузки».
+export interface Task {
+  id: number;
+  title: string;
+  place: string;
+  done: number;
+  total: number;
+  files_done: number;
+  files_total: number;
+  stage: string | null;
+  state: "running" | "done" | "failed";
+  error: string | null;
+  started: number;
+  finished: number | null;
+}
+
 export interface PlayStatus {
   build: string | null;
   phase: Phase;
@@ -438,7 +477,8 @@ export const api = {
   modsReport: (id: string, online: boolean) => call<ModsReport>("mods_report", { id, online }),
   modsApply: (id: string, action: ModAction) => call<void>("mods_apply", { id, action }),
   modsRemove: (id: string, file: string) => call<void>("mods_remove", { id, file }),
-  modsUpdate: (id: string, only: [string, string][]) => call<string[]>("mods_update", { id, only }),
+  modsUpdate: (id: string, only: [string, string][], label: string | null = null) =>
+    call<string[]>("mods_update", { id, only, label }),
   modsPin: (id: string, project: string, pinned: boolean) => call<Instance>("mods_pin", { id, project, pinned }),
   quickCheck: (version: string) => call<RiskyWorld[]>("quick_check", { version }),
   copyWorld: (id: string, folder: string, to: string) => call<string>("build_copy_world", { id, folder, to }),
@@ -449,6 +489,9 @@ export const api = {
   seedOptions: (id: string) => call<OptionsView>("options_seed", { id }),
 
   library: () => call<LibraryItem[]>("library_list"),
+  libraryMods: () => call<ModLibrary>("library_mods"),
+  libraryModsAdd: (keys: string[], build: string) => call<number>("library_mods_add", { keys, build }),
+  libraryModsRemoveUnused: (keys: string[] | null) => call<number>("library_mods_remove_unused", { keys }),
   libraryAdd: (folder: LibraryItem["folder"], paths: string[]) => call<string[]>("library_add", { folder, paths }),
   librarySet: (folder: LibraryItem["folder"], file: string, allBuilds: boolean, builds: string[]) =>
     call<LibraryItem>("library_set", { folder, file, allBuilds, builds }),
@@ -463,6 +506,10 @@ export const api = {
   logs: (id: string) => call<LogFile[]>("build_logs", { id }),
   thumbnail: (id: string, file: string) => call<string>("build_thumbnail", { id, file }),
   screenshot: (id: string, file: string) => call<string>("build_screenshot", { id, file }),
+  screenshotFull: (id: string, file: string) => call<string>("build_screenshot_full", { id, file }),
+  trashScreenshot: (id: string, file: string) => call<void>("build_trash_screenshot", { id, file }),
+  logText: (id: string, file: string) => call<{ text: string; truncated: boolean }>("build_log_text", { id, file }),
+  reveal: (id: string, target: OpenTarget) => call<void>("build_reveal", { id, target }),
   open: (id: string, target: OpenTarget) => call<void>("build_open", { id, target }),
   stats: (filter: StatsFilter) => call<Summary>("stats_summary", { filter }),
 
@@ -477,11 +524,15 @@ export const api = {
   catalogProject: (id: string) => call<Project>("catalog_project", { id }),
   catalogVersions: (target: CatalogTarget, kind: ProjectType, project: string, all: boolean) =>
     call<CatalogVersion[]>("catalog_versions", { target, kind, project, all }),
+  catalogCategories: (kind: ProjectType) =>
+    call<{ name: string; project_type: string; header: string }[]>("catalog_categories", { kind }),
   catalogInstalled: (target: CatalogTarget) => call<Installed[]>("catalog_installed", { target }),
   catalogPlan: (target: CatalogTarget, kind: ProjectType, project: string, version: string | null) =>
     call<Plan>("catalog_plan", { target, kind, project, version }),
-  catalogInstall: (target: CatalogTarget, kind: ProjectType, versions: string[]) =>
-    call<string[]>("catalog_install", { target, kind, versions }),
+  catalogInstall: (target: CatalogTarget, kind: ProjectType, versions: string[], label: string | null = null) =>
+    call<string[]>("catalog_install", { target, kind, versions, label }),
+  tasksList: () => call<Task[]>("tasks_list"),
+  tasksClear: () => call<void>("tasks_clear"),
   loaderVersions: (loader: Loader, game: string) => call<LoaderVersion[]>("loader_versions", { loader, game }),
   update: (id: string, patch: Patch) => call<Instance>("build_update", { id, patch }),
   duplicate: (id: string) => call<Instance>("build_duplicate", { id }),

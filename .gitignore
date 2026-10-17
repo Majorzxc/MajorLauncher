@@ -15,3 +15,6 @@
 /TZ.draft-*.md
 /design/
 /prototype/
+
+# Настройки Claude Code для этой папки
+/.claude/

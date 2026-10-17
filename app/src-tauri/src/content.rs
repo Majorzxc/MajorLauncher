@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use majorlauncher_core::Builds;
-use majorlauncher_core::content::{self, FileEntry, Folder, LogFile, World};
+use majorlauncher_core::content::{self, FileEntry, Folder, LogFile, LogText, World};
 use majorlauncher_core::playtime::{Filter, Stats, Summary, resolve_worlds, summarize};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
@@ -95,6 +95,55 @@ pub async fn build_screenshot(
     .await
 }
 
+/// Скриншот целиком — для просмотра в окне.
+#[tauri::command]
+pub async fn build_screenshot_full(
+    state: State<'_, AppState>,
+    id: String,
+    file: String,
+) -> CmdResult<String> {
+    let dir = game_dir(&state, &id)?;
+    blocking(move || {
+        let picture = content::screenshot_full(&dir, &file).map_err(text)?;
+        Ok(crate::builds::data_url(&picture))
+    })
+    .await
+}
+
+/// Убрать скриншот в корзину Windows.
+#[tauri::command]
+pub async fn build_trash_screenshot(
+    state: State<'_, AppState>,
+    id: String,
+    file: String,
+) -> CmdResult<()> {
+    let dir = game_dir(&state, &id)?;
+    blocking(move || content::trash_screenshot(&dir, &file).map_err(text)).await
+}
+
+/// Текст лога или краш-отчёта для просмотра в окне.
+#[tauri::command]
+pub async fn build_log_text(
+    state: State<'_, AppState>,
+    id: String,
+    file: String,
+) -> CmdResult<LogText> {
+    let dir = game_dir(&state, &id)?;
+    blocking(move || content::read_log(&dir, &file).map_err(text)).await
+}
+
+/// Показать файл в проводнике (выделенным).
+#[tauri::command]
+pub fn build_reveal(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    target: Target,
+) -> CmdResult<()> {
+    let path = target_path(&game_dir(&state, &id)?, target)?;
+    app.opener().reveal_item_in_dir(path).map_err(text)
+}
+
 /// Что открыть в проводнике или в программе по умолчанию.
 #[derive(serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -123,8 +172,14 @@ pub fn build_open(
     id: String,
     target: Target,
 ) -> CmdResult<()> {
-    let dir = game_dir(&state, &id)?;
-    let path = match target {
+    let path = target_path(&game_dir(&state, &id)?, target)?;
+    app.opener()
+        .open_path(path.display().to_string(), None::<&str>)
+        .map_err(text)
+}
+
+fn target_path(dir: &std::path::Path, target: Target) -> CmdResult<std::path::PathBuf> {
+    Ok(match target {
         Target::Folder { name } => {
             let allowed = [
                 "mods",
@@ -141,18 +196,15 @@ pub fn build_open(
             std::fs::create_dir_all(&path).map_err(text)?;
             path
         }
-        Target::File { folder, file } => content::inside(&dir, folder, &file).map_err(text)?,
+        Target::File { folder, file } => content::inside(dir, folder, &file).map_err(text)?,
         Target::World { folder } => {
             if folder.contains(['/', '\\', ':']) || folder == ".." || folder == "." {
                 return Err(format!("недопустимое имя мира «{folder}»"));
             }
             dir.join("saves").join(folder)
         }
-        Target::Log { file } => content::log_path(&dir, &file).map_err(text)?,
-    };
-    app.opener()
-        .open_path(path.display().to_string(), None::<&str>)
-        .map_err(text)
+        Target::Log { file } => content::log_path(dir, &file).map_err(text)?,
+    })
 }
 
 #[tauri::command]

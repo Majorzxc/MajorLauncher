@@ -1,6 +1,6 @@
 <script lang="ts">
   // Скриншоты: миниатюры (их делает ядро — полный кадр занял бы в окне
-  // 8 МБ памяти), открыть в просмотрщике, сделать обложкой.
+  // 8 МБ памяти); по клику — просмотр в лаунчере со стрелками и действиями.
   import { untrack } from "svelte";
   import { api, type FileEntry } from "../../lib/api";
   import { builds } from "../../lib/builds.svelte";
@@ -8,6 +8,7 @@
   import { date } from "../../lib/format";
   import { attempt, toast } from "../../lib/toast.svelte";
   import Icon from "../Icon.svelte";
+  import ShotViewer from "../ShotViewer.svelte";
 
   let { id }: { id: string } = $props();
   const PAGE = 24;
@@ -16,6 +17,8 @@
   let shown = $state(PAGE);
   let thumbs: Record<string, string> = $state({});
   let error = $state("");
+  /// Открытый в просмотре скриншот (номер в списке).
+  let viewing = $state<number | null>(null);
 
   $effect(() => {
     api
@@ -68,7 +71,7 @@
         <button
           class="shot"
           title="Открыть {f.file}"
-          onclick={() => attempt("Скриншот", () => api.open(id, { kind: "file", folder: "screenshots", file: f.file }))}
+          onclick={() => (viewing = list!.indexOf(f))}
         >
           {#if thumbs[f.file]}<img src={thumbs[f.file]} alt={f.file} />{/if}
         </button>
@@ -82,6 +85,25 @@
   {#if list.length > shown}
     <div class="more"><button class="btn" onclick={() => (shown += PAGE)}>Показать ещё</button></div>
   {/if}
+{/if}
+
+{#if viewing !== null && list && list[viewing]}
+  <ShotViewer
+    {id}
+    {list}
+    bind:index={viewing}
+    onclose={() => (viewing = null)}
+    oncover={(f) => {
+      viewing = null;
+      makeCover(f);
+    }}
+    ondeleted={(f) => {
+      const at = list!.indexOf(f);
+      list = list!.filter((x) => x !== f);
+      delete thumbs[f.file];
+      viewing = list.length ? Math.min(at, list.length - 1) : null;
+    }}
+  />
 {/if}
 
 <style>

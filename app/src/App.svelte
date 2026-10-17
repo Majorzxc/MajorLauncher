@@ -12,6 +12,7 @@
   import BlockedDialog from "./components/BlockedDialog.svelte";
   import Tooltip from "./components/Tooltip.svelte";
   import { goBack, goForward, track } from "./lib/history.svelte";
+  import { connectTasks, running, share, tasks } from "./lib/tasks.svelte";
   import PlanDialog from "./components/catalog/PlanDialog.svelte";
   import { catalog } from "./lib/catalog.svelte";
   import { cropper, finish } from "./lib/crop.svelte";
@@ -20,10 +21,9 @@
   import Settings from "./screens/Settings.svelte";
   import Stats from "./screens/Stats.svelte";
   import { api } from "./lib/api";
-  import { builds } from "./lib/builds.svelte";
   import { size } from "./lib/format";
   import { go, nav } from "./lib/nav.svelte";
-  import { connect, percent, play } from "./lib/play.svelte";
+  import { connect, play } from "./lib/play.svelte";
   import { ALL } from "./lib/sections";
   import { apply, loadImage } from "./lib/theme.svelte";
 
@@ -41,6 +41,7 @@
     loadImage();
     needsDataDir = !config.data_dir;
     ready = true;
+    connectTasks();
     if (!needsDataDir) connect();
   });
 
@@ -59,8 +60,9 @@
     }
   }
 
-  const downloading = $derived(play.status.phase === "downloading" ? play.status : null);
-  const downloadingName = $derived(builds.list.find((b) => b.id === play.status.build)?.name ?? "");
+  // Нижняя полоса: первая загрузка, у которой известен размер (игра, каталог, обновления).
+  const active = $derived(running());
+  const downloading = $derived(active.find((t) => t.total > 0) ?? null);
 </script>
 
 <div class="app">
@@ -95,13 +97,14 @@
   </main>
   {#if downloading}
     <!-- Полоса загрузки внизу (раздел 6.1 ТЗ): видна только во время загрузки. -->
-    <div class="download" role="status">
-      <span class="small">
-        Загрузка{downloadingName ? ` «${downloadingName}»` : ""}: {size(downloading.done)} из {size(downloading.total)}
+    <button class="download" aria-live="polite" title="Открыть «Загрузки»" onclick={() => (tasks.open = true)}>
+      <span class="small what">
+        {downloading.title} {downloading.place}: {size(downloading.done)} из {size(downloading.total)}
+        {#if active.length > 1}<span class="muted"> · ещё {active.length - 1}</span>{/if}
       </span>
-      <span class="track"><span style:width="{percent(downloading)}%"></span></span>
-      <b class="small">{percent(downloading)}%</b>
-    </div>
+      <span class="track"><span style:width="{share(downloading) ?? 0}%"></span></span>
+      <b class="small">{share(downloading) ?? 0}%</b>
+    </button>
   {/if}
 </div>
 <svelte:window onmousedown={mouse} onmouseup={mouse} onkeydown={keys} />
@@ -142,6 +145,11 @@
   }
   .download {
     grid-area: 3 / 2;
+    width: 100%;
+    border: 0;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
     display: flex;
     align-items: center;
     gap: var(--s4);

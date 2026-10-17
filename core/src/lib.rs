@@ -25,6 +25,7 @@ pub mod library;
 pub mod loaders;
 pub mod malware;
 pub mod meta;
+pub mod modlib;
 pub mod modmeta;
 pub mod modrinth;
 pub mod mods;

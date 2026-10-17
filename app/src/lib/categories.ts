@@ -65,7 +65,24 @@ const NAMES: Record<string, string> = {
   "64x": "64×",
   "128x": "128×",
   "8x-": "8× и меньше",
+  "48x": "48×",
+  "256x": "256×",
+  "512x+": "512× и больше",
+  "core-shaders": "Шейдеры ядра",
+  modded: "Для модов",
 };
+
+/// Группы категорий Modrinth.
+const HEADERS: Record<string, string> = {
+  categories: "Категории",
+  features: "Особенности",
+  resolutions: "Разрешение",
+  "performance impact": "Нагрузка на ПК",
+};
+
+export function headerName(id: string): string {
+  return HEADERS[id] ?? id;
+}
 
 export function categoryName(id: string): string {
   return NAMES[id] ?? id;

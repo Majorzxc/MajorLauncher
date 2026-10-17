@@ -14,6 +14,7 @@ use majorlauncher_core::{Builds, DataDir, Event, Instance, OnLaunch, Progress, i
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::tasks::LazyTask;
 use crate::{AppState, CmdResult, open_window, text};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
@@ -147,14 +148,20 @@ pub async fn build_play(
     }
     let _ = app.emit("play", state.play.lock().unwrap().status.clone());
 
+    let task = LazyTask::new(
+        &app,
+        format!("Файлы игры {}", version_title(&instance)),
+        format!("для сборки «{}»", instance.name),
+    );
     let prepared = game::prepare(
         &data,
         &state.http,
         &instance,
         &settings,
-        progress(app.clone()),
+        progress(app.clone(), Some(task.clone())),
     )
     .await;
+    task.finish(&prepared);
     let launch = match prepared {
         Ok(launch) => launch,
         Err(e) => {
@@ -239,15 +246,56 @@ pub async fn build_verify(
         };
     }
     let _ = app.emit("play", state.play.lock().unwrap().status.clone());
-    let result = game::verify(&data, &state.http, &instance, progress(app.clone())).await;
+    let task = crate::tasks::start(
+        &app,
+        format!("Проверка файлов {}", version_title(&instance)),
+        format!("сборка «{}»", instance.name),
+    );
+    task.stage("Пересчитываем хеши файлов");
+    let forward = {
+        let task = task.clone();
+        move |e: Event| task.event(&e)
+    };
+    let result = game::verify(
+        &data,
+        &state.http,
+        &instance,
+        progress_with(app.clone(), Arc::new(forward)),
+    )
+    .await;
+    task.finish(&result);
     reset(&app);
     result.map_err(text)
 }
 
-/// Полоса прогресса: события ядра → окно, не чаще раза в 100 мс.
-fn progress(app: AppHandle) -> Progress {
+/// «1.21.1 · NeoForge 21.1.257» — для панели «Загрузки».
+fn version_title(instance: &Instance) -> String {
+    match &instance.loader_version {
+        Some(v) if instance.loader != majorlauncher_core::loaders::Loader::Vanilla => {
+            format!("{} · {} {v}", instance.version, instance.loader.title())
+        }
+        _ => instance.version.clone(),
+    }
+}
+
+/// Полоса прогресса и панель «Загрузки» (если задача есть).
+fn progress(app: AppHandle, task: Option<Arc<LazyTask>>) -> Progress {
+    progress_with(
+        app,
+        Arc::new(move |e: Event| {
+            if let Some(t) = &task {
+                t.event(&e);
+            }
+        }),
+    )
+}
+
+/// Полоса прогресса: события ядра → окно, не чаще раза в 100 мс; `also` —
+/// кому ещё передать событие.
+fn progress_with(app: AppHandle, also: Arc<dyn Fn(Event) + Send + Sync>) -> Progress {
     let last = Mutex::new(Instant::now() - Duration::from_secs(1));
     Arc::new(move |event| {
+        also(event.clone());
         let state = app.state::<AppState>();
         let status = {
             let mut play = state.play.lock().unwrap();

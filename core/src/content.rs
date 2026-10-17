@@ -352,6 +352,111 @@ pub fn log_path(game_dir: &Path, file: &str) -> Result<PathBuf> {
     Ok(game_dir.join(sub).join(name))
 }
 
+/// Сколько лога показывать в окне: хвост в 4 МБ — там и ошибки, и конец игры.
+const LOG_VIEW_MAX: usize = 4 * 1024 * 1024;
+
+/// Текст лога для просмотра в окне.
+#[derive(Debug, Clone, Serialize)]
+pub struct LogText {
+    pub text: String,
+    /// Лог длиннее — показан только конец.
+    pub truncated: bool,
+}
+
+/// Прочитать лог или краш-отчёт; старые логи (`.log.gz`) распаковываются.
+pub fn read_log(game_dir: &Path, file: &str) -> Result<LogText> {
+    use std::io::Read;
+    let path = log_path(game_dir, file)?;
+    let raw = std::fs::read(&path).at(&path)?;
+    let bytes = if file.ends_with(".gz") {
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(raw.as_slice())
+            .take(256 * 1024 * 1024)
+            .read_to_end(&mut out)
+            .at(&path)?;
+        out
+    } else {
+        raw
+    };
+    let truncated = bytes.len() > LOG_VIEW_MAX;
+    let tail = if truncated {
+        let start = bytes.len() - LOG_VIEW_MAX;
+        // С начала строки.
+        let line = bytes[start..]
+            .iter()
+            .position(|b| *b == b'\n')
+            .map_or(start, |p| start + p + 1);
+        &bytes[line..]
+    } else {
+        &bytes[..]
+    };
+    Ok(LogText {
+        text: String::from_utf8_lossy(tail).into_owned(),
+        truncated,
+    })
+}
+
+/// Скриншот целиком для просмотра в окне: байты файла и тип.
+pub fn screenshot_full(game_dir: &Path, file: &str) -> Result<Picture> {
+    let path = inside(game_dir, Folder::Screenshots, file)?;
+    let mime = match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        _ => "image/png",
+    };
+    Ok(Picture {
+        bytes: std::fs::read(&path).at(&path)?,
+        mime,
+    })
+}
+
+/// Убрать скриншот в корзину Windows (его можно вернуть оттуда).
+pub fn trash_screenshot(game_dir: &Path, file: &str) -> Result<()> {
+    let path = inside(game_dir, Folder::Screenshots, file)?;
+    to_recycle_bin(&path)
+}
+
+#[cfg(windows)]
+fn to_recycle_bin(path: &Path) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{
+        FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, SHFILEOPSTRUCTW,
+        SHFileOperationW,
+    };
+    // Список путей — через ноль, в конце два нуля.
+    let mut from: Vec<u16> = path.as_os_str().encode_wide().collect();
+    from.extend([0, 0]);
+    let mut op = SHFILEOPSTRUCTW {
+        hwnd: std::ptr::null_mut(),
+        wFunc: FO_DELETE,
+        pFrom: from.as_ptr(),
+        pTo: std::ptr::null(),
+        fFlags: (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI) as u16,
+        fAnyOperationsAborted: 0,
+        hNameMappings: std::ptr::null_mut(),
+        lpszProgressTitle: std::ptr::null(),
+    };
+    // SAFETY: строки живут до конца вызова, структура заполнена целиком.
+    let code = unsafe { SHFileOperationW(&mut op) };
+    if code != 0 || op.fAnyOperationsAborted != 0 {
+        return Err(Error::Other(format!(
+            "не удалось убрать «{}» в корзину (код {code})",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn to_recycle_bin(path: &Path) -> Result<()> {
+    std::fs::remove_file(path).at(path)
+}
+
 /// Ширина миниатюры скриншота: в сетке они около 240 точек.
 const THUMB_WIDTH: u32 = 320;
 
@@ -498,6 +603,39 @@ fn mtime(meta: &std::fs::Metadata) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_plain_gzipped_and_long_logs() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::write(
+            logs.join("latest.log"),
+            "[12:00:00] [Render thread/INFO]: привет\n",
+        )
+        .unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(b"old line\n").unwrap();
+        std::fs::write(logs.join("2026-10-01-1.log.gz"), gz.finish().unwrap()).unwrap();
+
+        let plain = read_log(dir.path(), "logs/latest.log").unwrap();
+        assert!(plain.text.contains("привет") && !plain.truncated);
+        assert_eq!(
+            read_log(dir.path(), "logs/2026-10-01-1.log.gz")
+                .unwrap()
+                .text,
+            "old line\n"
+        );
+        assert!(read_log(dir.path(), "../secret.txt").is_err());
+
+        let long = "x".repeat(99) + "\n";
+        std::fs::write(logs.join("big.log"), long.repeat(LOG_VIEW_MAX / 100 + 10)).unwrap();
+        let big = read_log(dir.path(), "logs/big.log").unwrap();
+        assert!(big.truncated);
+        assert!(big.text.len() <= LOG_VIEW_MAX);
+        assert!(big.text.starts_with('x'), "с начала строки");
+    }
     use std::io::Write;
 
     fn level_dat(dir: &Path, name: &str) {

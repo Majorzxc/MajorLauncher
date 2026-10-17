@@ -1,5 +1,6 @@
 <script lang="ts">
   import AccountMenu from "./AccountMenu.svelte";
+  import Downloads from "./Downloads.svelte";
   import Logo from "./Logo.svelte";
 </script>
 
@@ -9,6 +10,7 @@
   <span class="title">MajorLauncher</span>
   <span class="spacer"></span>
 
+  <Downloads />
   <AccountMenu />
 </header>
 

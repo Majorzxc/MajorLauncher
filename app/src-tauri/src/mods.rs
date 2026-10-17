@@ -3,8 +3,9 @@
 
 use majorlauncher_core::Builds;
 use majorlauncher_core::Instance;
+use majorlauncher_core::catalog::Target;
 use majorlauncher_core::mods::{self, Action, Report};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::builds::blocking;
 use crate::{AppState, CmdResult, text};
@@ -40,14 +41,23 @@ pub async fn mods_remove(state: State<'_, AppState>, id: String, file: String) -
 /// Обновить: `only` — пары (версия, старый файл); пусто — всё, кроме закреплённых.
 #[tauri::command]
 pub async fn mods_update(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     only: Vec<(String, String)>,
+    label: Option<String>,
 ) -> CmdResult<Vec<String>> {
     let data = state.data()?;
-    mods::update(&state.http, &data, &id, &only)
-        .await
-        .map_err(text)
+    let place = crate::catalog::place(&data, &Target::Build { id: id.clone() });
+    let task = crate::tasks::start(
+        &app,
+        label.unwrap_or_else(|| "Обновление модов".into()),
+        place,
+    );
+    let progress = task.progress();
+    let result = mods::update(&state.http, &data, &id, &only, &progress).await;
+    task.finish(&result);
+    result.map_err(text)
 }
 
 #[tauri::command]

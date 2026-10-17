@@ -4,10 +4,13 @@
   import { ago, size } from "../../lib/format";
   import { attempt } from "../../lib/toast.svelte";
   import Icon from "../Icon.svelte";
+  import LogViewer from "../LogViewer.svelte";
 
   let { id }: { id: string } = $props();
   let list: LogFile[] | null = $state(null);
   let error = $state("");
+  /// Открытый в просмотре лог.
+  let open = $state<LogFile | null>(null);
 
   $effect(() => {
     api
@@ -17,6 +20,9 @@
   });
 </script>
 
+{#if open}
+  <LogViewer {id} log={open} onback={() => (open = null)} />
+{:else}
 <div class="bar">
   <span class="muted small grow">Разбор ошибок с подсказками, что делать, — на этапе 7.</span>
   <button class="btn btn-sm" onclick={() => attempt("Папка", () => api.open(id, { kind: "folder", name: "logs" }))}>
@@ -33,7 +39,7 @@
     {#each list as l (l.file)}
       <li>
         <Icon name={l.kind === "crash" ? "error" : "log"} size={20} />
-        <button class="link grow" onclick={() => attempt("Лог", () => api.open(id, { kind: "log", file: l.file }))}>
+        <button class="link grow" onclick={() => (open = l)}>
           {l.file}
         </button>
         {#if l.kind === "crash"}<span class="badge">краш</span>{/if}
@@ -42,6 +48,7 @@
       </li>
     {/each}
   </ul>
+{/if}
 {/if}
 
 <style>

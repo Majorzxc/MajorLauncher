@@ -11,6 +11,7 @@ use crate::builds::Builds;
 use crate::content::Folder;
 use crate::download::{Downloader, Task};
 use crate::error::{Error, Result};
+use crate::install::Event;
 use crate::library::{Library, Source, is_same};
 use crate::loaders::Loader;
 use crate::modrinth::{self, DependencyType, ProjectType, SearchResult, Sort, Version};
@@ -99,6 +100,12 @@ pub struct SearchRequest {
     /// Без фильтра совместимости («Показать всё»).
     #[serde(default)]
     pub all: bool,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub environment: Option<modrinth::Environment>,
+    #[serde(default)]
+    pub open_source: bool,
 }
 
 pub async fn search(dl: &Downloader, data: &DataDir, req: &SearchRequest) -> Result<SearchResult> {
@@ -116,9 +123,44 @@ pub async fn search(dl: &Downloader, data: &DataDir, req: &SearchRequest) -> Res
             },
             sort: req.sort,
             offset: req.offset,
+            categories: &req.categories,
+            environment: req.environment,
+            open_source: req.open_source,
         },
     )
     .await
+}
+
+/// Категории для фильтра каталога: только этого вида проектов. Список
+/// берётся у Modrinth раз в неделю (`cache/modrinth-categories.json`).
+pub async fn categories(
+    dl: &Downloader,
+    data: &DataDir,
+    kind: ProjectType,
+) -> Result<Vec<modrinth::Category>> {
+    let path = data.cache().join("modrinth-categories.json");
+    let fresh = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| t.elapsed().is_ok_and(|e| e.as_secs() < 7 * 24 * 3600));
+    let cached: Option<Vec<modrinth::Category>> = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok());
+    let all = match cached {
+        Some(list) if fresh => list,
+        cached => match modrinth::categories(dl).await {
+            Ok(list) => {
+                if let Some(dir) = path.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let _ = std::fs::write(&path, serde_json::to_vec(&list).unwrap_or_default());
+                list
+            }
+            // Нет сети — старый список лучше пустого.
+            Err(e) => cached.ok_or(e)?,
+        },
+    };
+    let kind = kind.facet();
+    Ok(all.into_iter().filter(|c| c.project_type == kind).collect())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -386,7 +428,7 @@ pub async fn install(
     target: &Target,
     kind: ProjectType,
     version_ids: &[String],
-    on_done: &(dyn Fn(u64) + Sync),
+    progress: &(dyn Fn(Event) + Sync),
 ) -> Result<Vec<String>> {
     vanilla_mods(data, target, kind)?;
     let folder = folder(kind)?;
@@ -423,8 +465,18 @@ pub async fn install(
         }
         placed.push((v, name, file.hashes.sha1.clone()));
     }
-    dl.download_all(tasks, &|t| on_done(t.size.unwrap_or(0)))
-        .await?;
+    if !tasks.is_empty() {
+        progress(Event::Downloading {
+            files: tasks.len(),
+            bytes: tasks.iter().filter_map(|t| t.size).sum(),
+        });
+    }
+    dl.download_all(tasks, &|t| {
+        progress(Event::FileDone {
+            bytes: t.size.unwrap_or(0),
+        })
+    })
+    .await?;
 
     let briefs: HashMap<String, String> = {
         let ids: Vec<&str> = versions.iter().map(|v| v.project_id.as_str()).collect();

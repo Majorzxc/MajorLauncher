@@ -2,9 +2,11 @@
 //! только id проектов и версий — адреса и хеши файлов ядро берёт у Modrinth само.
 
 use majorlauncher_core::catalog::{self, Installed, Plan, SearchRequest, Target, VersionView};
-use majorlauncher_core::modrinth::{self, Project, ProjectType, SearchResult};
+use majorlauncher_core::modrinth::{self, Category, Project, ProjectType, SearchResult};
 
-use tauri::State;
+use majorlauncher_core::Builds;
+use majorlauncher_core::paths::DataDir;
+use tauri::{AppHandle, State};
 
 use crate::{AppState, CmdResult, text};
 
@@ -15,6 +17,18 @@ pub async fn catalog_search(
 ) -> CmdResult<SearchResult> {
     let data = state.data()?;
     catalog::search(&state.http, &data, &req)
+        .await
+        .map_err(text)
+}
+
+/// Категории для фильтра каталога (свои у модов, ресурспаков, шейдеров).
+#[tauri::command]
+pub async fn catalog_categories(
+    state: State<'_, AppState>,
+    kind: ProjectType,
+) -> CmdResult<Vec<Category>> {
+    let data = state.data()?;
+    catalog::categories(&state.http, &data, kind)
         .await
         .map_err(text)
 }
@@ -64,15 +78,35 @@ pub async fn catalog_plan(
     .map_err(text)
 }
 
+/// Куда ставится — для панели «Загрузки».
+pub fn place(data: &DataDir, target: &Target) -> String {
+    match target {
+        Target::Build { id } => Builds::new(data.clone())
+            .get(id)
+            .map_or_else(|_| "в сборку".into(), |b| format!("в сборку «{}»", b.name)),
+        Target::New { .. } => "в новую сборку".into(),
+        Target::Library { .. } => "в библиотеку".into(),
+    }
+}
+
+/// `label` — что ставится, для панели «Загрузки» (название проекта).
 #[tauri::command]
 pub async fn catalog_install(
+    app: AppHandle,
     state: State<'_, AppState>,
     target: Target,
     kind: ProjectType,
     versions: Vec<String>,
+    label: Option<String>,
 ) -> CmdResult<Vec<String>> {
     let data = state.data()?;
-    catalog::install(&state.http, &data, &target, kind, &versions, &|_| {})
-        .await
-        .map_err(text)
+    let task = crate::tasks::start(
+        &app,
+        label.unwrap_or_else(|| "Установка из каталога".into()),
+        place(&data, &target),
+    );
+    let progress = task.progress();
+    let result = catalog::install(&state.http, &data, &target, kind, &versions, &progress).await;
+    task.finish(&result);
+    result.map_err(text)
 }

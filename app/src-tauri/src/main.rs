@@ -13,6 +13,7 @@ mod game_options;
 mod mods;
 mod play;
 mod settings;
+mod tasks;
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -36,6 +37,7 @@ pub struct AppState {
     pub http: Downloader,
     pub play: Mutex<play::PlayState>,
     pub relocation: Mutex<Relocation>,
+    pub tasks: Mutex<tasks::Tasks>,
 }
 
 /// Перенос папки данных: пока он идёт, остальные команды её не трогают.
@@ -170,6 +172,7 @@ fn main() {
                 http: Downloader::new(DownloadOptions::default())?,
                 play: Mutex::new(play::PlayState::default()),
                 relocation: Mutex::new(Relocation::default()),
+                tasks: Mutex::new(tasks::Tasks::default()),
             });
             open_window(app.handle())?;
 
@@ -188,6 +191,7 @@ fn main() {
             settings::set_game,
             settings::set_catalog,
             catalog::catalog_search,
+            catalog::catalog_categories,
             catalog::catalog_project,
             catalog::catalog_versions,
             catalog::catalog_installed,
@@ -251,6 +255,9 @@ fn main() {
             game_options::library_list,
             game_options::library_add,
             game_options::library_set,
+            game_options::library_mods,
+            game_options::library_mods_add,
+            game_options::library_mods_remove_unused,
             game_options::library_remove,
             play::build_play,
             play::build_verify,
@@ -260,6 +267,12 @@ fn main() {
             mods::mods_update,
             mods::mods_pin,
             play::play_status,
+            tasks::tasks_list,
+            content::build_screenshot_full,
+            content::build_trash_screenshot,
+            content::build_log_text,
+            content::build_reveal,
+            tasks::tasks_clear,
         ])
         .build(tauri::generate_context!())
         .expect("не удалось запустить окно MajorLauncher");

@@ -8,7 +8,7 @@
   import { api, type Hit, type Loader, type ProjectType, type Sort, type VersionInfo } from "../lib/api";
   import { builds, refresh } from "../lib/builds.svelte";
   import { busy, catalog, defaultPick, install, installed, refreshInstalled, target } from "../lib/catalog.svelte";
-  import { categoryName } from "../lib/categories";
+  import { categoryName, headerName } from "../lib/categories";
   import { ago, count } from "../lib/format";
   import { loaderLabel, loaderTitle } from "../lib/loaders";
   import { openBuild } from "../lib/nav.svelte";
@@ -79,6 +79,47 @@
   let hits: Hit[] = $state([]);
   let total = $state(0);
   let loading = $state(false);
+
+  // Фильтры (как на Modrinth): категории своего вида проектов, группами.
+  let cats = $state<{ name: string; header: string }[]>([]);
+  $effect(() => {
+    const kind = catalog.kind;
+    cats = [];
+    if (kind === "modpack") return;
+    api
+      .catalogCategories(kind)
+      .then((c) => kind === catalog.kind && (cats = c))
+      .catch(() => {});
+  });
+  const groups = $derived.by(() => {
+    const out = new Map<string, string[]>();
+    for (const c of cats) out.set(c.header, [...(out.get(c.header) ?? []), c.name]);
+    // Внутри группы — по русскому названию; разрешения — по размеру.
+    for (const [h, list] of out) {
+      if (h === "resolutions") list.sort((a, b) => parseInt(a) - parseInt(b));
+      else list.sort((a, b) => categoryName(a).localeCompare(categoryName(b), "ru"));
+    }
+    return [...out];
+  });
+  const filters = $derived(catalog.categories.length + (catalog.env ? 1 : 0) + (catalog.openSource ? 1 : 0));
+
+  function setKind(kind: ProjectType) {
+    if (kind === catalog.kind) return;
+    catalog.kind = kind;
+    // Категории у каждого вида свои.
+    catalog.categories = [];
+    catalog.env = null;
+  }
+
+  function toggleCategory(name: string, on: boolean) {
+    catalog.categories = on ? [...catalog.categories, name] : catalog.categories.filter((c) => c !== name);
+  }
+
+  function resetFilters() {
+    catalog.categories = [];
+    catalog.env = null;
+    catalog.openSource = false;
+  }
   let error = $state("");
   let generation = 0;
 
@@ -95,6 +136,9 @@
         sort: catalog.sort,
         offset,
         all: catalog.all,
+        categories: catalog.categories,
+        environment: catalog.kind === "mod" ? catalog.env : null,
+        open_source: catalog.openSource,
       });
       if (mine !== generation) return;
       hits = offset ? [...hits, ...r.hits] : r.hits;
@@ -110,6 +154,7 @@
   $effect(() => {
     // Всё, от чего зависит выдача.
     void [catalog.kind, catalog.query, catalog.sort, catalog.all, pickKey, JSON.stringify(catalog.pick)];
+    void [catalog.categories.join(","), catalog.env, catalog.openSource];
     clearTimeout(timer);
     timer = setTimeout(() => search(0), 300);
     return () => clearTimeout(timer);
@@ -130,7 +175,7 @@
 
   <nav class="tabs types" aria-label="Что искать">
     {#each TYPES as t (t.id)}
-      <button class="tab" class:on={catalog.kind === t.id} onclick={() => (catalog.kind = t.id)}>{t.title}</button>
+      <button class="tab" class:on={catalog.kind === t.id} onclick={() => setKind(t.id)}>{t.title}</button>
     {/each}
   </nav>
 
@@ -186,51 +231,89 @@
 
   {#if catalog.kind === "modpack"}
     <p class="note">Готовые сборки из каталога — в части 5.3: там же импорт файлов .mrpack.</p>
-  {:else if error}
-    <p class="warn"><Icon name="error" size={18} />Каталог недоступен: {error}</p>
-  {:else if !loading && hits.length === 0}
-    <p class="note">Ничего не нашлось{catalog.all ? "" : " для выбранной сборки — попробуйте «Показать всё»"}.</p>
   {:else}
-    <p class="muted small found">
-      {loading && !hits.length ? "Ищем…" : `Найдено: ${count(total)}${catalog.all ? "" : " · подходит к выбранной сборке"}`}
-    </p>
-    <ul class="hits">
-      {#each hits as h (h.id)}
-        {@const have = installed.get(h.id)}
-        <li>
-          <button class="open" onclick={() => (catalog.project = h.id)}>
-            {#if h.icon_url}
-              <img src={h.icon_url} alt="" width="56" height="56" loading="lazy" />
-            {:else}
-              <span class="noicon"><Icon name={catalog.kind === "shader" ? "shader" : catalog.kind === "resourcepack" ? "resourcepack" : "mods"} size={28} /></span>
-            {/if}
-            <span class="text">
-              <span><b>{h.title}</b> <span class="muted small">· {h.author}</span></span>
-              <span class="desc">{h.description}</span>
-              <span class="meta muted small">
-                <Icon name="download" size={14} />{count(h.downloads)}
-                <span>· обновлён {when(h.date_modified)}</span>
-                {#each h.display_categories.slice(0, 4) as c}<span class="cat">{categoryName(c)}</span>{/each}
-              </span>
-            </span>
-          </button>
-          <div class="act">
-            {#if have}
-              <span class="have"><Icon name="check" size={16} />{pick?.kind === "library" ? "В библиотеке" : have.enabled ? "Установлен" : "Выключен"}</span>
-            {:else}
-              <button class="btn btn-sm" disabled={busy.has(h.id) || vanillaMods} onclick={() => install(h.id, catalog.kind)}>
-                <Icon name="download" size={16} />{busy.has(h.id) ? "Ставим…" : "Установить"}
-              </button>
-            {/if}
-          </div>
-        </li>
-      {/each}
-    </ul>
-    {#if hits.length < total}
-      <div class="more">
-        <button class="btn" disabled={loading} onclick={() => search(hits.length)}>{loading ? "Загружаю…" : "Показать ещё"}</button>
+  <div class="layout">
+    <aside class="filters" aria-label="Фильтры">
+      <div class="fhead">
+        <b>Фильтры</b>
+        {#if filters}<button class="link small" onclick={resetFilters}>Сбросить ({filters})</button>{/if}
       </div>
+      {#if catalog.kind === "mod"}
+        <fieldset>
+          <legend>Где работает</legend>
+          <label class="fopt"><input type="radio" checked={catalog.env === null} onchange={() => (catalog.env = null)} />Где угодно</label>
+          <label class="fopt"><input type="radio" checked={catalog.env === "client"} onchange={() => (catalog.env = "client")} />В игре (клиент)</label>
+          <label class="fopt"><input type="radio" checked={catalog.env === "server"} onchange={() => (catalog.env = "server")} />На сервере</label>
+        </fieldset>
+      {/if}
+      {#each groups as [header, names] (header)}
+        <fieldset>
+          <legend>{headerName(header)}</legend>
+          {#each names as name (name)}
+            <label class="fopt">
+              <input
+                type="checkbox"
+                checked={catalog.categories.includes(name)}
+                onchange={(e) => toggleCategory(name, e.currentTarget.checked)}
+              />{categoryName(name)}
+            </label>
+          {/each}
+        </fieldset>
+      {/each}
+      <fieldset>
+        <legend>Другое</legend>
+        <label class="fopt"><input type="checkbox" bind:checked={catalog.openSource} />Только с открытым кодом</label>
+      </fieldset>
+    </aside>
+    <div class="results">
+    {#if error}
+      <p class="warn"><Icon name="error" size={18} />Каталог недоступен: {error}</p>
+    {:else if !loading && hits.length === 0}
+      <p class="note">Ничего не нашлось{catalog.all ? "" : " для выбранной сборки — попробуйте «Показать всё»"}.</p>
+    {:else}
+      <p class="muted small found">
+        {loading && !hits.length ? "Ищем…" : `Найдено: ${count(total)}${catalog.all ? "" : " · подходит к выбранной сборке"}`}
+      </p>
+      <ul class="hits">
+        {#each hits as h (h.id)}
+          {@const have = installed.get(h.id)}
+          <li>
+            <button class="open" onclick={() => (catalog.project = h.id)}>
+              {#if h.icon_url}
+                <img src={h.icon_url} alt="" width="56" height="56" loading="lazy" />
+              {:else}
+                <span class="noicon"><Icon name={catalog.kind === "shader" ? "shader" : catalog.kind === "resourcepack" ? "resourcepack" : "mods"} size={28} /></span>
+              {/if}
+              <span class="text">
+                <span><b>{h.title}</b> <span class="muted small">· {h.author}</span></span>
+                <span class="desc">{h.description}</span>
+                <span class="meta muted small">
+                  <Icon name="download" size={14} />{count(h.downloads)}
+                  <span>· обновлён {when(h.date_modified)}</span>
+                  {#each h.display_categories.slice(0, 4) as c}<span class="cat">{categoryName(c)}</span>{/each}
+                </span>
+              </span>
+            </button>
+            <div class="act">
+              {#if have}
+                <span class="have"><Icon name="check" size={16} />{pick?.kind === "library" ? "В библиотеке" : have.enabled ? "Установлен" : "Выключен"}</span>
+              {:else}
+                <button class="btn btn-sm" disabled={busy.has(h.id) || vanillaMods} onclick={() => install(h.id, catalog.kind)}>
+                  <Icon name="download" size={16} />{busy.has(h.id) ? "Ставим…" : "Установить"}
+                </button>
+              {/if}
+            </div>
+          </li>
+        {/each}
+      </ul>
+      {#if hits.length < total}
+        <div class="more">
+          <button class="btn" disabled={loading} onclick={() => search(hits.length)}>{loading ? "Загружаю…" : "Показать ещё"}</button>
+        </div>
+      {/if}
     {/if}
+    </div>
+  </div>
   {/if}
 {/if}
 
@@ -250,6 +333,64 @@
   }
   .types {
     margin-bottom: var(--s4);
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: var(--s5);
+    align-items: start;
+  }
+  .filters {
+    position: sticky;
+    top: 0;
+    max-height: calc(100vh - 140px);
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--s4);
+    padding-right: var(--s2);
+  }
+  .fhead {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  legend {
+    padding: 0;
+    margin-bottom: var(--s1);
+    font-size: var(--fs-12);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+  .fopt {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    padding: 3px 0;
+    font-size: var(--fs-14);
+    cursor: pointer;
+  }
+  .fopt:hover {
+    color: var(--text);
+  }
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: 1fr;
+    }
+    .filters {
+      position: static;
+      max-height: none;
+    }
   }
   .bar {
     display: flex;

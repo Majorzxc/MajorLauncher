@@ -1,9 +1,10 @@
 <script lang="ts">
-  // Библиотека ресурспаков и шейдеров (разделы 5.4 и 5.18 ТЗ): файл хранится
-  // один раз и попадает в сборки при запуске. Каталог Modrinth — этап 5.
+  // Библиотека (разделы 5.4 и 5.18 ТЗ): моды — все моды игрока и где они
+  // стоят; ресурспаки и шейдеры хранятся один раз и попадают в сборки при запуске.
   import { open } from "@tauri-apps/plugin-dialog";
   import Icon from "../components/Icon.svelte";
   import Modal from "../components/Modal.svelte";
+  import ModLibrary from "../components/ModLibrary.svelte";
   import { api, QUICK_ID, type LibraryItem } from "../lib/api";
   import { builds, refresh } from "../lib/builds.svelte";
   import { date, size } from "../lib/format";
@@ -11,7 +12,7 @@
   import { attempt, toast } from "../lib/toast.svelte";
 
   type Folder = LibraryItem["folder"];
-  let tab: Folder = $state("resourcepacks");
+  let tab: Folder | "mods" = $state("mods");
   let items: LibraryItem[] = $state([]);
   let error = $state("");
   let picking: LibraryItem | null = $state(null);
@@ -36,6 +37,8 @@
   const buildName = (id: string) => (id === QUICK_ID ? "Быстрая игра" : (builds.list.find((b) => b.id === id)?.name ?? id));
 
   async function add() {
+    if (tab === "mods") return;
+    const folder = tab;
     if (!inTauri) return toast("В браузере файлы не выбрать", { error: true });
     const picked = await open({
       multiple: true,
@@ -44,7 +47,7 @@
     });
     const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
     if (!paths.length) return;
-    const errors = await attempt("Библиотека", () => api.libraryAdd(tab, paths));
+    const errors = await attempt("Библиотека", () => api.libraryAdd(folder, paths));
     errors?.forEach((e) => toast(e, { error: true }));
     if (errors && errors.length < paths.length) toast(`Добавлено: ${paths.length - errors.length}. Попадут в сборки при запуске.`);
     load();
@@ -72,20 +75,30 @@
 
 <h1>Библиотека</h1>
 <p class="muted lead">
-  Ресурспаки и шейдеры хранятся здесь один раз и при запуске попадают в сборки — без копий и без ручного переноса.
-  Включаются они в самой игре. Найти новые — во вкладке «Каталог Modrinth»; библиотека модов — в части 5.3.
+  {#if tab === "mods"}
+    Все ваши моды: из каталога и свои файлы в сборках. Файл хранится один раз — в сборки он попадает без копии.
+    Видно, где стоит каждый мод и какие пустуют.
+  {:else}
+    Ресурспаки и шейдеры хранятся здесь один раз и при запуске попадают в сборки — без копий и без ручного переноса.
+    Включаются они в самой игре. Найти новые — во вкладке «Каталог Modrinth».
+  {/if}
 </p>
 
 <div class="bar">
   <nav class="tabs" aria-label="Что в библиотеке">
+    <button class="tab" class:on={tab === "mods"} onclick={() => (tab = "mods")}>Моды</button>
     <button class="tab" class:on={tab === "resourcepacks"} onclick={() => (tab = "resourcepacks")}>Ресурспаки</button>
     <button class="tab" class:on={tab === "shaderpacks"} onclick={() => (tab = "shaderpacks")}>Шейдеры</button>
   </nav>
   <span class="grow"></span>
-  <button class="btn btn-primary" onclick={add}><Icon name="plus" size={18} />Добавить .zip</button>
+  {#if tab !== "mods"}
+    <button class="btn btn-primary" onclick={add}><Icon name="plus" size={18} />Добавить .zip</button>
+  {/if}
 </div>
 
-{#if error}
+{#if tab === "mods"}
+  <ModLibrary />
+{:else if error}
   <p class="warn"><Icon name="error" size={18} />{error}</p>
 {:else if shown.length === 0}
   <p class="note">

@@ -258,6 +258,59 @@ pub fn local(data: &DataDir, build: &str) -> Result<Vec<Local>> {
     Ok(out)
 }
 
+/// Сведения о jar по кэшам вкладки «Моды»: хеш (по размеру и дате), что
+/// внутри jar, что о нём знает Modrinth (без сети). Для библиотеки модов.
+pub(crate) struct Describer {
+    hashes: VerifyCache,
+    meta_path: PathBuf,
+    meta: MetaCache,
+    ident: IdentCache,
+    dirty: bool,
+}
+
+impl Describer {
+    pub(crate) fn new(data: &DataDir) -> Self {
+        let meta_path = data.cache().join("mods-meta.json");
+        let mut ident: IdentCache = read_json(&data.cache().join("modrinth-files.json"));
+        if ident.version != IDENT_VERSION {
+            ident = IdentCache::default();
+        }
+        Self {
+            hashes: VerifyCache::load(data.verified()),
+            meta: read_json(&meta_path),
+            meta_path,
+            ident,
+            dirty: false,
+        }
+    }
+
+    pub(crate) fn describe(&mut self, path: &Path) -> Option<(String, JarMeta, Option<Known>)> {
+        let sha1 = self.hashes.sha1(path).ok()?;
+        let meta = match self.meta.files.get(&sha1) {
+            Some(e) => e.meta.clone(),
+            None => {
+                let e = MetaEntry {
+                    meta: modmeta::read(path),
+                    malware: crate::malware::scan(path),
+                };
+                self.meta.files.insert(sha1.clone(), e.clone());
+                self.dirty = true;
+                e.meta
+            }
+        };
+        let known = self.ident.files.get(&sha1).and_then(|i| i.known.clone());
+        Some((sha1, meta, known))
+    }
+
+    pub(crate) fn save(&self) -> Result<()> {
+        self.hashes.save()?;
+        if self.dirty {
+            write_json(&self.meta_path, &self.meta)?;
+        }
+        Ok(())
+    }
+}
+
 /// Пересчитать хеши модов сборки мимо кэша («Проверить файлы»): порчу, при
 /// которой размер и дата файла не менялись, видит только пересчёт. Следующий
 /// [`report`] сравнит свежие хеши с каталогом. Работа с диском.
@@ -1130,6 +1183,7 @@ pub async fn update(
     data: &DataDir,
     build: &str,
     only: &[(String, String)],
+    progress: &(dyn Fn(crate::install::Event) + Sync),
 ) -> Result<Vec<String>> {
     let pairs: Vec<(String, String)> = if only.is_empty() {
         let r = report(dl, data, build, true).await?;
@@ -1151,7 +1205,7 @@ pub async fn update(
         &Target::Build { id: build.into() },
         ProjectType::Mod,
         &versions,
-        &|_| {},
+        progress,
     )
     .await?;
     // Новые файлы легли; старые (если имя другое и файл ещё на месте) убираем.
