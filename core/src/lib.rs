@@ -40,6 +40,7 @@ pub mod secrets;
 pub mod servers;
 pub mod suspect;
 pub mod system;
+pub mod translate;
 pub mod verify;
 
 pub use account::{Account, Accounts, Kind, Session};

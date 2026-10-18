@@ -156,7 +156,7 @@
       <span>Выбрано: <b>{picked.length}</b></span>
       <span class="grow"></span>
       <span class="muted small">в сборку</span>
-      <div class="target"><Select label="Сборка" value={target} options={targets} onchange={(v) => (target = v)} /></div>
+      <div class="target"><Select shrink label="Сборка" value={target} options={targets} onchange={(v) => (target = v)} /></div>
       <button class="btn btn-primary btn-sm" disabled={!target} onclick={addPicked}><Icon name="plus" size={16} />Добавить</button>
       {#if pickedIdle.length}
         <button class="btn btn-sm btn-quiet" onclick={() => askRemove(pickedIdle)}><Icon name="trash" size={16} />Удалить пустующие ({pickedIdle.length})</button>

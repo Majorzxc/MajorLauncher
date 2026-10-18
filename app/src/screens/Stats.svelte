@@ -154,7 +154,7 @@
     {/each}
   </div>
   <div class="build-select">
-    <Select label="Сборка" icon="builds" value={build} options={buildOptions} onchange={(v) => ((build = v), (place = null))} />
+    <Select shrink label="Сборка" icon="builds" value={build} options={buildOptions} onchange={(v) => ((build = v), (place = null))} />
   </div>
 </div>
 

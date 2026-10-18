@@ -12,6 +12,7 @@
     onchange,
     label,
     icon,
+    shrink = false,
   }: {
     value: T;
     options: { value: T; label: string }[];
@@ -19,6 +20,8 @@
     /// Для экранного диктора: «Сортировка», «Сборка».
     label: string;
     icon?: IconName;
+    /// Длинные значения (названия сборок) — сжимать с многоточием.
+    shrink?: boolean;
   } = $props();
 
   let open = $state(false);
@@ -51,12 +54,13 @@
   onkeydown={(e) => open && e.key === "Escape" && (open = false)}
 />
 
-<div class="select" bind:this={root}>
+<div class="select" class:shrink bind:this={root}>
   <button
     class="trigger"
     aria-haspopup="listbox"
     aria-expanded={open}
     aria-label="{label}: {current?.label ?? ''}"
+    title={current?.label}
     onclick={() => (open = !open)}
   >
     {#if icon}<Icon name={icon} size={18} />{/if}
@@ -75,7 +79,7 @@
     >
       {#each options as o, i (i)}
         <li>
-          <button role="option" aria-selected={o.value === value} onclick={() => pick(o.value)}>
+          <button role="option" aria-selected={o.value === value} title={o.label} onclick={() => pick(o.value)}>
             <span class="grow">{o.label}</span>
             {#if o.value === value}<Icon name="check" size={16} />{/if}
           </button>
@@ -88,6 +92,14 @@
 <style>
   .select {
     position: relative;
+  }
+  .shrink {
+    min-width: 0;
+  }
+  .shrink .value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .trigger {
     display: flex;
@@ -125,6 +137,7 @@
     left: 0;
     z-index: 60;
     min-width: 100%;
+    max-width: min(560px, 90vw);
     max-height: 320px;
     margin: 0;
     padding: var(--s1);
@@ -148,6 +161,11 @@
     font-size: var(--fs-14);
     white-space: nowrap;
     cursor: pointer;
+  }
+  .list .grow {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .list button:hover,
   .list button:focus-visible {

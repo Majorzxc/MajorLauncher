@@ -145,6 +145,10 @@ pub struct CatalogSettings {
     /// Ставить обязательные зависимости без окна подтверждения.
     #[serde(default)]
     pub auto_deps: bool,
+    /// Переводить описания с Modrinth на русский (через Google). Выключено,
+    /// пока игрок сам не включит в настройках: текст уходит в чужой сервис.
+    #[serde(default)]
+    pub translate: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -32,6 +32,8 @@ export const catalog = $state({
   project: null as string | null,
   /// Ставить зависимости без окна подтверждения (настройка ядра).
   autoDeps: false,
+  /// Переводить описания на русский — только если игрок включил в настройках.
+  translate: false,
   /// Окно плана установки ждёт ответа.
   ask: null as null | { plan: Plan; resolve: (ok: boolean) => void },
 });
@@ -42,7 +44,10 @@ export const installed = new SvelteMap<string, Installed>();
 
 api
   .config()
-  .then((c) => (catalog.autoDeps = c.catalog?.auto_deps ?? false))
+  .then((c) => {
+    catalog.autoDeps = c.catalog?.auto_deps ?? false;
+    catalog.translate = c.catalog?.translate ?? false;
+  })
   .catch(() => {});
 
 export function target(pick: Pick): CatalogTarget {
@@ -151,10 +156,24 @@ export async function install(project: string, kind: ProjectType, version: strin
   }
 }
 
+function saveCatalog() {
+  return api.setCatalog({ auto_deps: catalog.autoDeps, translate: catalog.translate });
+}
+
+/// Переводить описания на русский (настройка «Каталог Modrinth»).
+export async function setTranslate(on: boolean) {
+  catalog.translate = on;
+  try {
+    await saveCatalog();
+  } catch (e) {
+    toast(String(e), { error: true });
+  }
+}
+
 export async function setAutoDeps(on: boolean) {
   catalog.autoDeps = on;
   try {
-    await api.setCatalog({ auto_deps: on });
+    await saveCatalog();
   } catch (e) {
     toast(String(e), { error: true });
   }

@@ -23,7 +23,7 @@ export const nav = $state({
 export const lastTab: Record<string, string> = {};
 
 /// Какую страницу настроек открыть при переходе (одноразово).
-export const settingsPage = $state({ value: null as null | "profile" | "look" | "game" | "data" | "about" });
+export const settingsPage = $state({ value: null as null | "profile" | "look" | "game" | "catalog" | "data" | "about" });
 
 export function openSettings(page: NonNullable<typeof settingsPage.value>) {
   settingsPage.value = page;

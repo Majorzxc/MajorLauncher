@@ -21,6 +21,8 @@ export interface Config {
 export interface CatalogSettings {
   /// Ставить обязательные зависимости без окна подтверждения.
   auto_deps: boolean;
+  /// Переводить описания с Modrinth на русский (включает игрок).
+  translate?: boolean;
 }
 
 // Каталог Modrinth (раздел 5.4 ТЗ).
@@ -536,6 +538,7 @@ export const api = {
   catalogProject: (id: string) => call<Project>("catalog_project", { id }),
   catalogVersions: (target: CatalogTarget, kind: ProjectType, project: string, all: boolean) =>
     call<CatalogVersion[]>("catalog_versions", { target, kind, project, all }),
+  catalogTranslate: (texts: string[]) => call<string[]>("catalog_translate", { texts }),
   catalogCategories: (kind: ProjectType) =>
     call<{ name: string; project_type: string; header: string }[]>("catalog_categories", { kind }),
   catalogInstalled: (target: CatalogTarget) => call<Installed[]>("catalog_installed", { target }),

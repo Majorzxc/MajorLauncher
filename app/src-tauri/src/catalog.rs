@@ -21,6 +21,22 @@ pub async fn catalog_search(
         .map_err(text)
 }
 
+/// Перевести тексты описаний на русский (Google, с кэшем).
+#[tauri::command]
+pub async fn catalog_translate(
+    state: State<'_, AppState>,
+    texts: Vec<String>,
+) -> CmdResult<Vec<String>> {
+    let data = state.data()?;
+    // Перевод — только если игрок сам включил его в настройках.
+    if !state.config.lock().unwrap().get().catalog.translate {
+        return Err("перевод выключен в настройках".into());
+    }
+    majorlauncher_core::translate::to_russian(&state.http, &data, &texts)
+        .await
+        .map_err(text)
+}
+
 /// Категории для фильтра каталога (свои у модов, ресурспаков, шейдеров).
 #[tauri::command]
 pub async fn catalog_categories(

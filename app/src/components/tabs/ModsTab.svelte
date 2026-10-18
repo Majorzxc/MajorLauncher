@@ -114,6 +114,21 @@
   }
 
   const LEVEL = { block: "error", warn: "warning", tip: "info" } as const;
+
+  // Коротко, что делает код своего файла: «запускает программы, Telegram».
+  const SHORT: [RegExp, string][] = [
+    [/вебхук|Telegram/, "отправка в Discord/Telegram"],
+    [/запускает программы/, "запуск программ"],
+    [/нативную/, "нативная библиотека"],
+    [/внешних файлов/, "подгрузка классов"],
+    [/токен сессии/, "токен сессии"],
+    [/расшифровывает/, "шифрование"],
+  ];
+  function codeSummary(list: ModInfo["suspect"]): string {
+    const out = new Set<string>();
+    for (const f of list) out.add(SHORT.find(([re]) => re.test(f.what))?.[1] ?? f.what);
+    return [...out].join(", ");
+  }
 </script>
 
 {#if entry.loader === "vanilla"}
@@ -175,6 +190,9 @@
           <span class="muted small">
             {m.version || "версия неизвестна"} ·
             {m.malware ? "вредоносный код!" : m.modrinth ? "Modrinth" : m.trusted ? "ваш файл" : "не опознан"}
+            {#if !m.malware && !m.modrinth && m.suspect.length && !m.suspect.some((f) => f.strength === "strong")}
+              · <span class="code" title={[...new Set(m.suspect.map((f) => f.what))].join("; ")}>в коде: {codeSummary(m.suspect)}</span>
+            {/if}
             {#if !m.malware && m.suspect.some((f) => f.strength === "strong")}· <span class="sus" title={m.suspect.map((f) => `${f.what} — ${f.at}`).join("; ")}>подозрительный код</span>{/if} · {size(m.size)}
           </span>
         </span>
@@ -233,6 +251,10 @@
 {/if}
 
 <style>
+  .code {
+    text-decoration: underline dotted;
+    cursor: help;
+  }
   .sus {
     color: var(--warning, #e0a43a);
     text-decoration: underline dotted;

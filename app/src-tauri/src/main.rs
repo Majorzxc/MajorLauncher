@@ -192,6 +192,7 @@ fn main() {
             settings::set_catalog,
             catalog::catalog_search,
             catalog::catalog_categories,
+            catalog::catalog_translate,
             catalog::modpack_install,
             catalog::mrpack_inspect,
             catalog::mrpack_import,

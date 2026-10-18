@@ -121,6 +121,18 @@
   }
   let error = $state("");
   let generation = 0;
+  /// Переведённые краткие описания выдачи (id → текст).
+  let ru = $state<Record<string, string>>({});
+  async function translateHits(list: Hit[]) {
+    const fresh = list.filter((h) => !(h.id in ru) && h.description);
+    if (!fresh.length || !catalog.translate) return;
+    try {
+      const out = await api.catalogTranslate(fresh.map((h) => h.description));
+      fresh.forEach((h, i) => (ru[h.id] = out[i]));
+    } catch {
+      // Нет перевода — остаются оригиналы.
+    }
+  }
 
   async function search(offset: number) {
     if (!catalog.pick) return;
@@ -142,6 +154,7 @@
       if (mine !== generation) return;
       hits = offset ? [...hits, ...r.hits] : r.hits;
       total = r.total_hits;
+      translateHits(r.hits);
     } catch (e) {
       if (mine === generation) error = String(e);
     } finally {
@@ -192,7 +205,7 @@
   {:else}
   <div class="bar">
     <span class="label">Куда ставить</span>
-    <div class="target"><Select label="Куда ставить" icon="builds" value={pickKey} options={targets} onchange={choose} /></div>
+    <div class="target"><Select shrink label="Куда ставить" icon="builds" value={pickKey} options={targets} onchange={choose} /></div>
     {#if pick?.kind === "library"}
       <div class="filter">
         <Select
@@ -297,7 +310,7 @@
               {/if}
               <span class="text">
                 <span><b>{h.title}</b> <span class="muted small">· {h.author}</span></span>
-                <span class="desc">{h.description}</span>
+                <span class="desc">{(catalog.translate && ru[h.id]) || h.description}</span>
                 <span class="meta muted small">
                   <Icon name="download" size={14} />{count(h.downloads)}
                   <span>· обновлён {when(h.date_modified)}</span>
@@ -418,7 +431,8 @@
     font-weight: 600;
   }
   .target {
-    width: 420px;
+    flex: 0 1 520px;
+    min-width: 240px;
   }
   .filter {
     width: 190px;

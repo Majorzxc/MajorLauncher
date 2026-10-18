@@ -194,7 +194,7 @@
           </div>
           <div class="field">
             <span>Миры из другой сборки</span>
-            <Select label="Миры из сборки" value={worldsFrom} options={sources} onchange={(v) => (worldsFrom = v)} />
+            <Select shrink label="Миры из сборки" value={worldsFrom} options={sources} onchange={(v) => (worldsFrom = v)} />
           </div>
           <div class="buttons">
             <button class="btn btn-sm" onclick={async () => (cover = (await attempt("Обложка", pickCover)) ?? cover)}>

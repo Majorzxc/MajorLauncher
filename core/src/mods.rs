@@ -1131,7 +1131,14 @@ pub fn check(cx: &Context) -> Report {
             pinned,
             update,
             malware: l.malware.clone(),
-            suspect,
+            // Что делает код — и у своих файлов, которым доверяют (без
+            // предупреждений); у модов с Modrinth — только явное.
+            suspect: l
+                .suspect
+                .iter()
+                .filter(|f| known.is_none() || f.strength == Strength::Strong)
+                .cloned()
+                .collect(),
         });
     }
 
@@ -1705,9 +1712,9 @@ mod tests {
                 .iter()
                 .any(|i| i.text.contains("не опознан") && i.text.contains("запускает программы"))
         );
-        // Доверенному — ничего.
+        // Доверенному — без предупреждений, но что делает код, видно.
         let r = ask(&HashMap::new(), &unknown, &unknown);
-        assert!(r.mods[0].suspect.is_empty());
+        assert_eq!(r.mods[0].suspect.len(), 2);
         assert!(!r.issues.iter().any(|i| i.text.contains("подозрительный")));
     }
 

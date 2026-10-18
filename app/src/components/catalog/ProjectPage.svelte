@@ -4,9 +4,11 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type CatalogVersion, type Project, type ProjectType } from "../../lib/api";
   import { busy, catalog, install, installModpack, installed, searchTarget } from "../../lib/catalog.svelte";
+  import { openSettings } from "../../lib/nav.svelte";
   import { categoryName } from "../../lib/categories";
   import { ago, count, size } from "../../lib/format";
   import { renderMarkdown } from "../../lib/markdown";
+  import { translateHtml } from "../../lib/translate";
   import { inTauri } from "../../lib/tauri";
   import Icon from "../Icon.svelte";
 
@@ -31,6 +33,32 @@
 
   const kind = $derived<ProjectType>(project?.project_type ?? catalog.kind);
   const html = $derived(project ? renderMarkdown(project.body) : "");
+
+  // Перевод на русский: описание и краткое описание. Не вышло — оригинал.
+  let ruHtml = $state<string | null>(null);
+  let ruSummary = $state<string | null>(null);
+  let translating = $state(false);
+  let translateError = $state("");
+  /// Показать оригинал этого описания (на время просмотра).
+  let original = $state(false);
+  $effect(() => {
+    const [source, p, off] = [html, project, !catalog.translate];
+    ruHtml = null;
+    ruSummary = null;
+    translateError = "";
+    if (!p || off) return;
+    translating = true;
+    Promise.all([translateHtml(source), api.catalogTranslate([p.description])])
+      .then(([body, [summary]]) => {
+        if (project !== p) return;
+        ruHtml = body;
+        ruSummary = summary;
+      })
+      .catch((e) => (translateError = String(e)))
+      .finally(() => (translating = false));
+  });
+  const useRu = $derived(catalog.translate && !original);
+  const shownHtml = $derived(useRu && ruHtml ? ruHtml : html);
   const have = $derived(project ? installed.get(project.id) : undefined);
 
   $effect(() => {
@@ -88,7 +116,7 @@
     {#if project.icon_url}<img class="icon" src={project.icon_url} alt="" width="96" height="96" />{/if}
     <div class="title">
       <h1>{project.title}</h1>
-      <p class="muted">{project.description}</p>
+      <p class="muted">{(useRu && ruSummary) || project.description}</p>
       <p class="muted small stats">
         <Icon name="download" size={14} />{count(project.downloads)} скачиваний
         <span>· <Icon name="star" size={14} />{count(project.followers)}</span>
@@ -129,8 +157,23 @@
 
   {#if tab === "about"}
     <!-- Описание прошло DOMPurify (lib/markdown.ts): без скриптов, стилей и фреймов. -->
+    <p class="muted small lang">
+      {#if !catalog.translate}
+        Перевод описаний на русский можно включить в
+        <button class="link" onclick={() => openSettings("catalog")}>настройках</button>.
+      {:else if original}
+        Оригинал. <button class="link" onclick={() => (original = false)}>Показать перевод</button>
+      {:else if translating}
+        Перевожу на русский…
+      {:else if translateError}
+        Перевод не удался — показан оригинал.
+      {:else}
+        Машинный перевод Google. <button class="link" onclick={() => (original = true)}>Показать оригинал</button>
+      {/if}
+    </p>
+    <!-- Перевод вставлен текстом в уже очищенный HTML (lib/translate.ts). -->
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-    <article class="md" onclick={intercept}>{@html html}</article>
+    <article class="md" onclick={intercept}>{@html shownHtml}</article>
   {:else if tab === "gallery"}
     <div class="gallery">
       {#each project.gallery as g (g.url)}
@@ -181,6 +224,21 @@
 {/if}
 
 <style>
+  .lang {
+    margin: 0 0 var(--s3);
+  }
+  .lang .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    text-decoration: underline;
+    cursor: pointer;
+    font-size: inherit;
+  }
+  .lang .link:hover {
+    color: var(--text);
+  }
   .back {
     margin-bottom: var(--s3);
   }

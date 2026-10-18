@@ -103,7 +103,7 @@
       <p class="muted small">Пока пусто: заполнятся при первом запуске любой сборки — или возьмите их из сборки.</p>
     {/if}
     <div class="seed">
-      <div class="grow-select"><Select label="Сборка" value={seedFrom} options={buildOptions} onchange={(v) => (seedFrom = v)} /></div>
+      <div class="grow-select"><Select shrink label="Сборка" value={seedFrom} options={buildOptions} onchange={(v) => (seedFrom = v)} /></div>
       <button class="btn" disabled={!seedFrom} onclick={seed}>Взять настройки из сборки</button>
     </div>
   </div>

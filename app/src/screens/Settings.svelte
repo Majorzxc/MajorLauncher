@@ -8,12 +8,13 @@
   import GameOptions from "../components/GameOptions.svelte";
   import GameProfile from "../components/GameProfile.svelte";
   import { settingsPage } from "../lib/nav.svelte";
+  import { catalog, setAutoDeps, setTranslate } from "../lib/catalog.svelte";
   import HexInput from "../components/HexInput.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
   import { apply, loadImage, save, theme, type Appearance, type ThemeMode } from "../lib/theme.svelte";
 
-  type Page = "profile" | "look" | "game" | "data" | "about";
+  type Page = "profile" | "look" | "game" | "catalog" | "data" | "about";
   // Страница настроек из адреса (#settings/profile) — чтобы открыть «Настройки игры» по ссылке.
   let page: Page = $state(settingsPage.value ?? "look");
   settingsPage.value = null;
@@ -101,6 +102,9 @@
     </button>
     <button class="page" aria-current={page === "game" ? "page" : undefined} onclick={() => (page = "game")}>
       Запуск игры
+    </button>
+    <button class="page" aria-current={page === "catalog" ? "page" : undefined} onclick={() => (page = "catalog")}>
+      Каталог Modrinth
     </button>
     <button class="page" aria-current={page === "data" ? "page" : undefined} onclick={() => (page = "data")}>
       Папка данных
@@ -248,6 +252,29 @@
     {:else if page === "game"}
       <h1>Запуск игры</h1>
       <GameOptions />
+    {:else if page === "catalog"}
+      <h1>Каталог Modrinth</h1>
+      <div class="card block">
+        <label class="opt">
+          <input type="checkbox" checked={catalog.translate} onchange={(e) => setTranslate(e.currentTarget.checked)} />
+          <b>Переводить описания модов на русский</b>
+        </label>
+        <p class="muted">
+          Описания на странице мода и краткие описания в выдаче будут показываться по-русски, рядом — «Показать оригинал».
+        </p>
+        <p class="muted small">
+          Перевод делает Google: текст описания мода отправляется на translate.googleapis.com. Ваши данные — ник, аккаунты,
+          сборки, файлы — не отправляются, только текст описания. Это единственное место, где лаунчер что-то передаёт чужому
+          сервису, поэтому по умолчанию перевод выключен. Готовые переводы хранятся на компьютере и повторно не запрашиваются.
+        </p>
+      </div>
+      <div class="card block">
+        <label class="opt">
+          <input type="checkbox" checked={catalog.autoDeps} onchange={(e) => setAutoDeps(e.currentTarget.checked)} />
+          <b>Ставить нужные зависимости без окна подтверждения</b>
+        </label>
+        <p class="muted">Окно всё равно появится, если чего-то не хватает или есть несовместимость с уже стоящими модами.</p>
+      </div>
     {:else if page === "data"}
       <h1>Папка данных</h1>
       <div class="card block">
@@ -291,6 +318,12 @@
 </div>
 
 <style>
+  .opt {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    cursor: pointer;
+  }
   .settings {
     display: grid;
     grid-template-columns: 220px minmax(0, 1fr);
