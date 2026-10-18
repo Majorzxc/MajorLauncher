@@ -141,6 +141,8 @@ export interface ModInfo {
   pinned: boolean;
   update: { version_id: string; version_number: string } | null;
   malware: string | null;
+  /// Подозрительный код (5.4): что делает и где.
+  suspect: { strength: "strong" | "weak"; what: string; at: string }[];
 }
 
 export type ModAction =

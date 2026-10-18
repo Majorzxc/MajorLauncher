@@ -38,6 +38,7 @@ pub mod relocate;
 pub mod rules;
 pub mod secrets;
 pub mod servers;
+pub mod suspect;
 pub mod system;
 pub mod verify;
 

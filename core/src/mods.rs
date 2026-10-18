@@ -21,6 +21,7 @@ use crate::loaders::Loader;
 use crate::modmeta::{self, DepKind, JarMeta, ModLoader};
 use crate::modrinth::{self, ProjectType};
 use crate::paths::DataDir;
+use crate::suspect::{Finding, Strength};
 use crate::verify::VerifyCache;
 
 /// Неопознанный файл спрашиваем у Modrinth снова не раньше чем через неделю.
@@ -77,6 +78,9 @@ pub struct ModInfo {
     pub pinned: bool,
     pub update: Option<Update>,
     pub malware: Option<String>,
+    /// Подозрительный код (5.4), который стоит показать: у модов с Modrinth —
+    /// только явные признаки, доверенным — ничего.
+    pub suspect: Vec<Finding>,
 }
 
 /// Уровень: блокирует запуск, предупреждение, совет (раздел 5.6 ТЗ).
@@ -148,6 +152,7 @@ pub struct Local {
     pub sha1: String,
     pub meta: JarMeta,
     pub malware: Option<String>,
+    pub suspect: Vec<Finding>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -159,8 +164,9 @@ struct MetaCache {
     files: HashMap<String, MetaEntry>,
 }
 
-/// 2 — вложенные jar по списку из описания мода (17.10.2026).
-const META_VERSION: u32 = 2;
+/// 2 — вложенные jar по списку из описания мода (17.10.2026);
+/// 3 — подозрительный код (18.10.2026).
+const META_VERSION: u32 = 3;
 
 fn read_meta_cache(path: &Path) -> MetaCache {
     let cache: MetaCache = read_json(path);
@@ -178,6 +184,19 @@ fn read_meta_cache(path: &Path) -> MetaCache {
 struct MetaEntry {
     meta: JarMeta,
     malware: Option<String>,
+    #[serde(default)]
+    suspect: Vec<Finding>,
+}
+
+impl MetaEntry {
+    fn read(path: &Path) -> Self {
+        let (malware, suspect) = crate::suspect::inspect(path);
+        Self {
+            meta: modmeta::read(path),
+            malware,
+            suspect,
+        }
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -250,10 +269,7 @@ pub fn local(data: &DataDir, build: &str) -> Result<Vec<Local>> {
         let entry = match cache.files.get(&sha1) {
             Some(e) => e.clone(),
             None => {
-                let e = MetaEntry {
-                    meta: modmeta::read(&path),
-                    malware: crate::malware::scan(&path),
-                };
+                let e = MetaEntry::read(&path);
                 cache.files.insert(sha1.clone(), e.clone());
                 dirty = true;
                 e
@@ -267,6 +283,7 @@ pub fn local(data: &DataDir, build: &str) -> Result<Vec<Local>> {
             sha1,
             meta: entry.meta,
             malware: entry.malware,
+            suspect: entry.suspect,
         });
     }
     hashes.save()?;
@@ -307,10 +324,7 @@ impl Describer {
         let meta = match self.meta.files.get(&sha1) {
             Some(e) => e.meta.clone(),
             None => {
-                let e = MetaEntry {
-                    meta: modmeta::read(path),
-                    malware: crate::malware::scan(path),
-                };
+                let e = MetaEntry::read(path);
                 self.meta.files.insert(sha1.clone(), e.clone());
                 self.dirty = true;
                 e.meta
@@ -680,6 +694,21 @@ fn loader_names(list: &[ModLoader]) -> String {
         .join(" / ")
 }
 
+/// Косвенные признаки к предупреждению «не опознан»: что делает код.
+fn weak_note(found: &[Finding]) -> String {
+    let mut seen: Vec<&str> = Vec::new();
+    for f in found.iter().filter(|f| f.strength == Strength::Weak) {
+        if !seen.contains(&f.what.as_str()) {
+            seen.push(&f.what);
+        }
+    }
+    if seen.is_empty() {
+        String::new()
+    } else {
+        format!(" Что делает код: {}.", seen.join("; "))
+    }
+}
+
 /// Проверки (раздел 5.6 ТЗ, «Моды»). Без диска и сети — легко проверять.
 pub fn check(cx: &Context) -> Report {
     let inst = cx.instance;
@@ -796,6 +825,17 @@ pub fn check(cx: &Context) -> Report {
             .cloned()
             .filter(|_| !held_here && !spare.contains(l.file.as_str()));
         let trusted = cx.trusted.contains(&l.sha1);
+        // Подозрительный код (5.4): мод с Modrinth — только явные признаки
+        // (его проверяет и сам Modrinth), доверенный — ничего.
+        let suspect: Vec<Finding> = if trusted {
+            Vec::new()
+        } else {
+            l.suspect
+                .iter()
+                .filter(|f| known.is_none() || f.strength == Strength::Strong)
+                .cloned()
+                .collect()
+        };
         let file = Some(l.file.clone());
         let issue = |level, text: String, action| Issue {
             level,
@@ -1022,6 +1062,24 @@ pub fn check(cx: &Context) -> Report {
                     }),
                 ));
             }
+            let strong: Vec<&Finding> = suspect
+                .iter()
+                .filter(|f| f.strength == Strength::Strong)
+                .collect();
+            if !strong.is_empty() {
+                let what = strong
+                    .iter()
+                    .map(|f| format!("{} ({})", f.what, f.at))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                issues.push(issue(
+                    Level::Warn,
+                    format!(
+                        "«{name}»: подозрительный код — {what}. Это не обязательно вирус, но так делают кражи паролей и загрузчики чужого кода. Если мод вам не знаком — выключите его."
+                    ),
+                    disable(),
+                ));
+            }
             if cx.unknown.contains(&l.sha1) && !trusted && changed.is_none() {
                 // Две копии одного мода: по названию не понять, о каком файле речь.
                 let twins = cx
@@ -1036,7 +1094,10 @@ pub fn check(cx: &Context) -> Report {
                 };
                 issues.push(issue(
                     Level::Warn,
-                    format!("{what} не из каталога Modrinth и не опознан. Если файл ваш или вы ему доверяете — отметьте."),
+                    format!(
+                        "{what} не из каталога Modrinth и не опознан.{} Если файл ваш или вы ему доверяете — отметьте.",
+                        weak_note(&suspect)
+                    ),
                     Some(Action::Trust { sha1: l.sha1.clone() }),
                 ));
             }
@@ -1070,6 +1131,7 @@ pub fn check(cx: &Context) -> Report {
             pinned,
             update,
             malware: l.malware.clone(),
+            suspect,
         });
     }
 
@@ -1291,6 +1353,7 @@ mod tests {
                 provides: Vec::new(),
             },
             malware: None,
+            suspect: Vec::new(),
         }
     }
 
@@ -1574,6 +1637,78 @@ mod tests {
         assert!(caps(&dep("x", DepKind::Required, "<0.27")));
         assert!(!caps(&dep("x", DepKind::Required, ">=0.134.0")));
         assert!(!caps(&dep("x", DepKind::Required, "*")));
+    }
+
+    /// Подозрительный код: явное — всем, косвенное — только не из каталога.
+    #[test]
+    fn suspect_code_rules() {
+        let inst = instance(Loader::Fabric, "0.16.10");
+        let finding = |strength, what: &str| Finding {
+            strength,
+            what: what.into(),
+            at: "a/A.class".into(),
+        };
+        let mut m = fabric_mod("x.jar", "x", "1", vec![]);
+        m.suspect = vec![
+            finding(
+                Strength::Strong,
+                "ищет файлы с чужими данными: токены Discord",
+            ),
+            finding(Strength::Weak, "запускает программы на компьютере"),
+        ];
+        let known = HashMap::from([(
+            m.sha1.clone(),
+            Known {
+                project_id: "p".into(),
+                version_id: "v".into(),
+                title: "X".into(),
+                version_number: "1".into(),
+                version_type: "release".into(),
+                icon_url: None,
+                game_versions: vec!["1.21.1".into()],
+                loaders: vec!["fabric".into()],
+                requires: vec![],
+                requires_exact: vec![],
+                incompatible: vec![],
+            },
+        )]);
+        let ask = |known: &HashMap<String, Known>,
+                   unknown: &HashSet<String>,
+                   trusted: &HashSet<String>| {
+            check(&Context {
+                instance: &inst,
+                local: std::slice::from_ref(&m),
+                known,
+                unknown,
+                updates: &HashMap::new(),
+                trusted,
+                library: &HashMap::new(),
+                shaders: false,
+                online: true,
+            })
+        };
+        let none = HashSet::new();
+        // С Modrinth: только явное.
+        let r = ask(&known, &none, &none);
+        assert_eq!(r.mods[0].suspect.len(), 1);
+        assert!(
+            r.issues
+                .iter()
+                .any(|i| i.text.contains("подозрительный код") && i.level == Level::Warn)
+        );
+        // Не опознан: явное отдельно, косвенное — в «не опознан».
+        let unknown = HashSet::from([m.sha1.clone()]);
+        let r = ask(&HashMap::new(), &unknown, &none);
+        assert_eq!(r.mods[0].suspect.len(), 2);
+        assert!(
+            r.issues
+                .iter()
+                .any(|i| i.text.contains("не опознан") && i.text.contains("запускает программы"))
+        );
+        // Доверенному — ничего.
+        let r = ask(&HashMap::new(), &unknown, &unknown);
+        assert!(r.mods[0].suspect.is_empty());
+        assert!(!r.issues.iter().any(|i| i.text.contains("подозрительный")));
     }
 
     #[test]

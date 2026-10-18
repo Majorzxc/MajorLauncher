@@ -62,6 +62,8 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
     },
+    /// Подозрительный код в модах: jar или папка с jar (этап 5.4).
+    Suspect { path: std::path::PathBuf },
     /// Моды сборки: что за мод, обновления и предупреждения (id сборки).
     Mods {
         build: String,
@@ -231,6 +233,40 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
             .await?;
             finish_line();
             println!("Сборка «{}» готова (id {})", i.name, i.id);
+        }
+        Command::Suspect { path } => {
+            let jars: Vec<std::path::PathBuf> = if path.is_dir() {
+                let mut list: Vec<_> = std::fs::read_dir(&path)
+                    .map_err(|e| {
+                        majorlauncher_core::Error::Other(format!("{}: {e}", path.display()))
+                    })?
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().is_some_and(|e| e == "jar"))
+                    .collect();
+                list.sort();
+                list
+            } else {
+                vec![path]
+            };
+            let started = Instant::now();
+            let mut flagged = 0;
+            for jar in &jars {
+                let found = majorlauncher_core::suspect::scan(jar);
+                if found.is_empty() {
+                    continue;
+                }
+                flagged += 1;
+                println!("{}", jar.file_name().unwrap_or_default().to_string_lossy());
+                for f in found {
+                    println!("  {:?}: {} — {}", f.strength, f.what, f.at);
+                }
+            }
+            println!(
+                "Проверено {} jar за {:.1} с, с признаками: {flagged}",
+                jars.len(),
+                started.elapsed().as_secs_f64()
+            );
         }
         Command::Mods { build, offline } => {
             let r = majorlauncher_core::mods::report(&dl, &data, &build, !offline).await?;

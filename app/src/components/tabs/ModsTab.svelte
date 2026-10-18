@@ -174,7 +174,8 @@
           </span>
           <span class="muted small">
             {m.version || "версия неизвестна"} ·
-            {m.malware ? "вредоносный код!" : m.modrinth ? "Modrinth" : m.trusted ? "ваш файл" : "не опознан"} · {size(m.size)}
+            {m.malware ? "вредоносный код!" : m.modrinth ? "Modrinth" : m.trusted ? "ваш файл" : "не опознан"}
+            {#if !m.malware && m.suspect.some((f) => f.strength === "strong")}· <span class="sus" title={m.suspect.map((f) => `${f.what} — ${f.at}`).join("; ")}>подозрительный код</span>{/if} · {size(m.size)}
           </span>
         </span>
         {#if m.update && m.enabled}
@@ -232,6 +233,10 @@
 {/if}
 
 <style>
+  .sus {
+    color: var(--warning, #e0a43a);
+    text-decoration: underline dotted;
+  }
   .issues {
     list-style: none;
     margin: 0 0 var(--s4);
