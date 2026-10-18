@@ -311,6 +311,38 @@ impl Library {
         Ok(to)
     }
 
+    /// Разложить ресурспаки и шейдеры по сборкам сейчас (после «Где
+    /// использовать» и добавления): куда выбран — положить, откуда выбор снят —
+    /// убрать (только файл библиотеки, свой файл с тем же именем не трогаем).
+    pub fn sync(&self, data: &DataDir) -> Result<()> {
+        let builds: Vec<_> = crate::builds::Builds::new(data.clone())
+            .list()?
+            .into_iter()
+            .filter(|b| b.state == crate::builds::State::Active)
+            .map(|b| b.instance.id)
+            .collect();
+        for item in self.load()?.items {
+            if item.folder == Folder::Mods {
+                continue;
+            }
+            let Ok(meta) = std::fs::metadata(self.path(item.folder, &item.file)) else {
+                continue;
+            };
+            for id in &builds {
+                let dir = data.instance(id);
+                let wanted = item.all_builds || item.builds.iter().any(|b| b == id);
+                let here = dir.join(item.folder.dir()).join(&item.file);
+                if !wanted && is_same(&meta, &here) {
+                    let _ = std::fs::remove_file(&here);
+                }
+            }
+        }
+        for id in &builds {
+            self.link_into(id, &data.instance(id))?;
+        }
+        Ok(())
+    }
+
     /// Перед запуском: положить в сборку ресурспаки и шейдеры, что ей положены.
     /// Моды так не раскладываются — их кладёт установка из каталога.
     pub fn link_into(&self, build: &str, game_dir: &Path) -> Result<()> {
@@ -392,6 +424,41 @@ mod tests {
         assert!(!b.join("resourcepacks/Faithful.zip").exists());
         assert!(c.join("resourcepacks/Faithful.zip").exists());
         assert!(lib.list().unwrap().is_empty());
+    }
+
+    /// Выбор «Где использовать» действует сразу, не дожидаясь запуска.
+    #[test]
+    fn sync_follows_choice_without_launch() {
+        use crate::builds::{Builds, LoaderChoice};
+        use crate::loaders::Loader;
+        let root = tempfile::tempdir().unwrap();
+        let data = DataDir::new(root.path().join("data"));
+        let lib = Library::new(&data);
+        let src = root.path().join("Pack.zip");
+        std::fs::write(&src, "pack").unwrap();
+        lib.add(Folder::ResourcePacks, &src).unwrap();
+        let builds = Builds::new(data.clone());
+        let vanilla = || LoaderChoice {
+            loader: Loader::Vanilla,
+            version: None,
+        };
+        // Новая сборка сразу получает пак «во всех сборках».
+        let a = builds.create("A", "1.21.1", vanilla(), None).unwrap();
+        let b = builds.create("B", "1.21.1", vanilla(), None).unwrap();
+        let in_a = data.instance(&a.id).join("resourcepacks/Pack.zip");
+        let in_b = data.instance(&b.id).join("resourcepacks/Pack.zip");
+        assert!(in_a.exists() && in_b.exists());
+
+        lib.set(Folder::ResourcePacks, "Pack.zip", false, vec![b.id.clone()])
+            .unwrap();
+        lib.sync(&data).unwrap();
+        assert!(!in_a.exists(), "выбор снят — убран");
+        assert!(in_b.exists());
+
+        // Свой файл с тем же именем не трогаем.
+        std::fs::write(&in_a, "свой, другой").unwrap();
+        lib.sync(&data).unwrap();
+        assert!(in_a.exists());
     }
 
     #[test]

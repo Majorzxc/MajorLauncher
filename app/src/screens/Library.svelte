@@ -1,6 +1,6 @@
 <script lang="ts">
   // Библиотека (разделы 5.4 и 5.18 ТЗ): моды — все моды игрока и где они
-  // стоят; ресурспаки и шейдеры хранятся один раз и попадают в сборки при запуске.
+  // стоят; ресурспаки и шейдеры хранятся один раз и сразу раскладываются по сборкам.
   import { open } from "@tauri-apps/plugin-dialog";
   import Icon from "../components/Icon.svelte";
   import Modal from "../components/Modal.svelte";
@@ -15,7 +15,15 @@
   let tab: Folder | "mods" = $state("mods");
   let items: LibraryItem[] = $state([]);
   let error = $state("");
-  let picking: LibraryItem | null = $state(null);
+  /// Для кого выбираем «Где использовать»: один файл или несколько.
+  let picking: LibraryItem[] | null = $state(null);
+  /// Отмеченные галочками файлы текущей вкладки.
+  let selected: string[] = $state([]);
+  let removing: LibraryItem[] | null = $state(null);
+  $effect(() => {
+    void tab;
+    selected = [];
+  });
   let pickAll = $state(true);
   let pickBuilds: string[] = $state([]);
 
@@ -31,8 +39,9 @@
   }
   load();
 
-  // Моды из каталога тоже хранятся здесь, но их раздел — в части 5.3.
   const shown = $derived(items.filter((i) => i.folder === tab));
+  const chosen = $derived(shown.filter((i) => selected.includes(i.file)));
+  const allChosen = $derived(shown.length > 0 && chosen.length === shown.length);
   const activeBuilds = $derived(builds.list.filter((b) => b.state === "active"));
   const buildName = (id: string) => (id === QUICK_ID ? "Быстрая игра" : (builds.list.find((b) => b.id === id)?.name ?? id));
 
@@ -49,27 +58,38 @@
     if (!paths.length) return;
     const errors = await attempt("Библиотека", () => api.libraryAdd(folder, paths));
     errors?.forEach((e) => toast(e, { error: true }));
-    if (errors && errors.length < paths.length) toast(`Добавлено: ${paths.length - errors.length}. Попадут в сборки при запуске.`);
+    if (errors && errors.length < paths.length) toast(`Добавлено: ${paths.length - errors.length} — уже во всех сборках.`);
     load();
   }
 
-  async function remove(i: LibraryItem) {
-    if (await attempt("Удаление", () => api.libraryRemove(i.folder, i.file).then(() => true))) {
-      toast(`«${i.file}» убран из библиотеки и из сборок`);
-      load();
+  async function removeConfirmed() {
+    const list = removing!;
+    removing = null;
+    let done = 0;
+    for (const i of list) {
+      if (await attempt("Удаление", () => api.libraryRemove(i.folder, i.file).then(() => true))) done++;
     }
+    if (done) toast(done === 1 ? `«${list[0].file}» убран из библиотеки и из сборок` : `Убрано из библиотеки и из сборок: ${done}`);
+    selected = [];
+    load();
   }
 
-  function choose(i: LibraryItem) {
-    picking = i;
-    pickAll = i.all_builds;
-    pickBuilds = [...i.builds];
+  // Для нескольких файлов: «во всех», если так у всех; сборки — общие для всех.
+  function choose(list: LibraryItem[]) {
+    picking = list;
+    pickAll = list.every((i) => i.all_builds);
+    pickBuilds = activeBuilds.map((b) => b.id).filter((id) => list.every((i) => i.builds.includes(id)));
   }
 
   async function saveChoice() {
-    const i = picking!;
+    const list = picking!;
     picking = null;
-    if (await attempt("Библиотека", () => api.librarySet(i.folder, i.file, pickAll, pickBuilds).then(() => true))) load();
+    const files = list.map((i) => i.file);
+    if (await attempt("Библиотека", () => api.librarySet(list[0].folder, files, pickAll, pickBuilds).then(() => true))) {
+      toast(pickAll ? "Готово: уже во всех сборках" : pickBuilds.length ? `Готово: уже в выбранных сборках (${pickBuilds.length})` : "Убрано из всех сборок");
+      selected = [];
+      load();
+    }
   }
 </script>
 
@@ -107,20 +127,38 @@
       : "Шейдеров пока нет. Для них в сборке нужен мод Iris или OptiFine (загрузчики — этап 4)."}
   </p>
 {:else}
+  <div class="pickbar" class:on={chosen.length > 0}>
+    <label class="opt all">
+      <input type="checkbox" checked={allChosen} onchange={(e) => (selected = e.currentTarget.checked ? shown.map((i) => i.file) : [])} />Выбрать все
+    </label>
+    {#if chosen.length}
+      <span>Выбрано: <b>{chosen.length}</b></span>
+      <span class="grow"></span>
+      <button class="btn btn-sm btn-primary" onclick={() => choose(chosen)}>Где использовать</button>
+      <button class="btn btn-sm btn-quiet" onclick={() => (removing = chosen)}><Icon name="trash" size={16} />Убрать</button>
+    {/if}
+  </div>
   <ul class="rows">
     {#each shown as i (i.file)}
-      <li>
+      {@const where = i.builds.filter((id) => activeBuilds.some((b) => b.id === id))}
+      <li class:sel={selected.includes(i.file)}>
+        <input
+          type="checkbox"
+          aria-label="Выбрать {i.file}"
+          checked={selected.includes(i.file)}
+          onchange={(e) => (selected = e.currentTarget.checked ? [...selected, i.file] : selected.filter((f) => f !== i.file))}
+        />
         <Icon name={tab === "resourcepacks" ? "resourcepack" : "shader"} size={20} />
         <span class="grow">
           {i.file}
           <span class="muted small">
-            · {i.all_builds ? "во всех сборках" : i.builds.length ? i.builds.map(buildName).join(", ") : "ни в одной сборке"}
+            · {i.all_builds ? "во всех сборках" : where.length ? where.map(buildName).join(", ") : "ни в одной сборке"}
           </span>
         </span>
         <span class="muted small">{size(i.size)}</span>
         <span class="muted small when">{date(i.added)}</span>
-        <button class="btn btn-sm" onclick={() => choose(i)}>Где использовать</button>
-        <button class="btn btn-sm btn-quiet" aria-label="Убрать {i.file}" title="Убрать из библиотеки и из сборок" onclick={() => remove(i)}
+        <button class="btn btn-sm" onclick={() => choose([i])}>Где использовать</button>
+        <button class="btn btn-sm btn-quiet" aria-label="Убрать {i.file}" title="Убрать из библиотеки и из сборок" onclick={() => (removing = [i])}
           ><Icon name="trash" size={16} /></button
         >
       </li>
@@ -129,7 +167,11 @@
 {/if}
 
 {#if picking}
-  <Modal title="Где использовать «{picking.file}»" width={480} onclose={() => (picking = null)}>
+  <Modal
+    title={picking.length === 1 ? `Где использовать «${picking[0].file}»` : `Где использовать: ${picking.length} файла(ов)`}
+    width={480}
+    onclose={() => (picking = null)}
+  >
     <label class="opt"><input type="radio" checked={pickAll} onchange={() => (pickAll = true)} />Во всех сборках</label>
     <label class="opt"><input type="radio" checked={!pickAll} onchange={() => (pickAll = false)} />Только в выбранных</label>
     {#if !pickAll}
@@ -146,7 +188,7 @@
         {/each}
       </div>
     {/if}
-    <p class="muted small">Файл появится в сборке при её следующем запуске.</p>
+    <p class="muted small">Файлы появятся в сборках сразу; откуда выбор снят — оттуда уберутся. Включаются они в самой игре.</p>
     {#snippet footer()}
       <button class="btn btn-quiet" onclick={() => (picking = null)}>Отмена</button>
       <button class="btn btn-primary" onclick={saveChoice}>Сохранить</button>
@@ -154,7 +196,40 @@
   </Modal>
 {/if}
 
+{#if removing}
+  <Modal title="Убрать из библиотеки?" width={480} onclose={() => (removing = null)}>
+    <p>
+      {removing.length === 1 ? `«${removing[0].file}»` : `Файлов: ${removing.length}`} — уберётся из библиотеки и из всех сборок, куда его положила
+      библиотека. Свои файлы с тем же именем в сборках не тронутся.
+    </p>
+    {#snippet footer()}
+      <button class="btn btn-quiet" onclick={() => (removing = null)}>Отмена</button>
+      <button class="btn btn-primary" onclick={removeConfirmed}>Убрать</button>
+    {/snippet}
+  </Modal>
+{/if}
+
 <style>
+  .pickbar {
+    display: flex;
+    align-items: center;
+    gap: var(--s3);
+    min-height: 44px;
+    padding: var(--s1) var(--s3);
+    margin: var(--s3) 0 var(--s2);
+    border: 1px solid transparent;
+    border-radius: var(--r);
+  }
+  .pickbar.on {
+    border-color: var(--accent);
+    background: var(--surface);
+  }
+  .pickbar .all {
+    margin: 0;
+  }
+  li.sel {
+    border-color: var(--accent);
+  }
   h1 {
     margin: 0 0 var(--s2);
     font-size: var(--fs-32);

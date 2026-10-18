@@ -503,8 +503,8 @@ export const api = {
   libraryModsAdd: (keys: string[], build: string) => call<number>("library_mods_add", { keys, build }),
   libraryModsRemoveUnused: (keys: string[] | null) => call<number>("library_mods_remove_unused", { keys }),
   libraryAdd: (folder: LibraryItem["folder"], paths: string[]) => call<string[]>("library_add", { folder, paths }),
-  librarySet: (folder: LibraryItem["folder"], file: string, allBuilds: boolean, builds: string[]) =>
-    call<LibraryItem>("library_set", { folder, file, allBuilds, builds }),
+  librarySet: (folder: LibraryItem["folder"], files: string[], allBuilds: boolean, builds: string[]) =>
+    call<void>("library_set", { folder, files, allBuilds, builds }),
   libraryRemove: (folder: LibraryItem["folder"], file: string) => call<void>("library_remove", { folder, file }),
   playStatus: () => call<{ status: PlayStatus; finished: Finished | null }>("play_status"),
 

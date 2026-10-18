@@ -295,6 +295,8 @@ impl Builds {
         std::fs::create_dir_all(&dir).at(&dir)?;
         write_meta(&dir, &instance)?;
         self.remember_group(instance.group.as_deref())?;
+        // Ресурспаки и шейдеры «во всех сборках» — сразу, не дожидаясь запуска.
+        crate::library::Library::new(&self.data).link_into(&id, &dir)?;
         Ok(instance)
     }
 

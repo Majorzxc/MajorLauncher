@@ -190,29 +190,41 @@ pub async fn library_add(
     let data = state.data()?;
     blocking(move || {
         let lib = Library::new(&data);
-        Ok(paths
+        let errors: Vec<String> = paths
             .iter()
             .filter_map(|p| {
                 lib.add(folder, &PathBuf::from(p))
                     .err()
                     .map(|e| e.to_string())
             })
-            .collect())
+            .collect();
+        // Новое — сразу во все сборки, не дожидаясь запуска.
+        lib.sync(&data).map_err(text)?;
+        Ok(errors)
     })
     .await
 }
 
+/// «Где использовать» для одного или нескольких файлов; файлы сразу
+/// раскладываются по сборкам (и убираются оттуда, где выбор снят).
 #[tauri::command]
-pub fn library_set(
-    state: State<AppState>,
+pub async fn library_set(
+    state: State<'_, AppState>,
     folder: Folder,
-    file: String,
+    files: Vec<String>,
     all_builds: bool,
     builds: Vec<String>,
-) -> CmdResult<Item> {
-    Library::new(&state.data()?)
-        .set(folder, &file, all_builds, builds)
-        .map_err(text)
+) -> CmdResult<()> {
+    let data = state.data()?;
+    blocking(move || {
+        let lib = Library::new(&data);
+        for file in &files {
+            lib.set(folder, file, all_builds, builds.clone())
+                .map_err(text)?;
+        }
+        lib.sync(&data).map_err(text)
+    })
+    .await
 }
 
 #[tauri::command]

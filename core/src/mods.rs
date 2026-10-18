@@ -152,8 +152,26 @@ pub struct Local {
 
 #[derive(Default, Serialize, Deserialize)]
 struct MetaCache {
+    /// Формат: поменялось чтение jar — сведения читаются заново.
+    #[serde(default)]
+    version: u32,
     #[serde(default)]
     files: HashMap<String, MetaEntry>,
+}
+
+/// 2 — вложенные jar по списку из описания мода (17.10.2026).
+const META_VERSION: u32 = 2;
+
+fn read_meta_cache(path: &Path) -> MetaCache {
+    let cache: MetaCache = read_json(path);
+    if cache.version == META_VERSION {
+        cache
+    } else {
+        MetaCache {
+            version: META_VERSION,
+            files: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -221,7 +239,7 @@ pub fn local(data: &DataDir, build: &str) -> Result<Vec<Local>> {
     let files = content::files(&game_dir, Folder::Mods)?;
     let hashes = VerifyCache::load(data.verified());
     let meta_path = data.cache().join("mods-meta.json");
-    let mut cache: MetaCache = read_json(&meta_path);
+    let mut cache = read_meta_cache(&meta_path);
     let mut dirty = false;
     let mut out = Vec::new();
     for f in files.into_iter().filter(|f| !f.is_dir) {
@@ -277,7 +295,7 @@ impl Describer {
         }
         Self {
             hashes: VerifyCache::load(data.verified()),
-            meta: read_json(&meta_path),
+            meta: read_meta_cache(&meta_path),
             meta_path,
             ident,
             dirty: false,

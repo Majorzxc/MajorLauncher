@@ -102,11 +102,16 @@ fn read_zip<R: Read + std::io::Seek>(reader: R, depth: usize) -> JarMeta {
         return JarMeta::default();
     };
     let mut meta = JarMeta::default();
+    // Вложенные jar, которые объявил сам мод: путь может быть любым
+    // (Forgix кладёт их в META-INF/forgix/multiversion/).
+    let mut listed: Vec<String> = Vec::new();
     if let Some(bytes) = entry(&mut zip, "fabric.mod.json") {
         fabric(&bytes, &mut meta);
+        listed.extend(jar_list(&bytes, &["jars"]));
     }
     if let Some(bytes) = entry(&mut zip, "quilt.mod.json") {
         quilt(&bytes, &mut meta);
+        listed.extend(jar_list(&bytes, &["quilt_loader", "jars"]));
     }
     let manifest_version = entry(&mut zip, "META-INF/MANIFEST.MF").and_then(|m| {
         String::from_utf8_lossy(&m)
@@ -137,7 +142,7 @@ fn read_zip<R: Read + std::io::Seek>(reader: R, depth: usize) -> JarMeta {
     }
     // Вложенные jar — их моды считаются стоящими.
     if depth < 2 {
-        let nested: Vec<String> = zip
+        let mut nested: Vec<String> = zip
             .file_names()
             .filter(|n| {
                 (n.starts_with("META-INF/jars/") || n.starts_with("META-INF/jarjar/"))
@@ -145,6 +150,12 @@ fn read_zip<R: Read + std::io::Seek>(reader: R, depth: usize) -> JarMeta {
             })
             .map(str::to_string)
             .collect();
+        for path in listed {
+            let path = path.trim_start_matches('/').to_string();
+            if !nested.contains(&path) {
+                nested.push(path);
+            }
+        }
         for name in nested {
             if let Some(bytes) = entry(&mut zip, &name) {
                 let inner = read_zip(std::io::Cursor::new(bytes), depth + 1);
@@ -155,6 +166,24 @@ fn read_zip<R: Read + std::io::Seek>(reader: R, depth: usize) -> JarMeta {
     }
     meta.loaders.dedup();
     meta
+}
+
+/// Пути вложенных jar из описания мода: `"jars": [{"file": "…"}]` у Fabric,
+/// `"quilt_loader": {"jars": ["…"]}` у Quilt.
+fn jar_list(bytes: &[u8], at: &[&str]) -> Vec<String> {
+    let Ok(mut v) = serde_json::from_slice::<Value>(bytes) else {
+        return Vec::new();
+    };
+    for key in at {
+        v = v[*key].take();
+    }
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|j| j.as_str().or_else(|| j["file"].as_str()))
+        .filter(|p| p.ends_with(".jar") && !p.contains(".."))
+        .map(str::to_string)
+        .collect()
 }
 
 /// Значение зависимости Fabric: строка или список строк.
@@ -377,6 +406,9 @@ pub fn semver_ok(range: &str, version: &str) -> bool {
         if v == "*" || v.is_empty() {
             return true;
         }
+        // После «+» — метаданные сборки (2.0.0+26.1.x): по правилам semver
+        // на сравнение они не влияют, и «x» в них — не шаблон версии.
+        let v = v.split_once('+').map_or(v, |(core, _)| core);
         if v.contains(['x', 'X', '*']) {
             let prefix: Vec<&str> = v
                 .split('.')
@@ -484,6 +516,39 @@ mod tests {
             zip.finish().unwrap();
         }
         out.into_inner()
+    }
+
+    /// Случаи из сборки автора «Фэнтези-выживание (26.1.2)», 18.10.2026.
+    #[test]
+    fn build_metadata_and_forgix_nested_jars() {
+        // RightClickHarvest: jamlib >=2.0.0+26.1.x, стоит 2.3.1+26.1.x.
+        assert!(semver_ok(">=2.0.0+26.1.x", "2.3.1+26.1.x"));
+        assert!(!semver_ok(">=2.4.0+26.1.x", "2.3.1+26.1.x"));
+        assert!(
+            semver_ok("1.21.x", "1.21.4"),
+            "шаблон до «+» работает как раньше"
+        );
+        assert!(!semver_ok("1.21.x", "1.20.1"));
+
+        // Glowing Ores (Forgix): geo_mod вложен по пути из fabric.mod.json.
+        let inner = jar(&[("fabric.mod.json", br#"{"id":"geo_mod","version":"1.0.3"}"#)]);
+        let outer = jar(&[
+            (
+                "fabric.mod.json",
+                br#"{"id":"glowingores","version":"1","depends":{"geo_mod":"*"},
+                    "jars":[{"file":"META-INF/forgix/multiversion/GEO-v1.0.3-mc26.1.2.jar"}]}"#,
+            ),
+            (
+                "META-INF/forgix/multiversion/GEO-v1.0.3-mc26.1.2.jar",
+                &inner,
+            ),
+        ]);
+        let meta = read_zip(std::io::Cursor::new(outer), 0);
+        assert!(
+            meta.provides.iter().any(|p| p == "geo_mod"),
+            "{:?}",
+            meta.provides
+        );
     }
 
     #[test]
