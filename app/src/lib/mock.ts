@@ -2,6 +2,8 @@
 // Параметры адреса для снимков:
 //   ?mode=light&accent=%237c3aed&bg=%23202a44 — оформление
 //   ?fresh — первый запуск (папка данных не выбрана)
+//   ?missing — папка данных не найдена; ?moved — диск сменил букву
+//   ?starting — игра запускается (этап и проценты)
 //   ?empty — ни одной сборки
 
 import type { Entry, Instance, TrashEntry, VersionInfo } from "./api";
@@ -115,8 +117,10 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
     case "play_status":
       return {
         status: url.has("downloading")
-          ? { build: "vyzhivanie", phase: "downloading", done: 141 * 1024 * 1024, total: 402 * 1024 * 1024 }
-          : { build: null, phase: "idle", done: 0, total: 0 },
+          ? { build: "vyzhivanie", phase: "downloading", done: 141 * 1024 * 1024, total: 402 * 1024 * 1024, stage: "Загрузка файлов игры: 312" }
+          : url.has("starting")
+            ? { build: "vyzhivanie", phase: "starting", done: 0, total: 0, stage: "Загрузка модов: 162", since: Date.now() - 14000, expected: url.has("first") ? null : 48 }
+            : { build: null, phase: "idle", done: 0, total: 0 },
         finished: url.has("crash")
           ? { build: "vyzhivanie", name: "Выживание с друзьями", seconds: 0, code: 1, crashed: true, no_window: true, tail: ["Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space", "	at net.minecraft.client.main.Main.main(Main.java:42)"], warning: null }
           : null,
@@ -215,6 +219,11 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
         days,
       } as T;
     }
+    case "data_dir_check":
+      return {
+        missing: url.has("missing") ? "G:\\MajorLauncherData" : null,
+        moved: url.has("moved") ? ["G:\\MajorLauncherData", "H:\\MajorLauncherData"] : null,
+      } as T;
     case "data_dir_suggestion":
     case "inspect_dir": {
       const path: string = a.path ?? "D:\\MajorLauncherData";

@@ -41,6 +41,12 @@ pub struct PlayStatus {
     /// Скачано и всего, байт (во время загрузки).
     pub done: u64,
     pub total: u64,
+    /// Что происходит сейчас, словами: «Проверка модов», «Загрузка модов: 162».
+    pub stage: Option<String>,
+    /// Когда запущена Java, мс с 1970 года: окно само считает, сколько идёт запуск.
+    pub since: Option<u64>,
+    /// Сколько сборка грузилась до окна игры в прошлые разы, секунд.
+    pub expected: Option<u64>,
 }
 
 /// Чем закончилась игра — окно показывает это один раз.
@@ -113,24 +119,7 @@ pub async fn build_play(
 ) -> CmdResult<Option<Vec<Issue>>> {
     let data = state.data()?;
     let builds = Builds::new(data.clone());
-    // Проблемы, которые не дадут игре запуститься (раздел 5.6 ТЗ): окно
-    // покажет их и спросит «Всё равно играть?». Только известное, без сети.
-    if !force.unwrap_or(false) && id != QUICK_ID {
-        let report = mods::report(&state.http, &data, &id, false)
-            .await
-            .map_err(text)?;
-        let blocking: Vec<Issue> = report.blocking().into_iter().cloned().collect();
-        if !blocking.is_empty() {
-            return Ok(Some(blocking));
-        }
-    }
-    // «Быстрая игра» запускается с версией, выбранной у кнопки.
-    let instance = match &version {
-        Some(v) if id == QUICK_ID => builds.quick(v),
-        _ => builds.get(&id),
-    }
-    .map_err(text)?;
-    let settings = state.config.lock().unwrap().get().game.clone();
+    let check_mods = !force.unwrap_or(false) && id != QUICK_ID;
     {
         let mut play = state.play.lock().unwrap();
         if play.status.phase != Phase::Idle {
@@ -143,10 +132,47 @@ pub async fn build_play(
         play.status = PlayStatus {
             build: Some(id.clone()),
             phase: Phase::Preparing,
+            stage: Some(
+                if check_mods {
+                    "Проверка модов"
+                } else {
+                    "Подготовка"
+                }
+                .into(),
+            ),
             ..Default::default()
         };
     }
     let _ = app.emit("play", state.play.lock().unwrap().status.clone());
+    // Дальше кнопка «Играть» занята: при любом отказе её надо освободить.
+    let fail = |e: String| {
+        reset(&app);
+        Err(e)
+    };
+
+    // Проблемы, которые не дадут игре запуститься (раздел 5.6 ТЗ): окно
+    // покажет их и спросит «Всё равно играть?». Только известное, без сети.
+    if check_mods {
+        let report = match mods::report(&state.http, &data, &id, false).await {
+            Ok(r) => r,
+            Err(e) => return fail(text(e)),
+        };
+        let blocking: Vec<Issue> = report.blocking().into_iter().cloned().collect();
+        if !blocking.is_empty() {
+            reset(&app);
+            return Ok(Some(blocking));
+        }
+    }
+    // «Быстрая игра» запускается с версией, выбранной у кнопки.
+    let instance = match match &version {
+        Some(v) if id == QUICK_ID => builds.quick(v),
+        _ => builds.get(&id),
+    } {
+        Ok(i) => i,
+        Err(e) => return fail(text(e)),
+    };
+    let settings = state.config.lock().unwrap().get().game.clone();
+    update(&app, |s| s.stage = Some("Вход и проверка файлов".into()));
 
     let task = LazyTask::new(
         &app,
@@ -164,12 +190,12 @@ pub async fn build_play(
     task.finish(&prepared);
     let launch = match prepared {
         Ok(launch) => launch,
-        Err(e) => {
-            reset(&app);
-            return Err(text(e));
-        }
+        Err(e) => return fail(text(e)),
     };
-    update(&app, |s| s.phase = Phase::Starting);
+    update(&app, |s| {
+        s.phase = Phase::Starting;
+        s.stage = Some("Применяем настройки игры".into());
+    });
 
     // Миры «Быстрой игры» из более новой версии — в копию перед запуском.
     let risky = if instance.quick {
@@ -192,24 +218,27 @@ pub async fn build_play(
                 .map_err(|e| format!("Общие настройки игры не применились: {e}"))
         })
         .await
-        .map_err(text)?
+        .unwrap_or_else(|e| Err(text(e)))
     };
     // Без копии миров старую версию не запускаем: мир может испортиться.
     if let Err(e) = &before
         && e.starts_with("Не удалось сохранить копию")
     {
-        reset(&app);
-        return Err(e.clone());
+        return fail(e.clone());
     }
     let note = before.err();
 
     let game = match game::spawn(&launch.cmd) {
         Ok(game) => game,
-        Err(e) => {
-            reset(&app);
-            return Err(text(e));
-        }
+        Err(e) => return fail(text(e)),
     };
+    // Сколько грузилась в прошлый раз — окно покажет проценты запуска.
+    let expected = game::load_time(&data, &load_key(&instance));
+    update(&app, |s| {
+        s.stage = Some("Запуск Java".into());
+        s.since = Some(unix_ms());
+        s.expected = expected;
+    });
     // Сразу отмечаем запуск — сборка поднимается в начало «Недавних».
     let _ = Builds::new(data.clone()).record_play(&id, game.start, 0);
     let on_launch = settings.on_launch;
@@ -219,6 +248,22 @@ pub async fn build_play(
         .spawn(move || watch(app, game, instance, version, on_launch, data, note))
         .map_err(text)?;
     Ok(None)
+}
+
+/// Под каким именем запоминать время загрузки: у «Быстрой игры» оно своё для
+/// каждой версии.
+fn load_key(instance: &Instance) -> String {
+    if instance.quick {
+        format!("{QUICK_ID}/{}", instance.version)
+    } else {
+        instance.id.clone()
+    }
+}
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 /// «Проверить файлы» (страница сборки → «Настройки сборки»). Занимает кнопку
@@ -301,17 +346,24 @@ fn progress_with(app: AppHandle, also: Arc<dyn Fn(Event) + Send + Sync>) -> Prog
             let mut play = state.play.lock().unwrap();
             let s = &mut play.status;
             match event {
-                Event::Checking { .. } | Event::Extracting => {}
-                Event::Downloading { bytes, .. } => {
+                // Во время «Проверить файлы» подпись своя.
+                Event::Checking { files } if s.phase != Phase::Verifying => {
+                    s.stage = Some(format!("Проверка файлов игры: {files}"));
+                }
+                Event::Checking { .. } => {}
+                Event::Extracting => s.stage = Some("Распаковка библиотек".into()),
+                Event::Downloading { bytes, files } => {
                     s.phase = Phase::Downloading;
                     s.total = bytes;
                     s.done = 0;
+                    s.stage = Some(format!("Загрузка файлов игры: {files}"));
                 }
                 Event::FileDone { bytes } => s.done += bytes,
                 Event::Loader { step, total } => {
                     s.phase = Phase::Installing;
                     s.done = step as u64;
                     s.total = total as u64;
+                    s.stage = Some("Установка загрузчика модов".into());
                 }
             }
             s.clone()
@@ -335,10 +387,16 @@ fn watch(
     data: DataDir,
     note: Option<String>,
 ) {
-    let outcome = game.wait(|| {
+    let started = Instant::now();
+    let key = load_key(&instance);
+    let on_window = || {
+        let _ = game::record_load_time(&data, &key, started.elapsed().as_secs());
         // Сначала «игра идёт», потом закрываем окно: иначе закрытие
         // последнего окна завершит лаунчер вместе с подсчётом времени.
-        update(&app, |s| s.phase = Phase::Running);
+        update(&app, |s| {
+            s.phase = Phase::Running;
+            s.stage = None;
+        });
         if let Some(window) = app.get_webview_window("main") {
             match on_launch {
                 OnLaunch::Close => {
@@ -350,7 +408,8 @@ fn watch(
                 OnLaunch::Keep => {}
             }
         }
-    });
+    };
+    let outcome = game.wait(on_window, |stage| update(&app, |s| s.stage = Some(stage)));
 
     // Изменённые в игре настройки и серверы — в общие.
     let synced = game::after_exit(&data, &instance, &version)

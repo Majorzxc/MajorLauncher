@@ -188,6 +188,14 @@ export interface BuildSettings {
   own_servers?: boolean;
 }
 
+/// Папка данных при открытии окна.
+export interface DataStatus {
+  /// Папки нет ни по сохранённому пути, ни на других дисках.
+  missing: string | null;
+  /// Диск сменил букву: старый и новый путь.
+  moved: [string, string] | null;
+}
+
 export interface DirCheck {
   path: string;
   free_bytes: number | null;
@@ -454,6 +462,12 @@ export interface PlayStatus {
   phase: Phase;
   done: number;
   total: number;
+  /// Что происходит сейчас словами: «Проверка модов», «Загрузка модов: 162».
+  stage?: string | null;
+  /// Когда запущена Java, мс с 1970 года.
+  since?: number | null;
+  /// Сколько сборка грузилась до окна игры в прошлые разы, секунд.
+  expected?: number | null;
 }
 
 export interface Finished {
@@ -474,6 +488,7 @@ export const api = {
   dataDirSuggestion: () => call<DirCheck>("data_dir_suggestion"),
   inspectDir: (path: string) => call<DirCheck>("inspect_dir", { path }),
   setDataDir: (path: string) => call<Config>("set_data_dir", { path }),
+  dataDirCheck: () => call<DataStatus>("data_dir_check"),
   openDataDir: () => call<void>("open_data_dir"),
   setGame: (game: GameSettings) => call<Config>("set_game", { game }),
   systemMemory: () => call<{ total_mb: number | null; auto_mb: number }>("system_memory"),

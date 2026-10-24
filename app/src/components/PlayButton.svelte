@@ -1,23 +1,38 @@
 <script lang="ts">
   // Кнопка «Играть» со всеми состояниями: подготовка, загрузка с процентами,
   // запуск, «игра запущена».
-  import { busyLabel, percent, play, start } from "../lib/play.svelte";
+  import { busyLabel, launchPercent, percent, play, stageLabel, start } from "../lib/play.svelte";
   import Icon from "./Icon.svelte";
 
   let { id, large = false }: { id: string; large?: boolean } = $props();
   const label = $derived(busyLabel(id));
-  // Полоса внутри кнопки: проценты загрузки или шаги установки загрузчика.
-  const loading = $derived(
-    play.status.build === id && (play.status.phase === "downloading" || play.status.phase === "installing"),
-  );
+  // Что делается сейчас: «Загрузка модов: 162 · 0:14». У большой кнопки —
+  // второй строкой, у маленькой — в подсказке.
+  const stage = $derived(stageLabel(id));
+  // Полоса внутри кнопки: проценты загрузки, шаги установки загрузчика или
+  // время запуска относительно прошлого раза.
+  const fill = $derived.by(() => {
+    if (play.status.build !== id) return null;
+    if (play.status.phase === "downloading" || play.status.phase === "installing") return percent(play.status);
+    return launchPercent(play.status);
+  });
 </script>
 
-<button class="play" class:large class:busy={!!label} disabled={!!label} onclick={() => start(id)}>
-  {#if loading}<span class="fill" style:width="{percent(play.status)}%"></span>{/if}
+<button
+  class="play"
+  class:large
+  class:busy={!!label}
+  disabled={!!label}
+  title={!large && stage ? stage : undefined}
+  aria-live="polite"
+  onclick={() => start(id)}
+>
+  {#if fill !== null}<span class="fill" style:width="{fill}%"></span>{/if}
   <span class="label">
     {#if !label}<Icon name="play" size={large ? 22 : 18} />{/if}
     {label ?? "Играть"}
   </span>
+  {#if large && stage}<span class="stage">{stage}</span>{/if}
 </button>
 
 <style>
@@ -56,6 +71,19 @@
     inset: 0 auto 0 0;
     background: color-mix(in srgb, var(--accent) 35%, transparent);
     transition: width 0.2s linear;
+  }
+  .stage {
+    position: relative;
+    display: block;
+    max-width: 212px;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-12);
+    font-weight: 400;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
   }
   .label {
     position: relative;

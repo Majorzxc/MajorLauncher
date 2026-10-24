@@ -1,12 +1,18 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
-  import { api, type DirCheck } from "../lib/api";
+  import { api, type DataStatus, type DirCheck } from "../lib/api";
   import { size } from "../lib/format";
   import { inTauri } from "../lib/tauri";
 
-  let { ondone }: { ondone: () => void } = $props();
+  // `missing` — папка данных была выбрана, но пропала (диск отключён или сменил букву).
+  let {
+    ondone,
+    missing = null,
+    onmoved,
+  }: { ondone: () => void; missing?: string | null; onmoved?: (s: DataStatus) => void } = $props();
 
   let path = $state("");
   let check: DirCheck | null = $state(null);
@@ -14,8 +20,9 @@
   let error = $state("");
   let timer: ReturnType<typeof setTimeout>;
 
-  api
-    .dataDirSuggestion()
+  // Пропавшую папку предлагаем по старому пути: игрок поправит только букву.
+  const lost = untrack(() => missing);
+  (lost ? api.inspectDir(lost) : api.dataDirSuggestion())
     .then((c) => {
       path = c.path;
       check = c;
@@ -42,6 +49,26 @@
     }
   }
 
+  /// Диск подключили — лаунчер ищет папку снова (и на других буквах).
+  let rechecking = $state(false);
+  async function recheck() {
+    error = "";
+    rechecking = true;
+    try {
+      const status = await api.dataDirCheck();
+      if (status.missing) {
+        error = "Папки всё ещё нет ни на одном диске.";
+        return;
+      }
+      onmoved?.(status);
+      ondone();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      rechecking = false;
+    }
+  }
+
   async function next() {
     error = "";
     try {
@@ -56,11 +83,20 @@
 <div class="first">
   <div class="card box">
     <Logo size={56} />
-    <h1>Где хранить игру?</h1>
-    <p class="muted">
-      В этой папке будут версии игры, Java и все сборки с мирами и модами. Понадобится несколько гигабайт.
-      Если папка уже использовалась MajorLauncher, лаунчер продолжит с её данными.
-    </p>
+    {#if missing}
+      <h1>Папка данных не найдена</h1>
+      <p class="muted">
+        Лаунчер не нашёл <b class="path">{missing}</b> — ни по этому пути, ни на других дисках. Если папка на
+        внешнем диске, подключите его и нажмите «Проверить снова». Если папку переместили, укажите, где она
+        теперь.
+      </p>
+    {:else}
+      <h1>Где хранить игру?</h1>
+      <p class="muted">
+        В этой папке будут версии игры, Java и все сборки с мирами и модами. Понадобится несколько гигабайт.
+        Если папка уже использовалась MajorLauncher, лаунчер продолжит с её данными.
+      </p>
+    {/if}
 
     <div class="pick">
       <input bind:value={path} oninput={typed} aria-label="Папка данных" spellcheck="false" />
@@ -75,6 +111,11 @@
           <p class="bad"><Icon name="error" size={18} />Сюда нельзя записывать — выберите другую папку.</p>
         {:else if !check.writable}
           <!-- причина — в предупреждениях ниже -->
+        {:else if missing && !check.has_data}
+          <p class="warn">
+            <Icon name="warning" size={18} />Здесь нет данных MajorLauncher: лаунчер начнёт с пустой папки, а прежние
+            сборки и миры останутся там, где были.
+          </p>
         {:else}
           <p class="ok">
             <Icon name="check" size={18} />
@@ -87,9 +128,16 @@
       {#if error}<p class="bad"><Icon name="error" size={18} />{error}</p>{/if}
     </div>
 
-    <button class="btn btn-primary go" disabled={checking || !check?.writable} onclick={next}>
-      Продолжить<Icon name="chevron-right" size={18} />
-    </button>
+    <div class="buttons">
+      {#if missing}
+        <button class="btn" disabled={rechecking} onclick={recheck}>
+          <Icon name="refresh" size={18} />{rechecking ? "Ищу…" : "Проверить снова"}
+        </button>
+      {/if}
+      <button class="btn btn-primary" disabled={checking || !check?.writable} onclick={next}>
+        Продолжить<Icon name="chevron-right" size={18} />
+      </button>
+    </div>
   </div>
 </div>
 
@@ -152,11 +200,18 @@
   .bad {
     color: var(--danger);
   }
-  .go {
-    align-self: flex-end;
+  .buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--s2);
   }
-  .go:disabled {
+  .buttons :disabled {
     opacity: 0.45;
     cursor: default;
+  }
+  .path {
+    font-family: Consolas, monospace;
+    font-weight: 400;
+    color: var(--text);
   }
 </style>

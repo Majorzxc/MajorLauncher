@@ -21,6 +21,43 @@ export function percent(s: PlayStatus): number {
   return s.total > 0 ? Math.min(100, Math.floor((s.done * 100) / s.total)) : 0;
 }
 
+// Часы для «Запуск 0:14»: тикают только пока игра запускается.
+const clock = $state({ now: Date.now() });
+let ticker: ReturnType<typeof setInterval> | null = null;
+function tick(s: PlayStatus) {
+  const need = s.phase === "starting" && !!s.since;
+  if (need && !ticker) ticker = setInterval(() => (clock.now = Date.now()), 1000);
+  if (!need && ticker) {
+    clearInterval(ticker);
+    ticker = null;
+  }
+  clock.now = Date.now();
+}
+
+/// Сколько секунд идёт запуск игры (с момента старта Java).
+function elapsed(s: PlayStatus): number {
+  return s.since ? Math.max(0, Math.floor((clock.now - s.since) / 1000)) : 0;
+}
+
+/// Проценты запуска по времени прошлой загрузки сборки. Дальше 95 % не идёт:
+/// окно игры может появиться и позже обычного. null — сборка ещё не запускалась.
+export function launchPercent(s: PlayStatus): number | null {
+  if (s.phase !== "starting" || !s.since || !s.expected) return null;
+  return Math.min(95, Math.floor((elapsed(s) * 100) / s.expected));
+}
+
+/// Подробность к кнопке «Играть»: что делается сейчас.
+export function stageLabel(id: string): string | null {
+  const s = play.status;
+  if (s.build !== id || s.phase === "idle" || s.phase === "running") return null;
+  const parts = [s.stage];
+  if (s.phase === "starting" && s.since) {
+    const t = elapsed(s);
+    parts.push(`${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`);
+  }
+  return parts.filter(Boolean).join(" · ") || null;
+}
+
 /// Подпись кнопки «Играть» для сборки `id`; null — можно запускать.
 export function busyLabel(id: string): string | null {
   const s = play.status;
@@ -35,8 +72,10 @@ export function busyLabel(id: string): string | null {
       return `Загрузка ${percent(s)}%`;
     case "installing":
       return `Ставим загрузчик ${s.done}/${s.total}`;
-    case "starting":
-      return "Запуск…";
+    case "starting": {
+      const p = launchPercent(s);
+      return p === null ? "Запуск…" : `Запуск ${p}%`;
+    }
     default:
       return "Игра запущена";
   }
@@ -63,10 +102,14 @@ function finished(f: Finished) {
 
 export async function connect() {
   if (inTauri) {
-    await listen<PlayStatus>("play", (e) => (play.status = e.payload));
+    await listen<PlayStatus>("play", (e) => {
+      play.status = e.payload;
+      tick(e.payload);
+    });
     await listen<Finished>("play-finished", (e) => finished(e.payload));
   }
   const s = await api.playStatus();
   play.status = s.status;
+  tick(s.status);
   if (s.finished) finished(s.finished);
 }

@@ -20,7 +20,8 @@
   import Placeholder from "./screens/Placeholder.svelte";
   import Settings from "./screens/Settings.svelte";
   import Stats from "./screens/Stats.svelte";
-  import { api } from "./lib/api";
+  import { api, type DataStatus } from "./lib/api";
+  import { toast } from "./lib/toast.svelte";
   import { size } from "./lib/format";
   import { go, nav } from "./lib/nav.svelte";
   import { connect, play } from "./lib/play.svelte";
@@ -31,6 +32,8 @@
 
   let ready = $state(false);
   let needsDataDir = $state(false);
+  // Папка данных пропала: диск отключён или сменил букву, а найти её не вышло.
+  let missingDir = $state<string | null>(null);
   // Шапка перечитывает аккаунты, когда выбрана папка данных.
   let generation = $state(0);
 
@@ -40,10 +43,22 @@
     apply(config.appearance);
     loadImage();
     needsDataDir = !config.data_dir;
+    if (!needsDataDir) {
+      const status = await api.dataDirCheck().catch(() => null);
+      missingDir = status?.missing ?? null;
+      if (status) movedNote(status);
+    }
     ready = true;
     connectTasks();
-    if (!needsDataDir) connect();
+    if (!needsDataDir && !missingDir) connect();
   });
+
+  /// Диск с данными сменил букву, и лаунчер сам нашёл папку — сказать об этом.
+  function movedNote(status: DataStatus) {
+    if (status.moved) {
+      toast(`Диск с данными сменил букву — папка найдена в ${status.moved[1]}, лаунчер запомнил новый путь.`);
+    }
+  }
 
   // История переходов: боковые кнопки мыши и Alt+← / Alt+→.
   $effect(track);
@@ -71,10 +86,13 @@
   <main>
     {#if !ready}
       <!-- пусто: тема ещё применяется -->
-    {:else if needsDataDir}
+    {:else if needsDataDir || missingDir}
       <FirstRun
+        missing={missingDir}
+        onmoved={movedNote}
         ondone={() => {
           needsDataDir = false;
+          missingDir = null;
           generation++;
           connect();
         }}

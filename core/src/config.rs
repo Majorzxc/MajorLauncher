@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::datadir::{self, Located};
 use crate::error::{Error, IoContext, Result, json};
 
 /// Тема окна. Готовых тем две — чёрная и белая (раздел 6.0 ТЗ), остальное
@@ -156,6 +157,10 @@ pub struct Config {
     /// Папка данных; `None` — ещё не выбрана (первый запуск).
     #[serde(default)]
     pub data_dir: Option<PathBuf>,
+    /// Серийный номер тома папки данных: по нему лаунчер находит её, если
+    /// диск сменил букву.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_volume: Option<u32>,
     #[serde(default)]
     pub appearance: Appearance,
     #[serde(default)]
@@ -193,8 +198,33 @@ impl ConfigStore {
             )));
         }
         std::fs::create_dir_all(&path).at(&path)?;
+        self.config.data_volume = datadir::volume_serial(&path);
         self.config.data_dir = Some(path);
         self.save()
+    }
+
+    /// Проверить папку данных при запуске ([`datadir::locate`]): диск сменил
+    /// букву — путь обновляется. Настройкам без номера тома он дописывается.
+    pub fn locate_data_dir(&mut self) -> Located {
+        let Some(saved) = self.config.data_dir.clone() else {
+            return Located::Here;
+        };
+        let found = datadir::locate(&saved, self.config.data_volume);
+        match &found {
+            Located::Moved(to) => {
+                self.config.data_dir = Some(to.clone());
+                self.config.data_volume = datadir::volume_serial(to);
+                let _ = self.save();
+            }
+            Located::Here if self.config.data_volume.is_none() => {
+                self.config.data_volume = datadir::volume_serial(&saved);
+                if self.config.data_volume.is_some() {
+                    let _ = self.save();
+                }
+            }
+            _ => {}
+        }
+        found
     }
 
     pub fn set_game(&mut self, game: GameSettings) -> Result<()> {

@@ -375,7 +375,7 @@ fn copy_file(
 
 /// Кэш проверенных файлов хранит полные пути — переводим их на новое место,
 /// иначе первый запуск каждой версии пересчитывал бы хеши заново.
-fn rebase_cache(from: &Path, to: &Path) {
+pub fn rebase_cache(from: &Path, to: &Path) {
     let old = DataDir::new(from);
     let new = DataDir::new(to);
     let _ = crate::verify::VerifyCache::rebase(&new.verified(), old.root(), new.root());

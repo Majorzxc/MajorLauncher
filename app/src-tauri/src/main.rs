@@ -38,6 +38,8 @@ pub struct AppState {
     pub play: Mutex<play::PlayState>,
     pub relocation: Mutex<Relocation>,
     pub tasks: Mutex<tasks::Tasks>,
+    /// Диск с данными сменил букву при этом запуске — окно скажет об этом один раз.
+    pub data_moved: Mutex<Option<(String, String)>>,
 }
 
 /// Перенос папки данных: пока он идёт, остальные команды её не трогают.
@@ -55,14 +57,24 @@ impl AppState {
         if self.relocating() {
             return Err("идёт перенос папки данных — подождите, пока он закончится".into());
         }
-        self.config
+        let data = self
+            .config
             .lock()
             .unwrap()
             .get()
             .data_dir
             .clone()
             .map(DataDir::new)
-            .ok_or_else(|| "папка данных ещё не выбрана".to_string())
+            .ok_or_else(|| "папка данных ещё не выбрана".to_string())?;
+        // Диск отключён или сменил букву: не создавать на его месте новых
+        // папок (на этой букве может оказаться другой диск).
+        if !data.root().is_dir() {
+            return Err(format!(
+                "папка данных {} не найдена — диск отключён или сменил букву",
+                data.root().display()
+            ));
+        }
+        Ok(data)
     }
 }
 
@@ -173,7 +185,12 @@ fn main() {
                 play: Mutex::new(play::PlayState::default()),
                 relocation: Mutex::new(Relocation::default()),
                 tasks: Mutex::new(tasks::Tasks::default()),
+                data_moved: Mutex::new(None),
             });
+            // Диск с данными сменил букву — найти папку до первого окна.
+            let state: State<AppState> = app.state();
+            let found = settings::locate_data(&state);
+            *state.data_moved.lock().unwrap() = found.moved;
             open_window(app.handle())?;
 
             // Корзина чистится от сборок старше 30 дней при каждом запуске.
@@ -205,6 +222,7 @@ fn main() {
             settings::data_dir_suggestion,
             settings::inspect_dir,
             settings::set_data_dir,
+            settings::data_dir_check,
             settings::open_data_dir,
             settings::data_size,
             settings::data_move_plan,

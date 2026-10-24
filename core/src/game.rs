@@ -15,7 +15,7 @@ use crate::account::Accounts;
 use crate::builds::Instance;
 use crate::config::GameSettings;
 use crate::download::Downloader;
-use crate::error::{Error, Result};
+use crate::error::{Error, IoContext, Result};
 use crate::install::{self, Mode, Progress};
 use crate::launch::{self, LaunchCommand, LaunchOptions};
 use crate::library::Library;
@@ -251,6 +251,84 @@ pub fn backup_worlds(game_dir: &Path, worlds: &[RiskyWorld]) -> Result<()> {
     Ok(())
 }
 
+/// Что игра делает, пока её окна ещё нет, — по строке её вывода. Fabric,
+/// Quilt, Forge, NeoForge и сама игра пишут узнаваемые строки; номер — порядок
+/// этапа: окно показывает только шаги вперёд (строки разных загрузчиков
+/// приходят вперемешку). `None` — строка ничего нового не говорит.
+pub fn loading_stage(line: &str) -> Option<(u8, String)> {
+    if let Some(n) = mods_count(line) {
+        return Some((2, format!("Загрузка модов: {n}")));
+    }
+    const STAGES: &[(&str, u8, &str)] = &[
+        // Fabric и Quilt: «Loading Minecraft 1.21.10 with Fabric Loader 0.19.5».
+        (" with Fabric Loader", 1, "Запуск Fabric"),
+        (" with Quilt Loader", 1, "Запуск Quilt"),
+        ("ModLauncher running", 1, "Запуск загрузчика модов"),
+        ("Forge Mod Loader version", 1, "Запуск Forge"),
+        ("Found mod file", 2, "Поиск модов"),
+        ("Initializing MixinExtras", 3, "Подготовка модов"),
+        ("Launching target", 3, "Подготовка модов"),
+        ("Datafixer optimizations", 4, "Подготовка данных игры"),
+        ("Setting user:", 5, "Запуск модов и игры"),
+        ("Backend library: LWJGL", 6, "Создание окна игры"),
+        ("LWJGL Version:", 6, "Создание окна игры"),
+        ("Reloading ResourceManager", 7, "Загрузка ресурсов"),
+    ];
+    STAGES
+        .iter()
+        .find(|(pattern, ..)| line.contains(pattern))
+        .map(|&(_, order, text)| (order, text.to_string()))
+}
+
+/// Сколько модов грузит загрузчик: «Loading 162 mods:» (Fabric, Quilt),
+/// «has identified 120 mods to load» (Forge 1.12.2).
+fn mods_count(line: &str) -> Option<u32> {
+    ["Loading ", "has identified "].iter().find_map(|prefix| {
+        let rest = &line[line.find(prefix)? + prefix.len()..];
+        let digits = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        rest[digits..]
+            .starts_with(" mod")
+            .then(|| rest[..digits].parse().ok())
+            .flatten()
+    })
+}
+
+/// Сколько сборка грузилась до окна игры в прошлые разы, секунд, — по нему
+/// окно показывает проценты запуска. `key` — id сборки (у «Быстрой игры» с версией).
+pub fn load_time(data: &DataDir, key: &str) -> Option<u64> {
+    load_times(data).get(key).copied()
+}
+
+/// Запомнить, сколько сборка грузилась. Среднее с прошлым разом: первый
+/// запуск после загрузки файлов или перезагрузки ПК обычно дольше.
+pub fn record_load_time(data: &DataDir, key: &str, secs: u64) -> Result<()> {
+    let mut times = load_times(data);
+    let secs = match times.get(key) {
+        Some(old) => (old + secs).div_ceil(2),
+        None => secs,
+    };
+    times.insert(key.to_string(), secs);
+    let path = data.cache().join("load-times.json");
+    let dir = data.cache();
+    std::fs::create_dir_all(&dir).at(&dir)?;
+    let tmp = path.with_extension("tmp");
+    std::fs::write(
+        &tmp,
+        serde_json::to_vec(&times).expect("числа сериализуются"),
+    )
+    .at(&tmp)?;
+    std::fs::rename(&tmp, &path).at(&path)
+}
+
+fn load_times(data: &DataDir) -> std::collections::HashMap<String, u64> {
+    std::fs::read(data.cache().join("load-times.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
 /// Запущенная игра.
 pub struct Game {
     child: Child,
@@ -327,8 +405,13 @@ impl Game {
     }
 
     /// Ждать закрытия игры. `on_window` вызывается один раз — когда у игры
-    /// появилось окно (тогда лаунчер и прячет своё).
-    pub fn wait(mut self, mut on_window: impl FnMut()) -> Result<Outcome> {
+    /// появилось окно (тогда лаунчер и прячет своё). До этого `on_stage`
+    /// получает этапы загрузки ([`loading_stage`]).
+    pub fn wait(
+        mut self,
+        mut on_window: impl FnMut(),
+        mut on_stage: impl FnMut(String),
+    ) -> Result<Outcome> {
         let (tx, rx) = mpsc::channel::<String>();
         // Вывод читаем постоянно: если канал переполнится, игра встанет.
         [
@@ -365,6 +448,7 @@ impl Game {
         let mut tracker = Tracker::new();
         let mut tail: VecDeque<String> = VecDeque::with_capacity(TAIL_LINES);
         let mut had_window = false;
+        let mut stage = 0;
         let mut polled = Instant::now();
         let game_dir = self.game_dir.clone();
         let mut on_line = |tracker: &mut Tracker, line: String| {
@@ -385,7 +469,16 @@ impl Game {
                 POLL_STARTING
             };
             match rx.recv_timeout(poll) {
-                Ok(line) => on_line(&mut tracker, line),
+                Ok(line) => {
+                    if !had_window
+                        && let Some((order, text)) = loading_stage(&line)
+                        && order >= stage
+                    {
+                        stage = order;
+                        on_stage(text);
+                    }
+                    on_line(&mut tracker, line)
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 // Вывод закрыт — игра завершается, дождёмся её.
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -504,6 +597,55 @@ mod tests {
                 .to_string_lossy()
                 .starts_with("new_1.21.10_")
         );
+    }
+
+    #[test]
+    fn loading_stages_from_game_output() {
+        // Настоящие строки из логов сборок автора и тестовой NeoForge.
+        let stage = |l: &str| loading_stage(l).map(|(_, t)| t);
+        assert_eq!(
+            stage("[13:54:23] [main/INFO]: Loading Minecraft 1.21.10 with Fabric Loader 0.19.5")
+                .as_deref(),
+            Some("Запуск Fabric")
+        );
+        assert_eq!(
+            stage("[13:54:24] [main/INFO]: Loading 162 mods:").as_deref(),
+            Some("Загрузка модов: 162")
+        );
+        assert_eq!(
+            stage("Forge Mod Loader has identified 120 mods to load").as_deref(),
+            Some("Загрузка модов: 120")
+        );
+        assert_eq!(
+            stage("[main/INFO]: ModLauncher running: args [--username, Tester]").as_deref(),
+            Some("Запуск загрузчика модов")
+        );
+        assert_eq!(
+            stage("[Render thread/INFO]: Setting user: Majorzxc").as_deref(),
+            Some("Запуск модов и игры")
+        );
+        assert_eq!(
+            stage("Backend library: LWJGL version 3.3.3-snapshot").as_deref(),
+            Some("Создание окна игры")
+        );
+        assert_eq!(
+            stage("[main/INFO]: Loading ImmediateWindowProvider fmlearlywindow"),
+            None
+        );
+        assert_eq!(stage("Loading 3 resource packs"), None);
+        assert_eq!(stage("[Render thread/INFO]: Loaded 110 languages"), None);
+    }
+
+    #[test]
+    fn load_time_is_averaged() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = DataDir::new(dir.path());
+        assert_eq!(load_time(&data, "a"), None);
+        record_load_time(&data, "a", 60).unwrap();
+        assert_eq!(load_time(&data, "a"), Some(60));
+        record_load_time(&data, "a", 91).unwrap();
+        assert_eq!(load_time(&data, "a"), Some(76));
+        assert_eq!(load_time(&data, "b"), None);
     }
 
     #[test]

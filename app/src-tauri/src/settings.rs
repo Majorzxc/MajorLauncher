@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use majorlauncher_core::datadir::{self, DirCheck};
+use majorlauncher_core::datadir::{self, DirCheck, Located};
 use majorlauncher_core::relocate::{self, Method, Plan};
 use majorlauncher_core::{Appearance, CatalogSettings, Config, GameSettings, content, system};
 use serde::Serialize;
@@ -86,6 +86,53 @@ pub fn set_data_dir(state: State<AppState>, path: String) -> CmdResult<Config> {
     let mut config = state.config.lock().unwrap();
     config.set_data_dir(PathBuf::from(path)).map_err(text)?;
     Ok(config.get().clone())
+}
+
+/// Папка данных при запуске окна.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DataStatus {
+    /// Папки нет ни по сохранённому пути, ни на других дисках — путь, где её ждали.
+    pub missing: Option<String>,
+    /// Диск сменил букву: откуда и куда перешёл путь.
+    pub moved: Option<(String, String)>,
+}
+
+/// Найти папку данных, если по сохранённому пути её нет (диск сменил букву).
+pub fn locate_data(state: &AppState) -> DataStatus {
+    if state.relocating() {
+        return DataStatus::default();
+    }
+    let mut config = state.config.lock().unwrap();
+    let saved = config.get().data_dir.clone();
+    match (config.locate_data_dir(), saved) {
+        (Located::Moved(to), Some(from)) => {
+            // Кэш проверенных файлов хранит полные пути — переводим на новую букву.
+            relocate::rebase_cache(&from, &to);
+            DataStatus {
+                missing: None,
+                moved: Some((from.display().to_string(), to.display().to_string())),
+            }
+        }
+        (Located::Missing, Some(saved)) => DataStatus {
+            missing: Some(saved.display().to_string()),
+            moved: None,
+        },
+        _ => DataStatus::default(),
+    }
+}
+
+/// Проверить папку данных: окно спрашивает при открытии и по кнопке
+/// «Проверить снова». Перенос пути при запуске лаунчера сообщается один раз.
+#[tauri::command]
+pub async fn data_dir_check(app: AppHandle) -> CmdResult<DataStatus> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let mut status = locate_data(&state);
+        let earlier = state.data_moved.lock().unwrap().take();
+        status.moved = status.moved.or(earlier);
+        Ok(status)
+    })
+    .await
 }
 
 /// Открыть папку данных в проводнике. Путь знает ядро, окно его не передаёт.
@@ -197,6 +244,8 @@ pub async fn data_move(app: AppHandle, state: State<'_, AppState>, to: String) -
         .map_err(text)
     })
     .await;
+    // Пока шло копирование, Проводник мог не дождаться значка ярлыка лаунчера.
+    majorlauncher_core::system::refresh_icons();
 
     let state = app.state::<AppState>();
     let finish = |old: Option<PathBuf>| {

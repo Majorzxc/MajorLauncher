@@ -26,6 +26,25 @@ pub fn auto_memory_mb(total_mb: Option<u64>) -> u32 {
     ((quarter + 256) / 512 * 512).clamp(1024, 4096) as u32
 }
 
+/// Попросить Проводник перечитать значки. Пока перенос папки данных
+/// нагружает диск, Проводник может не дождаться значка из exe лаунчера и
+/// запомнить вместо него пустой лист — ярлык на рабочем столе «белеет».
+pub fn refresh_icons() {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
+        // SAFETY: для этого события оба указателя по документации нулевые.
+        unsafe {
+            SHChangeNotify(
+                SHCNE_ASSOCCHANGED as i32,
+                SHCNF_IDLIST,
+                std::ptr::null(),
+                std::ptr::null(),
+            );
+        }
+    }
+}
+
 /// Заголовок видимого окна процесса `pid`; `None` — окна ещё (или уже) нет.
 pub fn window_title(pid: u32) -> Option<String> {
     #[cfg(windows)]
