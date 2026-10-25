@@ -28,14 +28,31 @@ pub async fn mods_report(
 #[tauri::command]
 pub async fn mods_apply(state: State<'_, AppState>, id: String, action: Action) -> CmdResult<()> {
     let data = state.data()?;
-    blocking(move || mods::apply(&data, &id, &action).map_err(text)).await
+    blocking(move || {
+        let reason = match &action {
+            Action::Disable { file } => Some(format!("перед выключением {file}")),
+            Action::Delete { file } => Some(format!("перед удалением {file}")),
+            Action::DisableExtra { .. } => Some("перед выключением лишних копий модов".into()),
+            // «Доверять» файлы не меняет.
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            crate::snapshots::before(&data, &id, &reason)?;
+        }
+        mods::apply(&data, &id, &action).map_err(text)
+    })
+    .await
 }
 
 /// Убрать мод из сборки (свой файл переезжает в библиотеку).
 #[tauri::command]
 pub async fn mods_remove(state: State<'_, AppState>, id: String, file: String) -> CmdResult<()> {
     let data = state.data()?;
-    blocking(move || mods::remove(&data, &id, &file).map_err(text)).await
+    blocking(move || {
+        crate::snapshots::before(&data, &id, &format!("перед удалением {file}"))?;
+        mods::remove(&data, &id, &file).map_err(text)
+    })
+    .await
 }
 
 /// Обновить: `only` — пары (версия, старый файл); пусто — всё, кроме закреплённых.
@@ -48,12 +65,10 @@ pub async fn mods_update(
     label: Option<String>,
 ) -> CmdResult<Vec<String>> {
     let data = state.data()?;
+    let label = label.unwrap_or_else(|| "Обновление модов".into());
+    crate::snapshots::before_async(&data, &id, format!("перед обновлением: {label}")).await?;
     let place = crate::catalog::place(&data, &Target::Build { id: id.clone() });
-    let task = crate::tasks::start(
-        &app,
-        label.unwrap_or_else(|| "Обновление модов".into()),
-        place,
-    );
+    let task = crate::tasks::start(&app, label, place);
     let progress = task.progress();
     let result = mods::update(&state.http, &data, &id, &only, &progress).await;
     task.finish(&result);

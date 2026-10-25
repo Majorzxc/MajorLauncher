@@ -176,11 +176,11 @@ pub async fn catalog_install(
     label: Option<String>,
 ) -> CmdResult<Vec<String>> {
     let data = state.data()?;
-    let task = crate::tasks::start(
-        &app,
-        label.unwrap_or_else(|| "Установка из каталога".into()),
-        place(&data, &target),
-    );
+    let label = label.unwrap_or_else(|| "Установка из каталога".into());
+    if let Target::Build { id } = &target {
+        crate::snapshots::before_async(&data, id, format!("перед установкой: {label}")).await?;
+    }
+    let task = crate::tasks::start(&app, label, place(&data, &target));
     let progress = task.progress();
     let result = catalog::install(&state.http, &data, &target, kind, &versions, &progress).await;
     task.finish(&result);

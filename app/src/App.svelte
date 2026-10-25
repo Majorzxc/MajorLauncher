@@ -24,7 +24,8 @@
   import { toast } from "./lib/toast.svelte";
   import { size } from "./lib/format";
   import { go, nav } from "./lib/nav.svelte";
-  import { connect, play } from "./lib/play.svelte";
+  import { connect, play, start } from "./lib/play.svelte";
+  import Modal from "./components/Modal.svelte";
   import { ALL } from "./lib/sections";
   import { apply, loadImage } from "./lib/theme.svelte";
 
@@ -138,6 +139,29 @@
     }}
   />
 {/if}
+{#if play.risky}
+  {@const r = play.risky}
+  <Modal title="Миры из более новой версии" width={520} onclose={() => (play.risky = null)}>
+    <p>
+      Эти миры открывали в версии новее той, что запустится. В старой версии мир может испортиться: пропадут блоки,
+      предметы или целые участки.
+    </p>
+    <ul class="risky">
+      {#each r.worlds as w (w.folder)}<li><b>{w.name}</b> <span class="muted">— {w.version}</span></li>{/each}
+    </ul>
+    <p class="muted small">Перед запуском лаунчер сохранит их копию в папку <code>backups</code> сборки.</p>
+    {#snippet footer()}
+      <button class="btn btn-quiet" onclick={() => (play.risky = null)}>Отмена</button>
+      <button
+        class="btn btn-primary"
+        onclick={() => {
+          play.risky = null;
+          start(r.id, r.version, false, true);
+        }}>Сохранить копию и играть</button
+      >
+    {/snippet}
+  </Modal>
+{/if}
 {#if play.blocked}
   <BlockedDialog info={play.blocked} onclose={() => (play.blocked = null)} />
 {/if}
@@ -160,6 +184,10 @@
     overflow: auto;
     padding: var(--pad-top) var(--pad-x) var(--s6);
     scrollbar-gutter: stable;
+  }
+  .risky {
+    margin: 0 0 var(--s3);
+    padding-left: var(--s5);
   }
   .download {
     grid-area: 3 / 2;

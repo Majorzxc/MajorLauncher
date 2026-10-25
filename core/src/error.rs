@@ -93,6 +93,10 @@ pub enum Error {
     #[error("хранилище паролей Windows: {0}")]
     Secrets(String),
 
+    /// Игрок нажал «Отменить».
+    #[error("отменено")]
+    Cancelled,
+
     #[error("{0}")]
     Other(String),
 }

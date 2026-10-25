@@ -316,7 +316,7 @@ mod tests {
         // Свой файл и мод из библиотеки — в сборку B.
         let n = add_to_build(&data, &[mine.key.clone(), idle.key.clone()], &b.id).unwrap();
         assert_eq!(n, 2);
-        let again = add_to_build(&data, &[idle.key.clone()], &b.id).unwrap();
+        let again = add_to_build(&data, std::slice::from_ref(&idle.key), &b.id).unwrap();
         assert_eq!(again, 0, "уже стоит");
         let l = list(&data).unwrap();
         assert_eq!(l.unused, 0);

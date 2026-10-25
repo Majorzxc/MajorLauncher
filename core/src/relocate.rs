@@ -411,6 +411,11 @@ fn same_volume(a: &Path, b: &Path) -> bool {
     }
 }
 
+/// Сколько имён (жёстких ссылок) у файла; `None` — не удалось узнать.
+pub(crate) fn links(path: &Path) -> Option<u32> {
+    identity(&std::fs::File::open(path).ok()?).map(|(_, n)| n)
+}
+
 /// Один и тот же файл на диске (у жёстких ссылок он общий) и сколько у него имён.
 #[cfg(windows)]
 fn identity(file: &std::fs::File) -> Option<((u32, u64), u32)> {

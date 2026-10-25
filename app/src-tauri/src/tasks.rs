@@ -20,6 +20,8 @@ pub enum TaskState {
     Running,
     Done,
     Failed,
+    /// Игрок нажал «Отменить».
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -123,14 +125,16 @@ impl TaskHandle {
     pub fn finish<T, E: std::fmt::Display>(&self, result: &Result<T, E>) {
         *self.closed.lock().unwrap() = true;
         let error = result.as_ref().err().map(|e| e.to_string());
+        let cancelled =
+            error.as_deref() == Some(&*majorlauncher_core::Error::Cancelled.to_string());
         self.update(
             |t| {
-                t.state = if error.is_some() {
-                    TaskState::Failed
-                } else {
-                    TaskState::Done
+                t.state = match &error {
+                    _ if cancelled => TaskState::Cancelled,
+                    Some(_) => TaskState::Failed,
+                    None => TaskState::Done,
                 };
-                t.error = error;
+                t.error = if cancelled { None } else { error };
                 t.stage = None;
                 t.finished = Some(now());
             },

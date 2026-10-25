@@ -112,19 +112,22 @@ pub async fn options_seed(state: State<'_, AppState>, id: String) -> CmdResult<O
 /// Какие миры «Быстрой игры» открывали в версии новее `version` — окно
 /// предупредит, что перед запуском лаунчер сделает их копию.
 #[tauri::command]
-pub async fn quick_check(
+pub async fn worlds_check(
     state: State<'_, AppState>,
-    version: String,
+    id: String,
+    version: Option<String>,
 ) -> CmdResult<Vec<RiskyWorld>> {
     let data = state.data()?;
-    let manifest = install::fetch_manifest(&data, &state.http)
-        .await
-        .map_err(text)?;
-    Ok(game::risky_worlds(
-        &data.instance(QUICK_ID),
-        &version,
-        &manifest,
-    ))
+    // У «Быстрой игры» версия — выбранная у кнопки, у сборки — своя.
+    let version = match version {
+        Some(v) if id == QUICK_ID => v,
+        _ => Builds::new(data.clone()).get(&id).map_err(text)?.version,
+    };
+    // Нет списка версий (нет интернета и кэша) — сравнить не с чем, не мешаем игре.
+    let Ok(manifest) = install::fetch_manifest(&data, &state.http).await else {
+        return Ok(Vec::new());
+    };
+    Ok(game::risky_worlds(&data.instance(&id), &version, &manifest))
 }
 
 #[tauri::command]
@@ -157,8 +160,11 @@ pub async fn library_mods_add(
     build: String,
 ) -> CmdResult<usize> {
     let data = state.data()?;
-    blocking(move || majorlauncher_core::modlib::add_to_build(&data, &keys, &build).map_err(text))
-        .await
+    blocking(move || {
+        crate::snapshots::before(&data, &build, "перед добавлением модов из библиотеки")?;
+        majorlauncher_core::modlib::add_to_build(&data, &keys, &build).map_err(text)
+    })
+    .await
 }
 
 /// Удалить пустующие моды (`keys` — только эти). Возвращает освобождённые байты.

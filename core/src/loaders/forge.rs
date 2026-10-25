@@ -9,6 +9,7 @@
 //!   Java-программы, которые патчат клиент игры. Запускаются Java той же
 //!   версии игры, без консольного окна.
 
+use crate::cancel::Cancel;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -274,6 +275,7 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::write(path, bytes).at(path)
 }
 
+#[allow(clippy::too_many_arguments)] // все — разные входные данные установки
 pub(super) async fn install(
     data: &DataDir,
     dl: &Downloader,
@@ -282,6 +284,7 @@ pub(super) async fn install(
     version: &str,
     id: &str,
     progress: Progress,
+    cancel: &Cancel,
 ) -> Result<Vec<PathBuf>> {
     let url = installer_url(data, dl, loader, game, version).await?;
     let name = url.rsplit('/').next().unwrap_or("installer.jar");
@@ -383,6 +386,7 @@ pub(super) async fn install(
         libs: libs.clone(),
         java: crate::java::executable(&vanilla.java_home, true),
         work: work.clone(),
+        cancel: cancel.clone(),
     };
     let made = {
         let installer = installer.clone();
@@ -565,6 +569,8 @@ struct Context {
     java: PathBuf,
     /// Временная папка: файлы из установщика (`/data/client.lzma`).
     work: PathBuf,
+    /// «Отменить»: шаг установки останавливается, его процесс Java завершается.
+    cancel: Cancel,
 }
 
 impl Context {
@@ -644,6 +650,7 @@ impl Context {
             .collect();
         let mut made = Vec::new();
         for (i, p) in client.iter().enumerate() {
+            self.cancel.check()?;
             progress(Event::Loader {
                 step: i + 1,
                 total: client.len(),
@@ -693,12 +700,29 @@ impl Context {
                 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
                 command.creation_flags(CREATE_NO_WINDOW);
             }
-            let out = command.output().map_err(|e| {
+            // Вывод — в файл: так процесс можно ждать по кусочку и завершить
+            // по «Отменить», не боясь, что он встанет на переполненном канале.
+            let log = self.work.join("processor.log");
+            let out = std::fs::File::create(&log).at(&log)?;
+            command.stdout(out.try_clone().at(&log)?).stderr(out);
+            let mut child = command.spawn().map_err(|e| {
                 Error::Other(format!("не удалось запустить Java для установки: {e}"))
             })?;
-            if !out.status.success() {
-                let text = String::from_utf8_lossy(&out.stderr).to_string()
-                    + &String::from_utf8_lossy(&out.stdout);
+            let status = loop {
+                if let Some(status) = child.try_wait().at(&self.java)? {
+                    break status;
+                }
+                if self.cancel.is_cancelled() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(Error::Cancelled);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            };
+            if !status.success() {
+                let text = std::fs::read(&log)
+                    .map(|b| String::from_utf8_lossy(&b).to_string())
+                    .unwrap_or_default();
                 let tail: Vec<&str> = text.lines().rev().take(6).collect();
                 return Err(Error::Other(format!(
                     "установка: шаг {} из {} ({}) завершился с ошибкой:\n{}",
@@ -771,6 +795,7 @@ mod tests {
             libs: PathBuf::from("L"),
             java: PathBuf::new(),
             work: PathBuf::new(),
+            cancel: Cancel::default(),
         };
         assert_eq!(ctx.arg("--side={SIDE}").unwrap(), "--side=client");
         assert_eq!(ctx.arg("{ROOT}/libraries/").unwrap(), "D:/data/libraries/");

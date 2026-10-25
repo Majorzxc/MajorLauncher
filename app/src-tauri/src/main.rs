@@ -13,6 +13,7 @@ mod game_options;
 mod mods;
 mod play;
 mod settings;
+mod snapshots;
 mod tasks;
 
 use std::path::PathBuf;
@@ -272,7 +273,7 @@ fn main() {
             game_options::options_set,
             game_options::options_set_shared,
             game_options::options_seed,
-            game_options::quick_check,
+            game_options::worlds_check,
             game_options::build_copy_world,
             game_options::library_list,
             game_options::library_add,
@@ -289,6 +290,11 @@ fn main() {
             mods::mods_update,
             mods::mods_pin,
             play::play_status,
+            play::play_cancel,
+            snapshots::snapshots_list,
+            snapshots::snapshot_take,
+            snapshots::snapshot_restore,
+            snapshots::snapshot_delete,
             tasks::tasks_list,
             content::build_screenshot_full,
             content::build_trash_screenshot,

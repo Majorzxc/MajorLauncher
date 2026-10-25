@@ -4,6 +4,7 @@
 //   ?fresh — первый запуск (папка данных не выбрана)
 //   ?missing — папка данных не найдена; ?moved — диск сменил букву
 //   ?starting — игра запускается (этап и проценты)
+//   ?risky — миры из более новой версии; ?crash&streak — падает подряд, откат
 //   ?empty — ни одной сборки
 
 import type { Entry, Instance, TrashEntry, VersionInfo } from "./api";
@@ -114,6 +115,24 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
     case "account_add_ely":
       await sleep(500);
       return { status: "need_code" } as T;
+    case "worlds_check":
+      return (url.has("risky")
+        ? [{ folder: "Survival", name: "Выживание", version: "1.21.4" }]
+        : []) as T;
+    case "play_cancel":
+    case "snapshot_take":
+    case "snapshot_restore":
+    case "snapshot_delete":
+      await sleep(300);
+      return undefined as T;
+    case "snapshots_list": {
+      const t = now();
+      return [
+        { id: "3", created: t - 300, reason: "перед установкой: Iris Shaders", manual: false, version: "1.21.1", loader: "fabric", loader_version: "0.16.10", mods: 162, added: [], removed: [], size: 0, current: true },
+        { id: "2", created: t - 2 * DAY, reason: "перед обновлением: Обновление модов (12)", manual: false, version: "1.21.1", loader: "fabric", loader_version: "0.16.10", mods: 161, added: ["iris-fabric-1.8.12+mc1.21.1.jar"], removed: [], size: 0, current: false },
+        { id: "1", created: t - 9 * DAY, reason: "сделан вручную", manual: true, version: "1.21.1", loader: "fabric", loader_version: "0.16.5", mods: 158, added: ["iris-fabric-1.8.12+mc1.21.1.jar", "sodium-fabric-0.6.13+mc1.21.1.jar", "lithium-fabric-0.15.1+mc1.21.1.jar", "c2me-fabric-0.3.0.jar"], removed: ["sodium-fabric-0.6.5+mc1.21.1.jar"], size: 412 * 1024, current: false },
+      ] as T;
+    }
     case "play_status":
       return {
         status: url.has("downloading")
@@ -122,7 +141,7 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
             ? { build: "vyzhivanie", phase: "starting", done: 0, total: 0, stage: "Загрузка модов: 162", since: Date.now() - 14000, expected: url.has("first") ? null : 48 }
             : { build: null, phase: "idle", done: 0, total: 0 },
         finished: url.has("crash")
-          ? { build: "vyzhivanie", name: "Выживание с друзьями", seconds: 0, code: 1, crashed: true, no_window: true, tail: ["Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space", "	at net.minecraft.client.main.Main.main(Main.java:42)"], warning: null }
+          ? { build: "vyzhivanie", name: "Выживание с друзьями", seconds: 0, code: 1, crashed: true, no_window: true, tail: ["Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space", "	at net.minecraft.client.main.Main.main(Main.java:42)"], warning: null, streak: url.has("streak") ? 3 : 1, rollback: url.has("streak") ? { id: "3", reason: "перед установкой: Iris Shaders", created: now() - 300 } : null }
           : null,
       } as T;
     case "tasks_list":

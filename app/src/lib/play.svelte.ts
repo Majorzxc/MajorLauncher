@@ -3,7 +3,7 @@
 // заново открытое окно в play_status).
 
 import { listen } from "@tauri-apps/api/event";
-import { api, type ModIssue, type Finished, type PlayStatus } from "./api";
+import { api, QUICK_ID, type ModIssue, type Finished, type PlayStatus, type RiskyWorld } from "./api";
 import { refresh } from "./builds.svelte";
 import { duration } from "./format";
 import { inTauri } from "./tauri";
@@ -15,7 +15,25 @@ export const play = $state({
   crash: null as Finished | null,
   /// Запуск остановлен: в сборке проблемы, которые не дадут игре запуститься.
   blocked: null as null | { id: string; version: string | null; issues: ModIssue[] },
+  /// Миры сборки открывали в более новой версии — спросить перед запуском.
+  risky: null as null | { id: string; version: string | null; worlds: RiskyWorld[] },
 });
+
+/// Можно ли сейчас отменить запуск этой сборки (до появления окна игры).
+export function cancellable(id: string): boolean {
+  const s = play.status;
+  return s.build === id && ["preparing", "downloading", "installing", "starting"].includes(s.phase);
+}
+
+/// «Отменить» на кнопке «Играть».
+export async function cancel() {
+  try {
+    await api.playCancel();
+    toast("Запуск отменён");
+  } catch (e) {
+    toast(String(e), { error: true });
+  }
+}
 
 export function percent(s: PlayStatus): number {
   return s.total > 0 ? Math.min(100, Math.floor((s.done * 100) / s.total)) : 0;
@@ -81,10 +99,19 @@ export function busyLabel(id: string): string | null {
   }
 }
 
-/// Запустить сборку; `version` — для «Быстрой игры». Если в сборке есть
-/// проблемы, которые не дадут игре запуститься, — окно спросит «Всё равно играть?».
-export async function start(id: string, version: string | null = null, force = false) {
+/// Запустить сборку; `version` — для «Быстрой игры». Если миры сборки открывали
+/// в более новой версии — окно спросит, сохранить ли копию и играть (`worldsOk`
+/// — уже спросили). Если в сборке есть проблемы, которые не дадут игре
+/// запуститься, — окно спросит «Всё равно играть?» (`force` — уже спросили).
+export async function start(id: string, version: string | null = null, force = false, worldsOk = false) {
   try {
+    if (!force && !worldsOk) {
+      const worlds = await api.worldsCheck(id, id === QUICK_ID ? version : null).catch(() => []);
+      if (worlds.length) {
+        play.risky = { id, version, worlds };
+        return;
+      }
+    }
     const blocked = await api.play(id, version, force);
     if (blocked?.length) play.blocked = { id, version, issues: blocked };
   } catch (e) {
@@ -95,6 +122,8 @@ export async function start(id: string, version: string | null = null, force = f
 
 function finished(f: Finished) {
   refresh();
+  // Об отмене окно уже сказало, когда игрок нажал «Отменить».
+  if (f.cancelled) return;
   if (f.crashed) play.crash = f;
   else toast(`Игра закрыта: ${duration(f.seconds)} в «${f.name}»`);
   if (f.warning) toast(f.warning, { error: true });

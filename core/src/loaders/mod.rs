@@ -9,6 +9,7 @@
 mod fabric;
 mod forge;
 
+use crate::cancel::Cancel;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -160,6 +161,7 @@ pub async fn ensure(
     game: &str,
     version: Option<&str>,
     progress: Progress,
+    cancel: &Cancel,
 ) -> Result<String> {
     if loader == Loader::Vanilla {
         return Ok(game.to_string());
@@ -173,7 +175,7 @@ pub async fn ensure(
     }
     let files = match loader {
         Loader::Fabric => fabric::install(data, dl, game, version, &id).await?,
-        _ => forge::install(data, dl, loader, game, version, &id, progress).await?,
+        _ => forge::install(data, dl, loader, game, version, &id, progress, cancel).await?,
     };
     write_marker(data, &id, &files)?;
     Ok(id)

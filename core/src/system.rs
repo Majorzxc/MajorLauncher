@@ -45,6 +45,32 @@ pub fn refresh_icons() {
     }
 }
 
+/// Завершить процесс (Java запускающейся игры — по «Отменить»).
+pub fn kill(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_TERMINATE, TerminateProcess,
+        };
+        // SAFETY: дескриптор проверяется на ноль и закрывается.
+        unsafe {
+            let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if handle.is_null() {
+                return false;
+            }
+            let ok = TerminateProcess(handle, 1) != 0;
+            CloseHandle(handle);
+            ok
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 /// Заголовок видимого окна процесса `pid`; `None` — окна ещё (или уже) нет.
 pub fn window_title(pid: u32) -> Option<String> {
     #[cfg(windows)]

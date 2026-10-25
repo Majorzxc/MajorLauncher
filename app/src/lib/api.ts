@@ -451,7 +451,7 @@ export interface Task {
   files_done: number;
   files_total: number;
   stage: string | null;
-  state: "running" | "done" | "failed";
+  state: "running" | "done" | "failed" | "cancelled";
   error: string | null;
   started: number;
   finished: number | null;
@@ -479,6 +479,32 @@ export interface Finished {
   no_window: boolean;
   tail: string[];
   warning: string | null;
+  /// Запуск отменили кнопкой «Отменить».
+  cancelled?: boolean;
+  /// Сколько раз подряд сборка падает.
+  streak?: number;
+  /// Снапшот, к которому стоит откатиться (падает после изменения сборки).
+  rollback?: { id: string; reason: string; created: number } | null;
+}
+
+/// Снапшот сборки: чем отличается от неё сейчас.
+export interface SnapshotInfo {
+  id: string;
+  created: number;
+  reason: string;
+  manual: boolean;
+  version: string;
+  loader: Loader;
+  loader_version: string | null;
+  mods: number;
+  /// Файлы модов, которых в снапшоте нет, — уйдут при откате.
+  added: string[];
+  /// Файлы модов из снапшота, которых сейчас нет, — вернутся.
+  removed: string[];
+  /// Сколько места занимает сам снапшот, байт.
+  size: number;
+  /// Сборка сейчас такая же.
+  current: boolean;
 }
 
 export const TRASH_DAYS = 30;
@@ -509,7 +535,12 @@ export const api = {
   modsUpdate: (id: string, only: [string, string][], label: string | null = null) =>
     call<string[]>("mods_update", { id, only, label }),
   modsPin: (id: string, project: string, pinned: boolean) => call<Instance>("mods_pin", { id, project, pinned }),
-  quickCheck: (version: string) => call<RiskyWorld[]>("quick_check", { version }),
+  worldsCheck: (id: string, version: string | null) => call<RiskyWorld[]>("worlds_check", { id, version }),
+  playCancel: () => call<void>("play_cancel"),
+  snapshots: (id: string) => call<SnapshotInfo[]>("snapshots_list", { id }),
+  snapshotTake: (id: string) => call<void>("snapshot_take", { id }),
+  snapshotRestore: (id: string, snapshot: string) => call<void>("snapshot_restore", { id, snapshot }),
+  snapshotDelete: (id: string, snapshot: string) => call<void>("snapshot_delete", { id, snapshot }),
   copyWorld: (id: string, folder: string, to: string) => call<string>("build_copy_world", { id, folder, to }),
 
   options: () => call<OptionsView>("options_get"),

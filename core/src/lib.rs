@@ -10,6 +10,7 @@
 
 pub mod account;
 pub mod builds;
+pub mod cancel;
 pub mod catalog;
 pub mod config;
 pub mod content;
@@ -38,6 +39,7 @@ pub mod relocate;
 pub mod rules;
 pub mod secrets;
 pub mod servers;
+pub mod snapshots;
 pub mod suspect;
 pub mod system;
 pub mod translate;

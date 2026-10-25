@@ -9,6 +9,7 @@
   import LogsTab from "../components/tabs/LogsTab.svelte";
   import SettingsTab from "../components/tabs/SettingsTab.svelte";
   import ShotsTab from "../components/tabs/ShotsTab.svelte";
+  import SnapshotsTab from "../components/tabs/SnapshotsTab.svelte";
   import WorldsTab from "../components/tabs/WorldsTab.svelte";
   import { api } from "../lib/api";
   import { builds, refresh } from "../lib/builds.svelte";
@@ -26,7 +27,7 @@
     { id: "shaderpacks", title: "Шейдеры" },
     { id: "worlds", title: "Миры" },
     { id: "screenshots", title: "Скриншоты" },
-    { id: "snapshots", title: "Снапшоты", hint: "этап 6" },
+    { id: "snapshots", title: "Снапшоты" },
     { id: "logs", title: "Логи" },
     { id: "settings", title: "Настройки" },
   ];
@@ -102,6 +103,8 @@
       <WorldsTab id={entry.id} />
     {:else if tab === "screenshots"}
       <ShotsTab id={entry.id} />
+    {:else if tab === "snapshots"}
+      <SnapshotsTab id={entry.id} />
     {:else if tab === "logs"}
       <LogsTab id={entry.id} />
     {:else if tab === "settings"}

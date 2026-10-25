@@ -21,6 +21,7 @@
 
   function detail(t: Task): string {
     if (t.state === "failed") return t.error ?? "ошибка";
+    if (t.state === "cancelled") return "отменено — скачанное останется до следующего раза";
     if (t.state === "done") {
       const took = (t.finished ?? t.started) - t.started;
       const what = t.files_total ? `${t.files_total} ${files(t.files_total)}, ${size(t.total)}` : "готово";
@@ -83,6 +84,7 @@
               <span class="state">
                 {#if t.state === "running"}<span class="spin"></span>
                 {:else if t.state === "done"}<Icon name="check" size={16} />
+                {:else if t.state === "cancelled"}<Icon name="close" size={16} />
                 {:else}<Icon name="error" size={16} />{/if}
               </span>
               <span class="body">

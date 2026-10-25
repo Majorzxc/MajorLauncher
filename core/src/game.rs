@@ -13,6 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::account::Accounts;
 use crate::builds::Instance;
+use crate::cancel::Cancel;
 use crate::config::GameSettings;
 use crate::download::Downloader;
 use crate::error::{Error, IoContext, Result};
@@ -54,6 +55,7 @@ pub async fn prepare(
     instance: &Instance,
     game: &GameSettings,
     progress: Progress,
+    cancel: &Cancel,
 ) -> Result<Launch> {
     let mut accounts = Accounts::load(data)?;
     let account = accounts.default_account().cloned().ok_or_else(|| {
@@ -69,11 +71,19 @@ pub async fn prepare(
             &instance.version,
             instance.loader_version.as_deref(),
             progress.clone(),
+            cancel,
         )
         .await?;
         install::prepare(data, http, &id, Mode::Launch, progress).await
     };
-    let (session, prepared) = tokio::join!(accounts.session(data, http, &account.id), version);
+    let (session, prepared) = cancel
+        .guard(async {
+            Ok(tokio::join!(
+                accounts.session(data, http, &account.id),
+                version
+            ))
+        })
+        .await?;
     let (session, prepared) = (session?, prepared?);
     let jvm_args = instance
         .settings
@@ -136,6 +146,7 @@ pub async fn verify(
         &instance.version,
         instance.loader_version.as_deref(),
         counting.clone(),
+        &crate::cancel::Cancel::default(),
     )
     .await?;
     install::prepare(data, http, &id, Mode::Verify, counting).await?;
@@ -320,6 +331,41 @@ pub fn record_load_time(data: &DataDir, key: &str, secs: u64) -> Result<()> {
     )
     .at(&tmp)?;
     std::fs::rename(&tmp, &path).at(&path)
+}
+
+/// Сколько раз подряд сборка падала и когда последний раз закрылась без ошибки.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Streak {
+    pub crashes: u32,
+    /// Секунды с 1970 года.
+    #[serde(default)]
+    pub last_ok: Option<u64>,
+}
+
+/// Записать итог игры: падение продлевает серию, удачная игра её обнуляет.
+pub fn record_result(data: &DataDir, build: &str, crashed: bool, at: u64) -> Streak {
+    let path = data.cache().join("launch-results.json");
+    let mut all: std::collections::HashMap<String, Streak> = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let s = all.entry(build.to_string()).or_default();
+    if crashed {
+        s.crashes += 1;
+    } else {
+        *s = Streak {
+            crashes: 0,
+            last_ok: Some(at),
+        };
+    }
+    let streak = *s;
+    let _ = std::fs::create_dir_all(data.cache());
+    let tmp = path.with_extension("tmp");
+    if std::fs::write(&tmp, serde_json::to_vec(&all).expect("числа сериализуются")).is_ok()
+    {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+    streak
 }
 
 fn load_times(data: &DataDir) -> std::collections::HashMap<String, u64> {
@@ -634,6 +680,31 @@ mod tests {
         );
         assert_eq!(stage("Loading 3 resource packs"), None);
         assert_eq!(stage("[Render thread/INFO]: Loaded 110 languages"), None);
+    }
+
+    #[test]
+    fn crash_streak() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = DataDir::new(dir.path());
+        assert_eq!(record_result(&data, "a", true, 10).crashes, 1);
+        assert_eq!(record_result(&data, "a", true, 20).crashes, 2);
+        assert_eq!(record_result(&data, "b", true, 20).crashes, 1);
+        let ok = record_result(&data, "a", false, 30);
+        assert_eq!(
+            ok,
+            Streak {
+                crashes: 0,
+                last_ok: Some(30)
+            }
+        );
+        let again = record_result(&data, "a", true, 40);
+        assert_eq!(
+            again,
+            Streak {
+                crashes: 1,
+                last_ok: Some(30)
+            }
+        );
     }
 
     #[test]

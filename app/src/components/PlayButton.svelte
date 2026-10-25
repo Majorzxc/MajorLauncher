@@ -1,7 +1,7 @@
 <script lang="ts">
   // Кнопка «Играть» со всеми состояниями: подготовка, загрузка с процентами,
   // запуск, «игра запущена».
-  import { busyLabel, launchPercent, percent, play, stageLabel, start } from "../lib/play.svelte";
+  import { busyLabel, cancel, cancellable, launchPercent, percent, play, stageLabel, start } from "../lib/play.svelte";
   import Icon from "./Icon.svelte";
 
   let { id, large = false }: { id: string; large?: boolean } = $props();
@@ -16,21 +16,26 @@
     if (play.status.phase === "downloading" || play.status.phase === "installing") return percent(play.status);
     return launchPercent(play.status);
   });
+  // Пока окна игры нет, запуск можно отменить: при наведении кнопка
+  // показывает «Отменить».
+  const canCancel = $derived(cancellable(id));
 </script>
 
 <button
   class="play"
   class:large
   class:busy={!!label}
-  disabled={!!label}
-  title={!large && stage ? stage : undefined}
+  class:cancellable={canCancel}
+  disabled={!!label && !canCancel}
+  title={canCancel ? "Отменить запуск" : !large && stage ? stage : undefined}
   aria-live="polite"
-  onclick={() => start(id)}
+  onclick={() => (canCancel ? cancel() : start(id))}
 >
   {#if fill !== null}<span class="fill" style:width="{fill}%"></span>{/if}
   <span class="label">
     {#if !label}<Icon name="play" size={large ? 22 : 18} />{/if}
-    {label ?? "Играть"}
+    <span class="now">{label ?? "Играть"}</span>
+    {#if canCancel}<span class="stop"><Icon name="close" size={large ? 20 : 16} />Отменить</span>{/if}
   </span>
   {#if large && stage}<span class="stage">{stage}</span>{/if}
 </button>
@@ -71,6 +76,24 @@
     inset: 0 auto 0 0;
     background: color-mix(in srgb, var(--accent) 35%, transparent);
     transition: width 0.2s linear;
+  }
+  .stop {
+    display: none;
+    align-items: center;
+    gap: var(--s2);
+  }
+  .cancellable {
+    cursor: pointer;
+  }
+  .cancellable:hover {
+    border-color: var(--danger);
+  }
+  .cancellable:hover .now {
+    display: none;
+  }
+  .cancellable:hover .stop {
+    display: inline-flex;
+    color: var(--danger);
   }
   .stage {
     position: relative;

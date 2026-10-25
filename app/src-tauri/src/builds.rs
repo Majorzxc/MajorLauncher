@@ -106,8 +106,20 @@ pub fn build_create(
 }
 
 #[tauri::command]
-pub fn build_update(state: State<AppState>, id: String, patch: Patch) -> CmdResult<Instance> {
-    builds(&state)?.update(&id, patch).map_err(text)
+pub async fn build_update(
+    state: State<'_, AppState>,
+    id: String,
+    patch: Patch,
+) -> CmdResult<Instance> {
+    let (data, b) = (state.data()?, builds(&state)?);
+    // Снапшот — это работа с диском: не в главном потоке окна.
+    blocking(move || {
+        if patch.loader.is_some() {
+            crate::snapshots::before(&data, &id, "перед сменой загрузчика")?;
+        }
+        b.update(&id, patch).map_err(text)
+    })
+    .await
 }
 
 #[tauri::command]

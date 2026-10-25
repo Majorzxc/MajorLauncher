@@ -37,8 +37,15 @@ pub async fn build_add_files(
     paths: Vec<String>,
 ) -> CmdResult<Vec<String>> {
     let dir = game_dir(&state, &id)?;
+    let data = state.data()?;
     let paths: Vec<std::path::PathBuf> = paths.into_iter().map(Into::into).collect();
-    blocking(move || Ok(content::add_files(&dir, folder, &paths))).await
+    blocking(move || {
+        if folder == Folder::Mods {
+            crate::snapshots::before(&data, &id, "перед добавлением своих файлов")?;
+        }
+        Ok(content::add_files(&dir, folder, &paths))
+    })
+    .await
 }
 
 #[tauri::command]

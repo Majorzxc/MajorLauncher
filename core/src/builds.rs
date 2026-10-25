@@ -335,6 +335,24 @@ impl Builds {
         Ok(instance)
     }
 
+    /// Вернуть версию игры, загрузчик и закреплённые моды — при откате к снапшоту.
+    pub(crate) fn set_state(
+        &self,
+        id: &str,
+        version: &str,
+        loader: Loader,
+        loader_version: Option<String>,
+        pinned_mods: Vec<String>,
+    ) -> Result<Instance> {
+        let mut instance = self.get(id)?;
+        instance.version = version.to_string();
+        instance.loader = loader;
+        instance.loader_version = loader_version;
+        instance.pinned_mods = pinned_mods;
+        write_meta(&self.data.instance(id), &instance)?;
+        Ok(instance)
+    }
+
     /// Закрепить мод (id проекта Modrinth): «Обновить всё» его пропускает.
     pub fn pin_mod(&self, id: &str, project: &str, pinned: bool) -> Result<Instance> {
         let mut instance = self.get(id)?;
@@ -487,7 +505,17 @@ impl Builds {
         if dir.exists() {
             std::fs::remove_dir_all(&dir).at(&dir)?;
         }
+        self.forget_snapshots(trash_id);
         Ok(())
+    }
+
+    /// Сборку удалили насовсем — её снапшоты больше не нужны (если такой
+    /// сборки снова нет среди рабочих: имя могло достаться новой).
+    fn forget_snapshots(&self, trash_id: &str) {
+        let id = trash_id.rsplit_once("__").map_or(trash_id, |(id, _)| id);
+        if !self.data.instance(id).exists() {
+            let _ = crate::snapshots::remove_all(&self.data, id);
+        }
     }
 
     pub fn purge_expired(&self, days: u64) -> Result<usize> {
@@ -498,6 +526,7 @@ impl Builds {
                 && entry.deleted_at < limit
             {
                 std::fs::remove_dir_all(&dir).at(&dir)?;
+                self.forget_snapshots(&entry.trash_id);
                 removed += 1;
             }
         }

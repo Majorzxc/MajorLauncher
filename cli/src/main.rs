@@ -361,9 +361,16 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                             })?,
                     };
                     println!("{} {wanted}", loader.title());
-                    let id =
-                        loaders::ensure(&data, &dl, loader, &version, Some(&wanted), progress())
-                            .await?;
+                    let id = loaders::ensure(
+                        &data,
+                        &dl,
+                        loader,
+                        &version,
+                        Some(&wanted),
+                        progress(),
+                        &majorlauncher_core::cancel::Cancel::default(),
+                    )
+                    .await?;
                     finish_line();
                     id
                 }

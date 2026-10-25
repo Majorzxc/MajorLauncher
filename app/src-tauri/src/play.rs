@@ -6,10 +6,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use majorlauncher_core::builds::QUICK_ID;
+use majorlauncher_core::cancel::Cancel;
 use majorlauncher_core::game::{self, Game};
 use majorlauncher_core::mods::{self, Issue};
 use majorlauncher_core::options::GameVersion;
 use majorlauncher_core::playtime::Stats;
+use majorlauncher_core::snapshots::{self, Hint};
+use majorlauncher_core::system;
 use majorlauncher_core::{Builds, DataDir, Event, Instance, OnLaunch, Progress, install};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -63,6 +66,12 @@ pub struct Finished {
     tail: Vec<String>,
     /// Что пошло не так у самого лаунчера (не удалось записать статистику).
     warning: Option<String>,
+    /// Запуск отменили кнопкой «Отменить» — это не краш.
+    cancelled: bool,
+    /// Сколько раз подряд сборка падает (с этим разом).
+    streak: u32,
+    /// Падает раз за разом после изменения сборки — снапшот, к которому откатиться.
+    rollback: Option<Hint>,
 }
 
 #[derive(Default)]
@@ -70,6 +79,10 @@ pub struct PlayState {
     pub status: PlayStatus,
     /// Итог игры, пока окно было закрыто: заберёт открывшееся окно.
     pub finished: Option<Finished>,
+    /// «Отменить» для текущего запуска.
+    pub cancel: Cancel,
+    /// Java запущенной игры — её завершает «Отменить», пока нет окна игры.
+    pub pid: Option<u32>,
 }
 
 impl PlayState {
@@ -109,6 +122,24 @@ pub fn play_status(state: State<AppState>) -> StatusWithResult {
     }
 }
 
+/// «Отменить» на кнопке «Играть»: подготовка и загрузка обрываются (скачанное
+/// остаётся до следующего раза), запущенная Java без окна завершается.
+#[tauri::command]
+pub fn play_cancel(state: State<AppState>) -> CmdResult<()> {
+    let play = state.play.lock().unwrap();
+    match play.status.phase {
+        Phase::Preparing | Phase::Downloading | Phase::Installing | Phase::Starting => {
+            play.cancel.cancel();
+            if let Some(pid) = play.pid {
+                system::kill(pid);
+            }
+            Ok(())
+        }
+        Phase::Running => Err("игра уже открылась — закройте её как обычно".into()),
+        Phase::Idle | Phase::Verifying => Err("сейчас нечего отменять".into()),
+    }
+}
+
 #[tauri::command]
 pub async fn build_play(
     app: AppHandle,
@@ -120,6 +151,7 @@ pub async fn build_play(
     let data = state.data()?;
     let builds = Builds::new(data.clone());
     let check_mods = !force.unwrap_or(false) && id != QUICK_ID;
+    let cancel = Cancel::default();
     {
         let mut play = state.play.lock().unwrap();
         if play.status.phase != Phase::Idle {
@@ -142,18 +174,28 @@ pub async fn build_play(
             ),
             ..Default::default()
         };
+        play.cancel = cancel.clone();
+        play.pid = None;
     }
     let _ = app.emit("play", state.play.lock().unwrap().status.clone());
     // Дальше кнопка «Играть» занята: при любом отказе её надо освободить.
+    // Отмену окно показывает само — это не ошибка.
     let fail = |e: String| {
         reset(&app);
-        Err(e)
+        if cancel.is_cancelled() {
+            Ok(None)
+        } else {
+            Err(e)
+        }
     };
 
     // Проблемы, которые не дадут игре запуститься (раздел 5.6 ТЗ): окно
     // покажет их и спросит «Всё равно играть?». Только известное, без сети.
     if check_mods {
-        let report = match mods::report(&state.http, &data, &id, false).await {
+        let report = match cancel
+            .guard(mods::report(&state.http, &data, &id, false))
+            .await
+        {
             Ok(r) => r,
             Err(e) => return fail(text(e)),
         };
@@ -185,6 +227,7 @@ pub async fn build_play(
         &instance,
         &settings,
         progress(app.clone(), Some(task.clone())),
+        &cancel,
     )
     .await;
     task.finish(&prepared);
@@ -197,14 +240,11 @@ pub async fn build_play(
         s.stage = Some("Применяем настройки игры".into());
     });
 
-    // Миры «Быстрой игры» из более новой версии — в копию перед запуском.
-    let risky = if instance.quick {
-        match install::fetch_manifest(&data, &state.http).await {
-            Ok(m) => game::risky_worlds(&data.instance(&instance.id), &instance.version, &m),
-            Err(_) => Vec::new(),
-        }
-    } else {
-        Vec::new()
+    // Миры из более новой версии — в копию перед запуском (окно уже
+    // предупредило игрока и получило согласие).
+    let risky = match install::fetch_manifest(&data, &state.http).await {
+        Ok(m) => game::risky_worlds(&data.instance(&instance.id), &instance.version, &m),
+        Err(_) => Vec::new(),
     };
     // Общие настройки, серверы, ресурспаки. Ошибка здесь игру не держит —
     // окно покажет её после игры.
@@ -227,11 +267,22 @@ pub async fn build_play(
         return fail(e.clone());
     }
     let note = before.err();
+    if cancel.is_cancelled() {
+        return fail(String::new());
+    }
 
     let game = match game::spawn(&launch.cmd) {
         Ok(game) => game,
         Err(e) => return fail(text(e)),
     };
+    {
+        let mut play = state.play.lock().unwrap();
+        play.pid = Some(game.pid());
+        // «Отменить» нажали, пока Java запускалась, — завершаем её сразу.
+        if cancel.is_cancelled() {
+            system::kill(game.pid());
+        }
+    }
     // Сколько грузилась в прошлый раз — окно покажет проценты запуска.
     let expected = game::load_time(&data, &load_key(&instance));
     update(&app, |s| {
@@ -389,6 +440,7 @@ fn watch(
 ) {
     let started = Instant::now();
     let key = load_key(&instance);
+    let cancel = app.state::<AppState>().play.lock().unwrap().cancel.clone();
     let on_window = || {
         let _ = game::record_load_time(&data, &key, started.elapsed().as_secs());
         // Сначала «игра идёт», потом закрываем окно: иначе закрытие
@@ -415,7 +467,22 @@ fn watch(
     let synced = game::after_exit(&data, &instance, &version)
         .err()
         .map(|e| format!("Изменения настроек игры не сохранились в общие: {e}"));
+    let cancelled = cancel.is_cancelled();
     let finished = match outcome {
+        // Отменили до окна игры: ни статистики, ни краша.
+        _ if cancelled => Finished {
+            build: instance.id.clone(),
+            name: instance.name.clone(),
+            seconds: 0,
+            code: None,
+            crashed: false,
+            no_window: true,
+            tail: Vec::new(),
+            warning: None,
+            cancelled: true,
+            streak: 0,
+            rollback: None,
+        },
         Ok(o) => {
             let stats = Stats::new(&data)
                 .append(&o.record(&instance))
@@ -427,8 +494,13 @@ fn watch(
                 .collect::<Vec<_>>();
             let warning = (!warning.is_empty()).then(|| warning.join(" "));
             let seconds = o.end.saturating_sub(o.start);
-            let _ = Builds::new(data).record_play(&instance.id, o.start, seconds);
+            let _ = Builds::new(data.clone()).record_play(&instance.id, o.start, seconds);
             let crashed = o.crashed();
+            let streak = game::record_result(&data, &instance.id, crashed, o.end);
+            // Падает второй раз подряд — предложить откатить последнее изменение.
+            let rollback = (crashed && streak.crashes >= 2)
+                .then(|| snapshots::rollback_hint(&data, &instance.id, streak.last_ok))
+                .flatten();
             Finished {
                 build: instance.id.clone(),
                 name: instance.name.clone(),
@@ -443,6 +515,9 @@ fn watch(
                     Vec::new()
                 },
                 warning,
+                cancelled: false,
+                streak: streak.crashes,
+                rollback,
             }
         }
         Err(e) => Finished {
@@ -454,6 +529,9 @@ fn watch(
             no_window: false,
             tail: vec![text(e)],
             warning: None,
+            cancelled: false,
+            streak: 0,
+            rollback: None,
         },
     };
 
