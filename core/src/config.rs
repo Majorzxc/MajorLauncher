@@ -167,6 +167,9 @@ pub struct Config {
     pub game: GameSettings,
     #[serde(default)]
     pub catalog: CatalogSettings,
+    /// Что делает кнопка «Оптимизировать» (раздел 5.7 ТЗ).
+    #[serde(default)]
+    pub optimize: crate::optimize::OptimizeSettings,
 }
 
 pub struct ConfigStore {
@@ -238,6 +241,11 @@ impl ConfigStore {
 
     pub fn set_catalog(&mut self, catalog: CatalogSettings) -> Result<()> {
         self.config.catalog = catalog;
+        self.save()
+    }
+
+    pub fn set_optimize(&mut self, optimize: crate::optimize::OptimizeSettings) -> Result<()> {
+        self.config.optimize = optimize;
         self.save()
     }
 

@@ -23,7 +23,11 @@ export const nav = $state({
 export const lastTab: Record<string, string> = {};
 
 /// Какую страницу настроек открыть при переходе (одноразово).
-export const settingsPage = $state({ value: null as null | "profile" | "look" | "game" | "catalog" | "data" | "about" });
+export const settingsPage = $state({
+  value: null as null | "profile" | "look" | "game" | "catalog" | "optimize" | "data" | "about",
+});
+/// Окно «Оптимизировать» для сборки — открывается из любого места.
+export const optimizing = $state({ build: null as null | { id: string; name: string } });
 
 export function openSettings(page: NonNullable<typeof settingsPage.value>) {
   settingsPage.value = page;

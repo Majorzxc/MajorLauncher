@@ -19,9 +19,17 @@ pub async fn mods_report(
     online: bool,
 ) -> CmdResult<Report> {
     let data = state.data()?;
-    mods::report(&state.http, &data, &id, online)
+    let mut report = mods::report(&state.http, &data, &id, online)
         .await
-        .map_err(text)
+        .map_err(text)?;
+    // Системные предупреждения (место, память, видеокарта) — в тот же список.
+    let game = state.config.lock().unwrap().get().game.clone();
+    let enabled = report.mods.iter().filter(|m| m.enabled).count();
+    let system =
+        blocking(move || Ok(crate::optimize::system_issues(&data, &id, &game, enabled))).await?;
+    report.issues.extend(system);
+    report.issues.sort_by_key(|i| i.level);
+    Ok(report)
 }
 
 /// Выключить, удалить, «доверять», оставить новую копию.

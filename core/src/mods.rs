@@ -114,6 +114,12 @@ pub enum Action {
     DisableExtra { disable: Vec<String> },
     /// Обновить мод.
     Update { version_id: String, file: String },
+    /// Открыть настройки сборки — память для игры.
+    Memory,
+    /// «Оптимизировать» сборку.
+    Optimize,
+    /// Открыть настройки питания Windows.
+    PowerSettings,
 }
 
 #[derive(Debug, Clone, Serialize)]

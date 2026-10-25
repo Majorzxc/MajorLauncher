@@ -22,6 +22,7 @@ function config() {
     data_dir: url.has("fresh") ? null : "D:\\MajorLauncherData",
     appearance: { mode: url.get("mode") ?? "system", accent: url.get("accent"), background: url.get("bg") },
     game: { on_launch: "close", memory_mb: null, jvm_args: "" },
+    optimize: { hardware: true, mods: true, memory: true, gpu: true, system: true, graphics: false, fps: false, intro_seen: false },
   };
 }
 
@@ -140,6 +141,30 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
     case "import_run":
       await sleep(900);
       return { ...db().builds[0], id: "imported", name: a.request.name, version: a.request.version } as T;
+    case "net_online":
+      return !url.has("offline") as T;
+    case "hardware_info":
+      return { ram_total_mb: 16381, ram_free_mb: 9019, cores: 8, cpu: "AMD FX(tm)-8300 Eight-Core Processor", gpus: [{ name: "NVIDIA GeForce RTX 3050", discrete: true, driver: "32.0.16.1088", driver_date: "2026-07-22" }, { name: "ATI Radeon 3000 Graphics", discrete: false, driver: "8.970", driver_date: "2015-01-13" }], laptop: false, power_saver: url.has("saver") } as T;
+    case "set_optimize":
+      saveConfig({ ...config(), optimize: a.optimize });
+      return config() as T;
+    case "open_power_settings":
+      return undefined as T;
+    case "optimize_build":
+      await sleep(1500);
+      return {
+        snapshot: "9",
+        steps: [
+          { title: "Железо", state: "info", text: "AMD FX(tm)-8300 Eight-Core Processor (8 потоков); память 16 ГБ, свободно 9 ГБ; видеокарта NVIDIA GeForce RTX 3050 и ATI Radeon 3000 Graphics (встроенная)" },
+          { title: "Sodium — новый движок отрисовки — FPS выше в разы", state: "skipped", text: "уже стоит" },
+          { title: "FerriteCore — игре нужно заметно меньше памяти", state: "done", text: "поставлен" },
+          { title: "ModernFix — быстрее загрузка и меньше памяти", state: "done", text: "поставлен" },
+          { title: "Entity Culling — не рисует мобов и сундуки, скрытых за стенами", state: "skipped", text: "нет версии под 26.3 Fabric" },
+          { title: "Память", state: "done", text: "6.0 ГБ вместо 2.0 ГБ (162 модов, в ПК 16.0 ГБ)" },
+          { title: "Видеокарта", state: "skipped", text: "видеокарта одна — выбирать не из чего" },
+          { title: "Система", state: "info", text: "в порядке: питание без экономии, драйвер видеокарты свежий, Java 64-битная" },
+        ],
+      } as T;
     case "export_preview":
       await sleep(600);
       return { name: "Выживание с друзьями", game: "1.21.1", loader: "fabric", loader_version: "0.16.10", modrinth: 58, own: ["baritone-1.11.1.jar", "meteor-client-1.21.1.jar"], disabled: 3, packs: 2, config_size: 1_400_000, has_options: true, offline: false } as T;

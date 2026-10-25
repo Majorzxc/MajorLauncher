@@ -16,6 +16,35 @@ export interface Config {
   appearance: Appearance;
   game: GameSettings;
   catalog?: CatalogSettings;
+  optimize?: OptimizeSettings;
+}
+
+/// Что делает кнопка «Оптимизировать» («Настройки → Оптимизация»).
+export interface OptimizeSettings {
+  hardware: boolean;
+  mods: boolean;
+  memory: boolean;
+  gpu: boolean;
+  system: boolean;
+  graphics: boolean;
+  fps: boolean;
+  intro_seen: boolean;
+}
+
+export interface Hardware {
+  ram_total_mb: number | null;
+  ram_free_mb: number | null;
+  cores: number;
+  cpu: string | null;
+  gpus: { name: string; discrete: boolean; driver: string | null; driver_date: string | null }[];
+  laptop: boolean;
+  power_saver: boolean;
+}
+
+/// Отчёт оптимизации: что сделано, пропущено и почему.
+export interface OptimizeReport {
+  steps: { title: string; state: "done" | "skipped" | "info" | "failed"; text: string }[];
+  snapshot: string;
 }
 
 export interface CatalogSettings {
@@ -156,7 +185,10 @@ export type ModAction =
   | { kind: "loader" }
   | { kind: "redownload"; version_id: string; file: string }
   | { kind: "disable_extra"; disable: string[] }
-  | { kind: "update"; version_id: string; file: string };
+  | { kind: "update"; version_id: string; file: string }
+  | { kind: "memory" }
+  | { kind: "optimize" }
+  | { kind: "power_settings" };
 
 export interface ModIssue {
   level: "block" | "warn" | "tip";
@@ -610,6 +642,11 @@ export const api = {
   modsPin: (id: string, project: string, pinned: boolean) => call<Instance>("mods_pin", { id, project, pinned }),
   worldsCheck: (id: string, version: string | null) => call<RiskyWorld[]>("worlds_check", { id, version }),
   playCancel: () => call<void>("play_cancel"),
+  hardwareInfo: () => call<Hardware>("hardware_info"),
+  netOnline: () => call<boolean>("net_online"),
+  setOptimize: (optimize: OptimizeSettings) => call<Config>("set_optimize", { optimize }),
+  openPowerSettings: () => call<void>("open_power_settings"),
+  optimizeBuild: (id: string) => call<OptimizeReport>("optimize_build", { id }),
   importScan: () => call<ImportFound[]>("import_scan"),
   importInspect: (path: string) => call<ImportFound[]>("import_inspect", { path }),
   importGuess: (found: ImportFound) => call<ImportFound>("import_guess", { found }),

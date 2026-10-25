@@ -4,7 +4,7 @@
 
 import { api, type ModAction } from "./api";
 import { catalog, install, openCatalog } from "./catalog.svelte";
-import { openBuild } from "./nav.svelte";
+import { openBuild, optimizing } from "./nav.svelte";
 import { attempt, toast } from "./toast.svelte";
 
 export function actionLabel(a: ModAction): string {
@@ -27,6 +27,12 @@ export function actionLabel(a: ModAction): string {
       return a.disable.length > 1 ? "Выключить лишние" : "Выключить лишнюю";
     case "update":
       return "Обновить";
+    case "memory":
+      return "Изменить память";
+    case "optimize":
+      return "Оптимизировать";
+    case "power_settings":
+      return "Настройки питания";
   }
 }
 
@@ -56,6 +62,15 @@ export async function runAction(id: string, a: ModAction, name: string | null = 
       if (ok) toast("Файл скачан заново");
       return !!ok;
     }
+    case "memory":
+      openBuild(id, "settings");
+      return false;
+    case "optimize":
+      optimizing.build = { id, name: name ?? "сборка" };
+      return false;
+    case "power_settings":
+      await attempt("Настройки питания", () => api.openPowerSettings());
+      return false;
     case "update": {
       const titles = await attempt("Обновление", () => api.modsUpdate(id, [[a.version_id, a.file]], name ? `Обновление: ${name}` : null));
       if (titles) toast(`Обновлено: ${titles.join(", ")}`);

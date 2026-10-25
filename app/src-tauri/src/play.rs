@@ -199,7 +199,15 @@ pub async fn build_play(
             Ok(r) => r,
             Err(e) => return fail(text(e)),
         };
-        let blocking: Vec<Issue> = report.blocking().into_iter().cloned().collect();
+        let mut blocking: Vec<Issue> = report.blocking().into_iter().cloned().collect();
+        // Памяти больше, чем в ПК, или нет места на диске — тоже не запустится.
+        let enabled = report.mods.iter().filter(|m| m.enabled).count();
+        let game = state.config.lock().unwrap().get().game.clone();
+        blocking.extend(
+            crate::optimize::system_issues(&data, &id, &game, enabled)
+                .into_iter()
+                .filter(|i| i.level == majorlauncher_core::mods::Level::Block),
+        );
         if !blocking.is_empty() {
             reset(&app);
             return Ok(Some(blocking));
@@ -221,12 +229,15 @@ pub async fn build_play(
         format!("Файлы игры {}", version_title(&instance)),
         format!("для сборки «{}»", instance.name),
     );
+    // Сборка уже стартовала с этими версиями: если теперь что-то качается,
+    // значит, файлы пропали — скажем, почему (чаще всего антивирус).
+    let again = game::was_ready(&data, &instance);
     let prepared = game::prepare(
         &data,
         &state.http,
         &instance,
         &settings,
-        progress(app.clone(), Some(task.clone())),
+        progress(app.clone(), Some(task.clone()), again),
         &cancel,
     )
     .await;
@@ -290,6 +301,7 @@ pub async fn build_play(
         s.since = Some(unix_ms());
         s.expected = expected;
     });
+    game::mark_ready(&data, &instance);
     // Сразу отмечаем запуск — сборка поднимается в начало «Недавних».
     let _ = Builds::new(data.clone()).record_play(&id, game.start, 0);
     let on_launch = settings.on_launch;
@@ -356,7 +368,7 @@ pub async fn build_verify(
         &data,
         &state.http,
         &instance,
-        progress_with(app.clone(), Arc::new(forward)),
+        progress_with(app.clone(), Arc::new(forward), false),
     )
     .await;
     task.finish(&result);
@@ -375,7 +387,7 @@ fn version_title(instance: &Instance) -> String {
 }
 
 /// Полоса прогресса и панель «Загрузки» (если задача есть).
-fn progress(app: AppHandle, task: Option<Arc<LazyTask>>) -> Progress {
+fn progress(app: AppHandle, task: Option<Arc<LazyTask>>, again: bool) -> Progress {
     progress_with(
         app,
         Arc::new(move |e: Event| {
@@ -383,12 +395,13 @@ fn progress(app: AppHandle, task: Option<Arc<LazyTask>>) -> Progress {
                 t.event(&e);
             }
         }),
+        again,
     )
 }
 
 /// Полоса прогресса: события ядра → окно, не чаще раза в 100 мс; `also` —
 /// кому ещё передать событие.
-fn progress_with(app: AppHandle, also: Arc<dyn Fn(Event) + Send + Sync>) -> Progress {
+fn progress_with(app: AppHandle, also: Arc<dyn Fn(Event) + Send + Sync>, again: bool) -> Progress {
     let last = Mutex::new(Instant::now() - Duration::from_secs(1));
     Arc::new(move |event| {
         also(event.clone());
@@ -407,7 +420,13 @@ fn progress_with(app: AppHandle, also: Arc<dyn Fn(Event) + Send + Sync>) -> Prog
                     s.phase = Phase::Downloading;
                     s.total = bytes;
                     s.done = 0;
-                    s.stage = Some(format!("Загрузка файлов игры: {files}"));
+                    s.stage = Some(if again {
+                        format!(
+                            "Пропали файлы игры ({files}) — возможно, их удалил антивирус. Качаю заново"
+                        )
+                    } else {
+                        format!("Загрузка файлов игры: {files}")
+                    });
                 }
                 Event::FileDone { bytes } => s.done += bytes,
                 Event::Loader { step, total } => {

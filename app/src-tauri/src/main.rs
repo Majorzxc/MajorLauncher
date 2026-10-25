@@ -13,6 +13,7 @@ mod export;
 mod game_options;
 mod importer;
 mod mods;
+mod optimize;
 mod play;
 mod settings;
 mod snapshots;
@@ -306,6 +307,11 @@ fn main() {
             importer::import_inspect,
             importer::import_guess,
             importer::import_run,
+            optimize::hardware_info,
+            optimize::set_optimize,
+            optimize::open_power_settings,
+            optimize::optimize_build,
+            optimize::net_online,
             tasks::tasks_list,
             content::build_screenshot_full,
             content::build_trash_screenshot,

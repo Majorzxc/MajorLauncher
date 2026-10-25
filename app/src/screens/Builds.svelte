@@ -14,7 +14,7 @@
   import { builds, forget, refresh, withBusy } from "../lib/builds.svelte";
   import { plural, size, trashLeft } from "../lib/format";
   import { attempt, toast } from "../lib/toast.svelte";
-  import { openBuild } from "../lib/nav.svelte";
+  import { openBuild, optimizing } from "../lib/nav.svelte";
   import { busyLabel, start } from "../lib/play.svelte";
 
   type Filter = { kind: "all" } | { kind: "pinned" } | { kind: "archive" } | { kind: "group"; name: string };
@@ -122,6 +122,7 @@
         { label: "Экспорт в .mrpack…", icon: "export", onclick: () => (exporting = b) },
         { label: "Снапшоты", icon: "snapshot", onclick: () => openBuild(b.id, "snapshots") },
         { label: "Перевести на другую версию…", icon: "refresh", onclick: () => (upgrading = b) },
+        { label: "Оптимизировать", icon: "cpu", onclick: () => (optimizing.build = { id: b.id, name: b.name }) },
         {
           label: b.pinned ? "Открепить" : "Закрепить",
           icon: "pin",

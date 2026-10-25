@@ -333,6 +333,52 @@ pub fn record_load_time(data: &DataDir, key: &str, secs: u64) -> Result<()> {
     std::fs::rename(&tmp, &path).at(&path)
 }
 
+/// Отпечаток того, что нужно сборке: версия игры и загрузчик. Совпадает с
+/// записанным при прошлом удачном старте — значит, все файлы уже скачивались,
+/// и если теперь чего-то нет, файл пропал (чаще всего — его удалил антивирус).
+fn ready_key(instance: &Instance) -> String {
+    format!(
+        "{}|{:?}|{}",
+        instance.version,
+        instance.loader,
+        instance.loader_version.as_deref().unwrap_or("")
+    )
+}
+
+fn ready_path(data: &DataDir) -> std::path::PathBuf {
+    data.cache().join("launch-ready.json")
+}
+
+/// Сборка уже запускалась с этими версиями — все её файлы когда-то были на месте.
+pub fn was_ready(data: &DataDir, instance: &Instance) -> bool {
+    std::fs::read(ready_path(data))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<std::collections::HashMap<String, String>>(&b).ok())
+        .and_then(|m| m.get(&load_key_for(instance)).cloned())
+        .is_some_and(|k| k == ready_key(instance))
+}
+
+/// Запомнить: файлы сборки на месте, игра стартовала.
+pub fn mark_ready(data: &DataDir, instance: &Instance) {
+    let path = ready_path(data);
+    let mut m: std::collections::HashMap<String, String> = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    m.insert(load_key_for(instance), ready_key(instance));
+    let _ = std::fs::create_dir_all(data.cache());
+    let _ = std::fs::write(&path, serde_json::to_vec(&m).expect("строки"));
+}
+
+/// У «Быстрой игры» своя запись на каждую версию.
+fn load_key_for(instance: &Instance) -> String {
+    if instance.quick {
+        format!("{}/{}", instance.id, instance.version)
+    } else {
+        instance.id.clone()
+    }
+}
+
 /// Сколько раз подряд сборка падала и когда последний раз закрылась без ошибки.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Streak {
@@ -680,6 +726,23 @@ mod tests {
         );
         assert_eq!(stage("Loading 3 resource packs"), None);
         assert_eq!(stage("[Render thread/INFO]: Loaded 110 languages"), None);
+    }
+
+    #[test]
+    fn remembers_ready_builds() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = DataDir::new(dir.path());
+        let mut i: Instance = serde_json::from_value(serde_json::json!({
+            "id": "b", "name": "b", "version": "1.21.1", "loader": "fabric",
+            "loader_version": "0.16.10", "created": 0
+        }))
+        .unwrap();
+        assert!(!was_ready(&data, &i));
+        mark_ready(&data, &i);
+        assert!(was_ready(&data, &i));
+        // Сменили загрузчик — новые файлы качать нормально, это не «пропажа».
+        i.loader_version = Some("0.17.0".into());
+        assert!(!was_ready(&data, &i));
     }
 
     #[test]

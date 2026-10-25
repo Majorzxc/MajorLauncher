@@ -15,7 +15,7 @@
   import { api } from "../lib/api";
   import { builds, refresh } from "../lib/builds.svelte";
   import { ago, playtime } from "../lib/format";
-  import { go, lastTab, nav } from "../lib/nav.svelte";
+  import { go, lastTab, nav, optimizing } from "../lib/nav.svelte";
   import { attempt } from "../lib/toast.svelte";
   import { loaderLabel } from "../lib/loaders";
 
@@ -75,12 +75,19 @@
       {#if !entry.quick}
         <button class="btn" onclick={() => (editing = true)}><Icon name="edit" size={18} />Изменить</button>
       {/if}
-      <button class="btn" onclick={() => attempt("Папка", () => api.openFolder(entry.id))}>
-        <Icon name="folder" size={18} />Папка
+      <button class="btn icon-btn" title="Открыть папку сборки" aria-label="Папка" onclick={() => attempt("Папка", () => api.openFolder(entry.id))}>
+        <Icon name="folder" size={18} />
       </button>
       {#if !entry.quick}
-        <button class="btn" title="Сохранить сборку в файл .mrpack" onclick={() => (exporting = true)}>
-          <Icon name="export" size={18} />Экспорт
+        <button class="btn icon-btn" title="Экспорт в файл .mrpack" aria-label="Экспорт" onclick={() => (exporting = true)}>
+          <Icon name="export" size={18} />
+        </button>
+        <button
+          class="btn"
+          title="Оптимизаторы, память, видеокарта — по «Настройки → Оптимизация»"
+          onclick={() => (optimizing.build = { id: entry.id, name: entry.name })}
+        >
+          <Icon name="cpu" size={18} />Оптимизировать
         </button>
       {/if}
       <PlayButton id={entry.id} large />
@@ -128,6 +135,9 @@
 {/if}
 
 <style>
+  .icon-btn {
+    padding: 0 var(--s3);
+  }
   .back {
     margin: calc(var(--s2) * -1) 0 var(--s3) calc(var(--s3) * -1);
   }

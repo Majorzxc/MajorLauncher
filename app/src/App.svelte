@@ -23,7 +23,8 @@
   import { api, type DataStatus } from "./lib/api";
   import { toast } from "./lib/toast.svelte";
   import { size } from "./lib/format";
-  import { go, nav } from "./lib/nav.svelte";
+  import { go, nav, optimizing } from "./lib/nav.svelte";
+  import OptimizeDialog from "./components/OptimizeDialog.svelte";
   import { connect, play, start } from "./lib/play.svelte";
   import Modal from "./components/Modal.svelte";
   import { ALL } from "./lib/sections";
@@ -138,6 +139,10 @@
       r(ok);
     }}
   />
+{/if}
+{#if optimizing.build}
+  {@const o = optimizing.build}
+  <OptimizeDialog id={o.id} name={o.name} onclose={() => (optimizing.build = null)} />
 {/if}
 {#if play.risky}
   {@const r = play.risky}
