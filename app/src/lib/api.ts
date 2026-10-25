@@ -487,6 +487,79 @@ export interface Finished {
   rollback?: { id: string; reason: string; created: number } | null;
 }
 
+/// Сборка другого лаунчера, найденная для импорта.
+export interface ImportFound {
+  source: "prism" | "official" | "tlauncher" | "curseforge" | "modrinth" | "folder";
+  source_title: string;
+  name: string;
+  path: string;
+  version: string | null;
+  loader: Loader | null;
+  loader_version: string | null;
+  guessed: boolean;
+  mods: number;
+  worlds: number;
+  worlds_size: number;
+  problem: string | null;
+}
+
+/// Экспорт в .mrpack: что получится.
+export interface ExportPreview {
+  name: string;
+  game: string;
+  loader: Loader;
+  loader_version: string | null;
+  modrinth: number;
+  own: string[];
+  disabled: number;
+  packs: number;
+  config_size: number;
+  has_options: boolean;
+  offline: boolean;
+}
+
+export interface ExportOptions {
+  name: string;
+  version: string;
+  summary: string;
+  configs: boolean;
+  packs: boolean;
+  options: boolean;
+  disabled: boolean;
+}
+
+/// Перевод сборки на другую версию игры: что станет с модами и мирами.
+export interface UpgradePlan {
+  from: string;
+  version: string;
+  loader: Loader;
+  loader_version: string | null;
+  /// Новая версия старше нынешней.
+  older: boolean;
+  mods: {
+    file: string;
+    name: string;
+    enabled: boolean;
+    from: string;
+    to: { version_id: string; version_number: string; size: number; same: boolean } | null;
+    note: string | null;
+  }[];
+  deps: { project_id: string; version_id: string; title: string; version_number: string; size: number }[];
+  missing_deps: string[];
+  download: number;
+  worlds: World[];
+  name: string;
+}
+
+export interface UpgradeChoice {
+  version: string;
+  loader_version: string | null;
+  name: string;
+  versions: string[];
+  keep_enabled: string[];
+  worlds: string[];
+}
+
 /// Снапшот сборки: чем отличается от неё сейчас.
 export interface SnapshotInfo {
   id: string;
@@ -537,6 +610,22 @@ export const api = {
   modsPin: (id: string, project: string, pinned: boolean) => call<Instance>("mods_pin", { id, project, pinned }),
   worldsCheck: (id: string, version: string | null) => call<RiskyWorld[]>("worlds_check", { id, version }),
   playCancel: () => call<void>("play_cancel"),
+  importScan: () => call<ImportFound[]>("import_scan"),
+  importInspect: (path: string) => call<ImportFound[]>("import_inspect", { path }),
+  importGuess: (found: ImportFound) => call<ImportFound>("import_guess", { found }),
+  importRun: (request: {
+    path: string;
+    name: string;
+    version: string;
+    loader: Loader;
+    loader_version: string | null;
+    worlds: boolean;
+  }) => call<Instance>("import_run", { request }),
+  exportPreview: (id: string) => call<ExportPreview>("export_preview", { id }),
+  exportBuild: (id: string, options: ExportOptions, path: string) =>
+    call<{ path: string; size: number; linked: number; embedded: number }>("export_build", { id, options, path }),
+  upgradePlan: (id: string, version: string) => call<UpgradePlan>("upgrade_plan", { id, version }),
+  upgradeRun: (id: string, choice: UpgradeChoice) => call<Instance>("upgrade_run", { id, choice }),
   snapshots: (id: string) => call<SnapshotInfo[]>("snapshots_list", { id }),
   snapshotTake: (id: string) => call<void>("snapshot_take", { id }),
   snapshotRestore: (id: string, snapshot: string) => call<void>("snapshot_restore", { id, snapshot }),

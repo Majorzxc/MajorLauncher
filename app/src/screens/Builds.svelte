@@ -3,6 +3,7 @@
   import BuildTile from "../components/BuildTile.svelte";
   import EditBuild from "../components/EditBuild.svelte";
   import ImportPack from "../components/ImportPack.svelte";
+  import ImportLauncher from "../components/ImportLauncher.svelte";
   import Icon from "../components/Icon.svelte";
   import Modal from "../components/Modal.svelte";
   import Select from "../components/Select.svelte";
@@ -33,6 +34,7 @@
   let editing: Entry | null = $state(null);
   let creating = $state(false);
   let importer = $state<ImportPack | null>(null);
+  let importing = $state(false);
   let addingGroup = $state(false);
   let newGroup = $state("");
   let confirm: { title: string; text: string; action: string; run: () => void } | null = $state(null);
@@ -279,12 +281,23 @@
       options={SORTS}
     />
     <span class="spacer"></span>
-    <button class="btn" title="Сборка из файла .mrpack (Modrinth, Prism, Modrinth App)" onclick={() => importer?.pick()}
-      ><Icon name="import" size={18} />Из файла .mrpack</button
+    <button
+      class="btn"
+      title="Из другого лаунчера (Prism, официальный, TLauncher, CurseForge, Modrinth App) или из файла .mrpack"
+      onclick={() => (importing = true)}><Icon name="import" size={18} />Импорт</button
     >
     <button class="btn btn-primary" onclick={() => (creating = true)}><Icon name="plus" size={18} />Новая сборка</button>
   </div>
   <ImportPack bind:this={importer} />
+  {#if importing}
+    <ImportLauncher
+      onclose={() => (importing = false)}
+      onmrpack={() => {
+        importing = false;
+        importer?.pick();
+      }}
+    />
+  {/if}
 
   <div class="chips" role="tablist" aria-label="Группы">
     <button class="chip" class:on={isFilter({ kind: "all" })} onclick={() => (filter = { kind: "all" })}>

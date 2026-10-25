@@ -7,9 +7,12 @@
   import { openBuild, openSettings } from "../../lib/nav.svelte";
   import { busyLabel, play } from "../../lib/play.svelte";
   import { attempt, toast } from "../../lib/toast.svelte";
+  import Icon from "../Icon.svelte";
   import MemoryPicker from "../MemoryPicker.svelte";
+  import UpgradeDialog from "../UpgradeDialog.svelte";
 
   let { entry }: { entry: Entry } = $props();
+  let upgrading = $state(false);
 
   let config: Config | null = $state(null);
   let memory: { total_mb: number | null; auto_mb: number } | null = $state(null);
@@ -90,6 +93,17 @@
 </script>
 
 {#if !entry.quick}
+  <div class="card block">
+    <h3>Версия игры: {entry.version}</h3>
+    <p class="muted small">
+      Перевод на другую версию создаёт новую сборку: лаунчер подберёт версии модов под неё, моды без такой версии
+      выключит, а миры скопирует по вашему выбору. Эта сборка останется как есть.
+    </p>
+    <div>
+      <button class="btn" onclick={() => (upgrading = true)}><Icon name="refresh" size={18} />Перевести на другую версию…</button>
+    </div>
+  </div>
+
   <div class="card block">
     <h3>Загрузчик модов</h3>
     <div class="chips" role="radiogroup" aria-label="Загрузчик модов">
@@ -177,6 +191,10 @@
     </button>
   </div>
 </div>
+
+{#if upgrading}
+  <UpgradeDialog {entry} onclose={() => (upgrading = false)} />
+{/if}
 
 <style>
   .block {

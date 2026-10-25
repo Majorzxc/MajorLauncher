@@ -125,6 +125,55 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
     case "snapshot_delete":
       await sleep(300);
       return undefined as T;
+    case "import_scan":
+      await sleep(500);
+      return [
+        { source: "modrinth", source_title: "Modrinth App", name: "Fabulously Optimized", path: "C:\Users\User\AppData\Roaming\ModrinthApp\profiles\Fabulously Optimized", version: null, loader: null, loader_version: null, guessed: false, mods: 42, worlds: 1, worlds_size: 12_000_000, problem: null },
+        { source: "prism", source_title: "Prism / MultiMC", name: "Create 1.20.1", path: "C:\Prism\instances\create\.minecraft", version: "1.20.1", loader: "forge", loader_version: "47.2.0", guessed: false, mods: 180, worlds: 3, worlds_size: 640_000_000, problem: null },
+        { source: "curseforge", source_title: "CurseForge", name: "Quilt pack", path: "C:\cf\q", version: "1.20.1", loader: null, loader_version: null, guessed: false, mods: 20, worlds: 0, worlds_size: 0, problem: "сборка на Quilt — его лаунчер пока не ставит (будет позже)" },
+      ] as T;
+    case "import_guess":
+      await sleep(900);
+      return { ...a.found, version: "1.21.1", loader: "fabric", guessed: true } as T;
+    case "import_inspect":
+      return [] as T;
+    case "import_run":
+      await sleep(900);
+      return { ...db().builds[0], id: "imported", name: a.request.name, version: a.request.version } as T;
+    case "export_preview":
+      await sleep(600);
+      return { name: "Выживание с друзьями", game: "1.21.1", loader: "fabric", loader_version: "0.16.10", modrinth: 58, own: ["baritone-1.11.1.jar", "meteor-client-1.21.1.jar"], disabled: 3, packs: 2, config_size: 1_400_000, has_options: true, offline: false } as T;
+    case "export_build":
+      await sleep(800);
+      return { path: a.path, size: 2_400_000, linked: 60, embedded: 140 } as T;
+    case "upgrade_plan": {
+      await sleep(1200);
+      const m = (name: string, from: string, to: string | null, enabled = true, note: string | null = null) => ({
+        file: `${name.toLowerCase().replace(/\W+/g, "-")}-${from}.jar${enabled ? "" : ".disabled"}`,
+        name, enabled, from,
+        to: to ? { version_id: name + to, version_number: to, size: 1_200_000, same: to === from } : null,
+        note: to ? null : note ?? `на Modrinth нет версии под ${a.version}`,
+      });
+      return {
+        from: "1.21.1", version: a.version, loader: "fabric", loader_version: "0.17.2", older: a.version < "1.21.1",
+        mods: [
+          m("Sodium", "0.6.13", "0.7.3"), m("Iris Shaders", "1.8.12", "1.9.7"), m("Fabric API", "0.116.6", "0.138.4"),
+          m("Lithium", "0.15.1", "0.20.1"), m("Mod Menu", "11.0.3", "11.0.3"), m("Xaero's Minimap", "25.2.10", null),
+          m("Baritone", "1.11.1", null, true, "свой файл, не с Modrinth — версию не найти"), m("Old HUD", "1.0", null, false),
+        ],
+        deps: [{ project_id: "x", version_id: "dep1", title: "Text Placeholder API", version_number: "2.8.2", size: 300_000 }],
+        missing_deps: [],
+        download: 48 * 1024 * 1024,
+        worlds: [
+          { folder: "Survival", name: "Выживание", size: 412 * 1024 * 1024, last_played: now() - DAY, version: "1.21.1", icon: null },
+          { folder: "Test", name: "Тестовый мир", size: 8 * 1024 * 1024, last_played: now() - 9 * DAY, version: "1.21.1", icon: null },
+        ],
+        name: `Выживание с друзьями ${a.version}`,
+      } as T;
+    }
+    case "upgrade_run":
+      await sleep(1500);
+      return { ...db().builds[0], id: "new-build", name: a.choice.name, version: a.choice.version } as T;
     case "snapshots_list": {
       const t = now();
       return [

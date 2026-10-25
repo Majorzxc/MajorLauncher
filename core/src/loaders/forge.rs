@@ -62,7 +62,7 @@ fn parse_forge_meta(xml: &str) -> Vec<Build> {
 
 /// Версия игры по версии NeoForge: `21.1.77` → `1.21.1`, `21.0.5` → `1.21`,
 /// `26.1.2.115` → `26.1.2`, `26.1.0.19-beta` → `26.1`.
-fn neo_game(version: &str) -> Option<String> {
+pub(super) fn neo_game(version: &str) -> Option<String> {
     if version.starts_with("0.") || version.contains('+') {
         return None;
     }

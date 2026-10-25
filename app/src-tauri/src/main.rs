@@ -9,12 +9,15 @@ mod accounts;
 mod builds;
 mod catalog;
 mod content;
+mod export;
 mod game_options;
+mod importer;
 mod mods;
 mod play;
 mod settings;
 mod snapshots;
 mod tasks;
+mod upgrade;
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -295,6 +298,14 @@ fn main() {
             snapshots::snapshot_take,
             snapshots::snapshot_restore,
             snapshots::snapshot_delete,
+            upgrade::upgrade_plan,
+            upgrade::upgrade_run,
+            export::export_preview,
+            export::export_build,
+            importer::import_scan,
+            importer::import_inspect,
+            importer::import_guess,
+            importer::import_run,
             tasks::tasks_list,
             content::build_screenshot_full,
             content::build_trash_screenshot,

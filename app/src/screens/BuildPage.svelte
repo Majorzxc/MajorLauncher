@@ -2,6 +2,7 @@
   // Страница сборки (раздел 6.3 ТЗ): шапка с кнопкой «Играть» и вкладки.
   import Cover from "../components/Cover.svelte";
   import EditBuild from "../components/EditBuild.svelte";
+  import ExportDialog from "../components/ExportDialog.svelte";
   import Icon from "../components/Icon.svelte";
   import PlayButton from "../components/PlayButton.svelte";
   import FilesTab from "../components/tabs/FilesTab.svelte";
@@ -47,6 +48,7 @@
     }
   });
   let editing = $state(false);
+  let exporting = $state(false);
 
   if (!builds.loaded) refresh();
   const entry = $derived(builds.list.find((b) => b.id === id && b.state === "active"));
@@ -76,6 +78,11 @@
       <button class="btn" onclick={() => attempt("Папка", () => api.openFolder(entry.id))}>
         <Icon name="folder" size={18} />Папка
       </button>
+      {#if !entry.quick}
+        <button class="btn" title="Сохранить сборку в файл .mrpack" onclick={() => (exporting = true)}>
+          <Icon name="export" size={18} />Экспорт
+        </button>
+      {/if}
       <PlayButton id={entry.id} large />
     </div>
   </header>
@@ -112,6 +119,9 @@
     {/if}
   </div>
 
+  {#if exporting}
+    <ExportDialog {entry} onclose={() => (exporting = false)} />
+  {/if}
   {#if editing}
     <EditBuild entry={entry} onclose={() => (editing = false)} />
   {/if}

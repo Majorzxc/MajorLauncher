@@ -71,6 +71,13 @@ enum Command {
         #[arg(long)]
         offline: bool,
     },
+    /// Сборки других лаунчеров на этом ПК; `--guess` — угадать версию по модам.
+    Others {
+        #[arg(long)]
+        guess: bool,
+    },
+    /// Что будет при переводе сборки на другую версию игры (этап 6.2).
+    Upgrade { build: String, version: String },
     /// Загрузчики модов: без версии игры — для каких версий есть, с версией —
     /// версии загрузчика (звёздочка — рекомендованная).
     Loaders {
@@ -294,6 +301,72 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
             if !r.online && !offline {
                 println!("Modrinth не ответил — показано известное");
             }
+        }
+        Command::Others { guess } => {
+            for mut f in majorlauncher_core::importer::scan() {
+                if guess {
+                    majorlauncher_core::importer::guess(&dl, &data, &mut f).await?;
+                }
+                println!(
+                    "{} · {} · {} {:?} {} · модов {} · миров {}{}{}
+    {}",
+                    f.source_title,
+                    f.name,
+                    f.version.as_deref().unwrap_or("?"),
+                    f.loader,
+                    f.loader_version.as_deref().unwrap_or(""),
+                    f.mods,
+                    f.worlds,
+                    if f.guessed {
+                        " · угадано по модам"
+                    } else {
+                        ""
+                    },
+                    f.problem.map(|p| format!(" · {p}")).unwrap_or_default(),
+                    f.path
+                );
+            }
+        }
+        Command::Upgrade { build, version } => {
+            let p = majorlauncher_core::upgrade::plan(&dl, &data, &build, &version).await?;
+            println!(
+                "{} → {} · загрузчик {:?} {}{}",
+                p.from,
+                p.version,
+                p.loader,
+                p.loader_version.as_deref().unwrap_or("-"),
+                if p.older {
+                    " · версия старше нынешней"
+                } else {
+                    ""
+                }
+            );
+            for m in &p.mods {
+                let to = match (&m.to, &m.note) {
+                    (Some(t), _) if t.same => format!("= {} (подходит как есть)", t.version_number),
+                    (Some(t), _) => format!("→ {}", t.version_number),
+                    (None, Some(n)) => format!("✗ {n}"),
+                    (None, None) => "✗".into(),
+                };
+                let mark = if m.enabled { ' ' } else { '-' };
+                println!("{mark} {} {} {to}", m.name, m.from);
+            }
+            for d in &p.deps {
+                println!("+ {} {} (зависимость)", d.title, d.version_number);
+            }
+            for d in &p.missing_deps {
+                println!("! нет зависимости {d}");
+            }
+            let with = p.mods.iter().filter(|m| m.to.is_some()).count();
+            println!(
+                "
+модов: {}, с версией: {with}, без: {}; скачать ~{:.1} МБ; миров: {}; название: {}",
+                p.mods.len(),
+                p.mods.len() - with,
+                p.download as f64 / 1048576.0,
+                p.worlds.len(),
+                p.name
+            );
         }
         Command::Accounts { action } => {
             accounts(&data, &dl, action.unwrap_or(AccountsAction::List)).await?;

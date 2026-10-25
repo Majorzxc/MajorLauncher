@@ -119,6 +119,12 @@ pub fn parse_version_id(id: &str) -> Option<(Loader, String, String)> {
     None
 }
 
+/// Версия игры по версии NeoForge (`21.1.77` → `1.21.1`) — для импорта
+/// профилей официального установщика NeoForge (`neoforge-21.1.77`).
+pub(crate) fn neoforge_game(version: &str) -> Option<String> {
+    forge::neo_game(version)
+}
+
 /// Метка «загрузчик поставлен целиком» и список файлов, которые он сделал:
 /// пропали — ставим заново.
 fn marker(data: &DataDir, id: &str) -> PathBuf {

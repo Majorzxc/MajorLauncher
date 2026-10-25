@@ -18,7 +18,9 @@ pub mod datadir;
 pub mod download;
 pub mod elyby;
 pub mod error;
+pub mod export;
 pub mod game;
+pub mod importer;
 pub mod install;
 pub mod java;
 pub mod launch;
@@ -43,6 +45,7 @@ pub mod snapshots;
 pub mod suspect;
 pub mod system;
 pub mod translate;
+pub mod upgrade;
 pub mod verify;
 
 pub use account::{Account, Accounts, Kind, Session};

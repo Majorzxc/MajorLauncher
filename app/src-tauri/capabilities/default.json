@@ -15,6 +15,7 @@
         }
       ]
     },
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }
