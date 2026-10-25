@@ -13,6 +13,7 @@
   import Tooltip from "./components/Tooltip.svelte";
   import { goBack, goForward, track } from "./lib/history.svelte";
   import { connectTasks, running, share, tasks } from "./lib/tasks.svelte";
+  import { connectUpdates } from "./lib/updates.svelte";
   import PlanDialog from "./components/catalog/PlanDialog.svelte";
   import { catalog } from "./lib/catalog.svelte";
   import { cropper, finish } from "./lib/crop.svelte";
@@ -52,6 +53,7 @@
     }
     ready = true;
     connectTasks();
+    connectUpdates();
     if (!needsDataDir && !missingDir) connect();
   });
 

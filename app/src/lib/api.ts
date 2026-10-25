@@ -17,6 +17,36 @@ export interface Config {
   game: GameSettings;
   catalog?: CatalogSettings;
   optimize?: OptimizeSettings;
+  updates?: UpdateSettings;
+}
+
+/// «Настройки → Обновления».
+export interface UpdateSettings {
+  check: boolean;
+  auto_mods: boolean;
+  auto_packs: boolean;
+}
+
+export interface PackUpdate {
+  version_id: string;
+  version_number: string;
+  current: string | null;
+  title: string | null;
+}
+
+/// Что нового у сборки (фоновая проверка).
+export interface BuildUpdates {
+  build: string;
+  name: string;
+  mods: number;
+  titles: string[];
+  pack: PackUpdate | null;
+}
+
+/// Сборка из каталога: откуда и есть ли новая версия.
+export interface PackInfo {
+  origin: { project_id: string | null; version_id: string | null; version_number: string | null; title: string | null } | null;
+  update: PackUpdate | null;
 }
 
 /// Что делает кнопка «Оптимизировать» («Настройки → Оптимизация»).
@@ -500,6 +530,8 @@ export interface PlayStatus {
   since?: number | null;
   /// Сколько сборка грузилась до окна игры в прошлые разы, секунд.
   expected?: number | null;
+  /// «Перезапустить и вернуться» ждёт выхода из игры.
+  restart?: boolean;
 }
 
 export interface Finished {
@@ -642,6 +674,11 @@ export const api = {
   modsPin: (id: string, project: string, pinned: boolean) => call<Instance>("mods_pin", { id, project, pinned }),
   worldsCheck: (id: string, version: string | null) => call<RiskyWorld[]>("worlds_check", { id, version }),
   playCancel: () => call<void>("play_cancel"),
+  updatesList: () => call<{ list: BuildUpdates[]; checked: number | null; running: boolean }>("updates_list"),
+  updatesCheck: () => call<{ list: BuildUpdates[]; checked: number | null; running: boolean }>("updates_check"),
+  setUpdates: (updates: UpdateSettings) => call<Config>("set_updates", { updates }),
+  packInfo: (id: string) => call<PackInfo>("pack_info", { id }),
+  packUpdate: (id: string, version: string) => call<Instance>("pack_update", { id, version }),
   hardwareInfo: () => call<Hardware>("hardware_info"),
   netOnline: () => call<boolean>("net_online"),
   setOptimize: (optimize: OptimizeSettings) => call<Config>("set_optimize", { optimize }),
@@ -682,7 +719,10 @@ export const api = {
   librarySet: (folder: LibraryItem["folder"], files: string[], allBuilds: boolean, builds: string[]) =>
     call<void>("library_set", { folder, files, allBuilds, builds }),
   libraryRemove: (folder: LibraryItem["folder"], file: string) => call<void>("library_remove", { folder, file }),
-  playStatus: () => call<{ status: PlayStatus; finished: Finished | null }>("play_status"),
+  playStatus: () =>
+    call<{ status: PlayStatus; finished: Finished | null; blocked?: { id: string; issues: ModIssue[] } | null }>("play_status"),
+  playRestart: (closeNow: boolean) => call<void>("play_restart", { closeNow }),
+  playRestartCancel: () => call<void>("play_restart_cancel"),
 
   files: (id: string, folder: Folder) => call<FileEntry[]>("build_files", { id, folder }),
   addFiles: (id: string, folder: Folder, paths: string[]) => call<string[]>("build_add_files", { id, folder, paths }),

@@ -71,6 +71,47 @@ pub fn kill(pid: u32) -> bool {
     }
 }
 
+/// Попросить игру закрыться, как крестиком окна: она сохранит мир и выйдет.
+/// Возвращает, нашлось ли окно.
+pub fn close_window(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{HWND, LPARAM};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+        };
+
+        struct Search {
+            pid: u32,
+            found: bool,
+        }
+        unsafe extern "system" fn visit(hwnd: HWND, lparam: LPARAM) -> windows_sys::core::BOOL {
+            // SAFETY: lparam — указатель на Search из вызова ниже, жив весь перебор.
+            unsafe {
+                let search = &mut *(lparam as *mut Search);
+                let mut owner = 0u32;
+                GetWindowThreadProcessId(hwnd, &mut owner);
+                if owner == search.pid && IsWindowVisible(hwnd) != 0 {
+                    PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                    search.found = true;
+                }
+                1
+            }
+        }
+        let mut search = Search { pid, found: false };
+        // SAFETY: колбэк получает указатель на живую `search` и не хранит его.
+        unsafe {
+            EnumWindows(Some(visit), &mut search as *mut Search as LPARAM);
+        }
+        search.found
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 /// Заголовок видимого окна процесса `pid`; `None` — окна ещё (или уже) нет.
 pub fn window_title(pid: u32) -> Option<String> {
     #[cfg(windows)]

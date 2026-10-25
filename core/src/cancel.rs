@@ -48,6 +48,11 @@ impl Cancel {
     }
 }
 
+/// Подождать, не занимая поток (таймер рантайма tokio — и у окна, и у `mlcli`).
+pub async fn sleep(d: Duration) {
+    tokio::time::sleep(d).await;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -29,6 +29,8 @@ pub const KEEP: usize = 20;
 const CONFIG_FILE_MAX: u64 = 2 * 1024 * 1024;
 const INFO: &str = "snapshot.json";
 const BEFORE_ROLLBACK: &str = "перед откатом";
+/// Описание сборки из каталога (см. `mrpack::Origin`).
+const PACK: &str = ".majorlauncher-pack.json";
 
 /// Файл в снапшоте: путь от папки модов или настроек, размер и дата.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,6 +269,15 @@ pub fn take(data: &DataDir, build: &str, reason: &str, manual: bool) -> Result<S
         }
         Ok(())
     })();
+    // Откуда сборка (версия пакета из каталога) — чтобы после отката
+    // обновления сборки лаунчер снова предлагал это обновление.
+    let made = made.and_then(|()| {
+        let origin = game_dir.join(PACK);
+        if origin.exists() {
+            std::fs::copy(&origin, tmp.join(PACK)).at(&origin)?;
+        }
+        Ok(())
+    });
     if let Err(e) = made {
         let _ = std::fs::remove_dir_all(&tmp);
         return Err(e);
@@ -411,6 +422,11 @@ pub fn restore(data: &DataDir, build: &str, id: &str) -> Result<()> {
         if !to.exists() {
             link_or_copy(&snap_dir.join("mods").join(&f.path), &to)?;
         }
+    }
+
+    let pack = snap_dir.join(PACK);
+    if pack.exists() {
+        std::fs::copy(&pack, game_dir.join(PACK)).at(&pack)?;
     }
 
     // Настройки модов: как в снапшоте; большие файлы, которых он не

@@ -23,6 +23,8 @@ pub struct LaunchOptions {
     /// `java.exe` с консолью (для `mlcli`) или `javaw.exe` без неё.
     pub console: bool,
     pub extra_jvm_args: Vec<String>,
+    /// Сразу войти в мир или на сервер («Перезапустить и вернуться»).
+    pub quick_play: Option<crate::playtime::LastPlace>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,7 +70,7 @@ pub fn build(
         .join(";");
     let modern = version.arguments.is_some();
 
-    let vars: HashMap<&str, String> = HashMap::from([
+    let mut vars: HashMap<&str, String> = HashMap::from([
         ("auth_player_name", session.name.clone()),
         ("auth_uuid", session.uuid.clone()),
         ("auth_access_token", session.access_token.clone()),
@@ -97,7 +99,47 @@ pub fn build(
         ("launcher_name", LAUNCHER_NAME.into()),
         ("launcher_version", VERSION.into()),
     ]);
-    let features = Features::default();
+    let mut features = Features::default();
+    // С 1.20 у игры есть штатный вход сразу в мир или на сервер — включаем
+    // его признаками из описания версии. Раньше на сервер вели `--server`
+    // и `--port`, а в одиночный мир — никак: игра откроется в меню.
+    let mut legacy_server = Vec::new();
+    if let Some(place) = &opts.quick_play {
+        let supported = |var: &str| {
+            version
+                .arguments
+                .as_ref()
+                .is_some_and(|a| a.game.iter().any(|arg| arg_mentions(arg, var)))
+        };
+        match place {
+            crate::playtime::LastPlace::World { folder, .. }
+                if supported("${quickPlaySingleplayer}") =>
+            {
+                features.enabled.push("is_quick_play_singleplayer".into());
+                vars.insert("quickPlaySingleplayer", folder.clone());
+            }
+            crate::playtime::LastPlace::Server { address } => {
+                if supported("${quickPlayMultiplayer}") {
+                    features.enabled.push("is_quick_play_multiplayer".into());
+                    let full = if address.contains(':') {
+                        address.clone()
+                    } else {
+                        format!("{address}:25565")
+                    };
+                    vars.insert("quickPlayMultiplayer", full);
+                } else {
+                    let (host, port) = address.split_once(':').unwrap_or((address, "25565"));
+                    legacy_server = vec![
+                        "--server".to_string(),
+                        host.to_string(),
+                        "--port".to_string(),
+                        port.to_string(),
+                    ];
+                }
+            }
+            _ => {}
+        }
+    }
 
     let mut args = vec![
         format!("-Xms{}M", opts.memory_mb.min(512)),
@@ -128,12 +170,24 @@ pub fn build(
         (None, Some(line)) => args.extend(line.split_whitespace().map(|a| substitute(a, &vars))),
         (None, None) => {}
     }
+    args.extend(legacy_server);
 
     Ok(LaunchCommand {
         program: java::executable(&prepared.java_home, opts.console),
         args,
         cwd: game_dir.clone(),
     })
+}
+
+/// Упоминает ли аргумент описания версии переменную (`${quickPlayMultiplayer}`).
+fn arg_mentions(arg: &Argument, var: &str) -> bool {
+    match arg {
+        Argument::Plain(s) => s.contains(var),
+        Argument::Conditional { value, .. } => match value {
+            ArgValue::One(s) => s.contains(var),
+            ArgValue::Many(list) => list.iter().any(|s| s.contains(var)),
+        },
+    }
 }
 
 /// Тип пользователя для аргумента `--userType`. Новые версии знают только `msa`
@@ -219,6 +273,95 @@ fn place_legacy_assets(data: &DataDir, prepared: &Prepared, game_dir: &Path) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn build_with(version_json: &str, quick: Option<crate::playtime::LastPlace>) -> Vec<String> {
+        let dir = tempfile::tempdir().unwrap();
+        let data = DataDir::new(dir.path());
+        let prepared = Prepared {
+            version: serde_json::from_str(version_json).unwrap(),
+            java_home: dir.path().join("java"),
+            classpath: Vec::new(),
+            natives_dir: dir.path().join("natives"),
+            asset_index: serde_json::from_str(r#"{"objects":{}}"#).unwrap(),
+            log_config: None,
+        };
+        let session = Session {
+            kind: Kind::Offline,
+            name: "Tester".into(),
+            uuid: "u".into(),
+            access_token: "t".into(),
+            agent: None,
+            unverified: false,
+        };
+        let opts = LaunchOptions {
+            game_dir: dir.path().join("game"),
+            memory_mb: 2048,
+            console: false,
+            extra_jvm_args: Vec::new(),
+            quick_play: quick,
+        };
+        build(&data, &prepared, &session, &opts).unwrap().args
+    }
+
+    #[test]
+    fn quick_play_into_world_or_server() {
+        use crate::playtime::LastPlace;
+        let modern = r#"{"id":"1.21.1","mainClass":"M","assetIndex":{"id":"17","url":"u","sha1":"s","size":1},
+            "downloads":{"client":{"url":"u","sha1":"s","size":1}},
+            "arguments":{"jvm":[],"game":["--username","${auth_player_name}",
+              {"rules":[{"action":"allow","features":{"is_quick_play_singleplayer":true}}],"value":["--quickPlaySingleplayer","${quickPlaySingleplayer}"]},
+              {"rules":[{"action":"allow","features":{"is_quick_play_multiplayer":true}}],"value":["--quickPlayMultiplayer","${quickPlayMultiplayer}"]}]}}"#;
+        let world = LastPlace::World {
+            folder: "Новый мир".into(),
+            name: "Мир".into(),
+        };
+        let args = build_with(modern, Some(world));
+        let at = args
+            .iter()
+            .position(|a| a == "--quickPlaySingleplayer")
+            .unwrap();
+        assert_eq!(args[at + 1], "Новый мир");
+        assert!(!args.contains(&"--quickPlayMultiplayer".to_string()));
+
+        let server = LastPlace::Server {
+            address: "mc.example.org".into(),
+        };
+        let args = build_with(modern, Some(server.clone()));
+        let at = args
+            .iter()
+            .position(|a| a == "--quickPlayMultiplayer")
+            .unwrap();
+        assert_eq!(args[at + 1], "mc.example.org:25565");
+
+        // Без перезапуска — никаких лишних флагов.
+        let args = build_with(modern, None);
+        assert!(!args.iter().any(|a| a.starts_with("--quickPlay")));
+
+        // Старая версия: на сервер — `--server`/`--port`, в мир — никак.
+        let old = r#"{"id":"1.12.2","mainClass":"M","assetIndex":{"id":"1.12","url":"u","sha1":"s","size":1},
+            "downloads":{"client":{"url":"u","sha1":"s","size":1}},
+            "minecraftArguments":"--username ${auth_player_name}"}"#;
+        let args = build_with(
+            old,
+            Some(LastPlace::Server {
+                address: "play.net:25570".into(),
+            }),
+        );
+        assert!(args.ends_with(&[
+            "--server".into(),
+            "play.net".into(),
+            "--port".into(),
+            "25570".into()
+        ]));
+        let args = build_with(
+            old,
+            Some(LastPlace::World {
+                folder: "w".into(),
+                name: "w".into(),
+            }),
+        );
+        assert!(!args.contains(&"--server".to_string()));
+    }
 
     #[test]
     fn substitutes_known_and_keeps_unknown() {

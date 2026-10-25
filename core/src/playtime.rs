@@ -110,6 +110,18 @@ pub struct Tracker {
     current: Spot,
     since: u64,
     totals: Vec<PlaceTime>,
+    /// Последний мир или сервер, где игрок был (не меню).
+    last_play: Option<Spot>,
+}
+
+/// Где игрок был последним: туда «Перезапустить и вернуться» и вернёт.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum LastPlace {
+    /// Одиночный мир: папка и название.
+    World { folder: String, name: String },
+    /// Сервер: адрес `host` или `host:port`.
+    Server { address: String },
 }
 
 impl Default for Tracker {
@@ -126,6 +138,7 @@ impl Tracker {
             current: Spot::menu(),
             since: 0,
             totals: Vec::new(),
+            last_play: None,
         }
     }
 
@@ -171,6 +184,9 @@ impl Tracker {
         };
         if next != self.current {
             self.close(now);
+            if next.kind != PlaceKind::Menu {
+                self.last_play = Some(next.clone());
+            }
             self.current = next;
         }
     }
@@ -194,6 +210,21 @@ impl Tracker {
                 id: c.id.clone(),
                 seconds,
             }),
+        }
+    }
+
+    /// Последний мир или сервер этой игры.
+    pub fn last_place(&self) -> Option<LastPlace> {
+        let s = self.last_play.as_ref()?;
+        match s.kind {
+            PlaceKind::World if !s.id.is_empty() => Some(LastPlace::World {
+                folder: s.id.clone(),
+                name: s.name.clone(),
+            }),
+            PlaceKind::Server => Some(LastPlace::Server {
+                address: s.name.clone(),
+            }),
+            _ => None,
         }
     }
 

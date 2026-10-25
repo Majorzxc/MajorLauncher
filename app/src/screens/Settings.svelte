@@ -1,5 +1,6 @@
 <script lang="ts">
   import OptimizeSettings from "../components/OptimizeSettings.svelte";
+  import UpdateSettings from "../components/UpdateSettings.svelte";
   import { open as openFile } from "@tauri-apps/plugin-dialog";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { call, inTauri } from "../lib/tauri";
@@ -15,7 +16,7 @@
   import Logo from "../components/Logo.svelte";
   import { apply, loadImage, save, theme, type Appearance, type ThemeMode } from "../lib/theme.svelte";
 
-  type Page = "profile" | "look" | "game" | "catalog" | "optimize" | "data" | "about";
+  type Page = "profile" | "look" | "game" | "catalog" | "optimize" | "updates" | "data" | "about";
   // Страница настроек из адреса (#settings/profile) — чтобы открыть «Настройки игры» по ссылке.
   let page: Page = $state(settingsPage.value ?? "look");
   settingsPage.value = null;
@@ -109,6 +110,9 @@
     </button>
     <button class="page" aria-current={page === "optimize" ? "page" : undefined} onclick={() => (page = "optimize")}>
       Оптимизация
+    </button>
+    <button class="page" aria-current={page === "updates" ? "page" : undefined} onclick={() => (page = "updates")}>
+      Обновления
     </button>
     <button class="page" aria-current={page === "data" ? "page" : undefined} onclick={() => (page = "data")}>
       Папка данных
@@ -282,6 +286,9 @@
     {:else if page === "optimize"}
       <h1>Оптимизация</h1>
       <OptimizeSettings />
+    {:else if page === "updates"}
+      <h1>Обновления</h1>
+      <UpdateSettings />
     {:else if page === "data"}
       <h1>Папка данных</h1>
       <div class="card block">

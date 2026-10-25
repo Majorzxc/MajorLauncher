@@ -24,7 +24,7 @@ export const lastTab: Record<string, string> = {};
 
 /// Какую страницу настроек открыть при переходе (одноразово).
 export const settingsPage = $state({
-  value: null as null | "profile" | "look" | "game" | "catalog" | "optimize" | "data" | "about",
+  value: null as null | "profile" | "look" | "game" | "catalog" | "optimize" | "updates" | "data" | "about",
 });
 /// Окно «Оптимизировать» для сборки — открывается из любого места.
 export const optimizing = $state({ build: null as null | { id: string; name: string } });

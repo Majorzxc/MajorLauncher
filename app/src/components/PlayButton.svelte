@@ -2,9 +2,14 @@
   // Кнопка «Играть» со всеми состояниями: подготовка, загрузка с процентами,
   // запуск, «игра запущена».
   import { busyLabel, cancel, cancellable, launchPercent, percent, play, stageLabel, start } from "../lib/play.svelte";
+  import { api } from "../lib/api";
   import Icon from "./Icon.svelte";
+  import RestartDialog from "./RestartDialog.svelte";
 
   let { id, large = false }: { id: string; large?: boolean } = $props();
+  // Игра идёт — рядом с большой кнопкой «Перезапустить и вернуться».
+  const running = $derived(play.status.build === id && play.status.phase === "running");
+  let restarting = $state(false);
   const label = $derived(busyLabel(id));
   // Что делается сейчас: «Загрузка модов: 162 · 0:14». У большой кнопки —
   // второй строкой, у маленькой — в подсказке.
@@ -39,6 +44,18 @@
   </span>
   {#if large && stage}<span class="stage">{stage}</span>{/if}
 </button>
+{#if large && running}
+  {#if play.status.restart}
+    <button class="btn" title="Не перезапускать игру после выхода" onclick={() => api.playRestartCancel()}>
+      <Icon name="close" size={18} />Не перезапускать
+    </button>
+  {:else}
+    <button class="btn" title="Подключить новые моды: перезапуск и возврат в тот же мир" onclick={() => (restarting = true)}>
+      <Icon name="refresh" size={18} />Перезапустить и вернуться
+    </button>
+  {/if}
+{/if}
+{#if restarting}<RestartDialog onclose={() => (restarting = false)} />{/if}
 
 <style>
   .play {

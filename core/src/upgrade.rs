@@ -439,6 +439,8 @@ const SKIP: &[&str] = &[
     "downloads",
     ".majorlauncher.json",
     ".majorlauncher.json.tmp",
+    // Новая сборка уже не та версия пакета из каталога.
+    ".majorlauncher-pack.json",
 ];
 
 /// Настройки сборки — в новую: `config/`, `options.txt`, ресурспаки и

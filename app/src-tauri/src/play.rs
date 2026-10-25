@@ -10,6 +10,7 @@ use majorlauncher_core::cancel::Cancel;
 use majorlauncher_core::game::{self, Game};
 use majorlauncher_core::mods::{self, Issue};
 use majorlauncher_core::options::GameVersion;
+use majorlauncher_core::playtime::LastPlace;
 use majorlauncher_core::playtime::Stats;
 use majorlauncher_core::snapshots::{self, Hint};
 use majorlauncher_core::system;
@@ -50,6 +51,8 @@ pub struct PlayStatus {
     pub since: Option<u64>,
     /// Сколько сборка грузилась до окна игры в прошлые разы, секунд.
     pub expected: Option<u64>,
+    /// «Перезапустить и вернуться»: после выхода игра запустится снова.
+    pub restart: bool,
 }
 
 /// Чем закончилась игра — окно показывает это один раз.
@@ -83,6 +86,15 @@ pub struct PlayState {
     pub cancel: Cancel,
     /// Java запущенной игры — её завершает «Отменить», пока нет окна игры.
     pub pid: Option<u32>,
+    /// Перезапуск после выхода не начался: моды не дадут игре запуститься.
+    pub blocked: Option<Blocked>,
+}
+
+/// Проблемы сборки, из-за которых перезапуск не начался.
+#[derive(Debug, Clone, Serialize)]
+pub struct Blocked {
+    id: String,
+    issues: Vec<Issue>,
 }
 
 impl PlayState {
@@ -110,6 +122,7 @@ fn reset(app: &AppHandle) {
 pub struct StatusWithResult {
     status: PlayStatus,
     finished: Option<Finished>,
+    blocked: Option<Blocked>,
 }
 
 /// Состояние для только что открытого окна. Итог прошлой игры отдаётся один раз.
@@ -119,7 +132,35 @@ pub fn play_status(state: State<AppState>) -> StatusWithResult {
     StatusWithResult {
         status: play.status.clone(),
         finished: play.finished.take(),
+        blocked: play.blocked.take(),
     }
+}
+
+/// «Перезапустить и вернуться»: после выхода из игры лаунчер сразу запустит
+/// её снова — в тот же мир или на тот же сервер. `close_now` — закрыть игру
+/// сейчас, как крестиком окна (она сохранит мир и выйдет).
+#[tauri::command]
+pub fn play_restart(app: AppHandle, state: State<AppState>, close_now: bool) -> CmdResult<()> {
+    {
+        let mut play = state.play.lock().unwrap();
+        if play.status.phase != Phase::Running {
+            return Err("игра не запущена".into());
+        }
+        if close_now && !play.pid.is_some_and(system::close_window) {
+            return Err(
+                "окно игры не нашлось — закройте игру сами, лаунчер запустит её снова".into(),
+            );
+        }
+        play.status.restart = true;
+    }
+    update(&app, |s| s.restart = true);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn play_restart_cancel(app: AppHandle, state: State<AppState>) {
+    state.play.lock().unwrap().status.restart = false;
+    update(&app, |s| s.restart = false);
 }
 
 /// «Отменить» на кнопке «Играть»: подготовка и загрузка обрываются (скачанное
@@ -143,11 +184,24 @@ pub fn play_cancel(state: State<AppState>) -> CmdResult<()> {
 #[tauri::command]
 pub async fn build_play(
     app: AppHandle,
-    state: State<'_, AppState>,
     id: String,
     version: Option<String>,
     force: Option<bool>,
 ) -> CmdResult<Option<Vec<Issue>>> {
+    launch(app, id, version, force, None).await
+}
+
+/// Запуск игры: кнопка «Играть» и перезапуск после выхода. `quick_play` —
+/// сразу войти в мир или на сервер.
+pub async fn launch(
+    app: AppHandle,
+    id: String,
+    version: Option<String>,
+    force: Option<bool>,
+    quick_play: Option<LastPlace>,
+) -> CmdResult<Option<Vec<Issue>>> {
+    let handle = app.clone();
+    let state = handle.state::<AppState>();
     let data = state.data()?;
     let builds = Builds::new(data.clone());
     let check_mods = !force.unwrap_or(false) && id != QUICK_ID;
@@ -239,6 +293,7 @@ pub async fn build_play(
         &settings,
         progress(app.clone(), Some(task.clone()), again),
         &cancel,
+        quick_play,
     )
     .await;
     task.finish(&prepared);
@@ -487,6 +542,7 @@ fn watch(
         .err()
         .map(|e| format!("Изменения настроек игры не сохранились в общие: {e}"));
     let cancelled = cancel.is_cancelled();
+    let last_place = outcome.as_ref().ok().and_then(|o| o.last_place.clone());
     let finished = match outcome {
         // Отменили до окна игры: ни статистики, ни краша.
         _ if cancelled => Finished {
@@ -554,7 +610,43 @@ fn watch(
         },
     };
 
+    // «Перезапустить и вернуться»: игра вышла сама (не упала) — сразу снова,
+    // в тот же мир или на сервер. Окно лаунчера не показываем: оно закроется
+    // при старте игры, как обычно.
+    let restart = std::mem::take(&mut app.state::<AppState>().play.lock().unwrap().status.restart);
     reset(&app);
+    if restart && !finished.crashed && !finished.cancelled {
+        let version = instance.quick.then(|| instance.version.clone());
+        let id = instance.id.clone();
+        tauri::async_runtime::spawn(async move {
+            let result = launch(app.clone(), id.clone(), version, None, last_place).await;
+            let state = app.state::<AppState>();
+            match result {
+                Ok(None) => {}
+                Ok(Some(issues)) => {
+                    state.play.lock().unwrap().blocked = Some(Blocked { id, issues });
+                    show(&app);
+                }
+                Err(e) => {
+                    state.play.lock().unwrap().finished = Some(Finished {
+                        build: id,
+                        name: instance.name.clone(),
+                        seconds: 0,
+                        code: None,
+                        crashed: false,
+                        no_window: true,
+                        tail: Vec::new(),
+                        warning: Some(format!("Перезапустить игру не удалось: {e}")),
+                        cancelled: true,
+                        streak: 0,
+                        rollback: None,
+                    });
+                    show(&app);
+                }
+            }
+        });
+        return;
+    }
     match app.get_webview_window("main") {
         Some(window) => {
             let _ = window.unminimize();
@@ -564,6 +656,28 @@ fn watch(
         None => {
             app.state::<AppState>().play.lock().unwrap().finished = Some(finished);
             let _ = open_window(&app);
+        }
+    }
+}
+
+/// Показать окно лаунчера с тем, что накопилось для него (итог игры, проблемы
+/// сборки): уже открытое получает события, новое заберёт их в `play_status`.
+fn show(app: &AppHandle) {
+    match app.get_webview_window("main") {
+        Some(window) => {
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+            let state = app.state::<AppState>();
+            let mut play = state.play.lock().unwrap();
+            if let Some(f) = play.finished.take() {
+                let _ = app.emit("play-finished", f);
+            }
+            if let Some(b) = play.blocked.take() {
+                let _ = app.emit("play-blocked", b);
+            }
+        }
+        None => {
+            let _ = open_window(app);
         }
     }
 }

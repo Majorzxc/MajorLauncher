@@ -460,6 +460,7 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                 memory_mb: memory,
                 console: true,
                 extra_jvm_args: Vec::new(),
+                quick_play: None,
             };
             let cmd = launch::build(&data, &prepared, &session, &opts)?;
             finish_line();

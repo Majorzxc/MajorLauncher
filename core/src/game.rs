@@ -56,6 +56,7 @@ pub async fn prepare(
     game: &GameSettings,
     progress: Progress,
     cancel: &Cancel,
+    quick_play: Option<crate::playtime::LastPlace>,
 ) -> Result<Launch> {
     let mut accounts = Accounts::load(data)?;
     let account = accounts.default_account().cloned().ok_or_else(|| {
@@ -98,6 +99,7 @@ pub async fn prepare(
         memory_mb: memory_mb(instance, game),
         console: false,
         extra_jvm_args: jvm_args,
+        quick_play,
     };
     let cmd = launch::build(data, &prepared, &session, &opts)?;
     let version = GameVersion {
@@ -441,6 +443,8 @@ pub struct Outcome {
     pub tail: Vec<String>,
     /// Окно игры успело появиться; нет — игра упала ещё при загрузке.
     pub had_window: bool,
+    /// Где игрок был последним (мир или сервер).
+    pub last_place: Option<crate::playtime::LastPlace>,
 }
 
 impl Outcome {
@@ -606,6 +610,7 @@ impl Game {
             code: status.code(),
             start: self.start,
             end: self.start + end,
+            last_place: tracker.last_place(),
             places: tracker.finish(end),
             tail: tail.into(),
             had_window,
@@ -631,6 +636,7 @@ mod tests {
             places: Vec::new(),
             tail: tail.iter().map(|s| s.to_string()).collect(),
             had_window: true,
+            last_place: None,
         }
     }
 

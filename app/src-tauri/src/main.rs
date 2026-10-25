@@ -18,6 +18,7 @@ mod play;
 mod settings;
 mod snapshots;
 mod tasks;
+mod updates;
 mod upgrade;
 
 use std::path::PathBuf;
@@ -45,6 +46,8 @@ pub struct AppState {
     pub tasks: Mutex<tasks::Tasks>,
     /// Диск с данными сменил букву при этом запуске — окно скажет об этом один раз.
     pub data_moved: Mutex<Option<(String, String)>>,
+    /// Фоновые обновления модов и сборок из каталога.
+    pub updates: Mutex<updates::Updates>,
 }
 
 /// Перенос папки данных: пока он идёт, остальные команды её не трогают.
@@ -191,12 +194,14 @@ fn main() {
                 relocation: Mutex::new(Relocation::default()),
                 tasks: Mutex::new(tasks::Tasks::default()),
                 data_moved: Mutex::new(None),
+                updates: Mutex::new(updates::Updates::default()),
             });
             // Диск с данными сменил букву — найти папку до первого окна.
             let state: State<AppState> = app.state();
             let found = settings::locate_data(&state);
             *state.data_moved.lock().unwrap() = found.moved;
             open_window(app.handle())?;
+            updates::start_background(app.handle().clone());
 
             // Корзина чистится от сборок старше 30 дней при каждом запуске.
             let state: State<AppState> = app.state();
@@ -295,6 +300,8 @@ fn main() {
             mods::mods_pin,
             play::play_status,
             play::play_cancel,
+            play::play_restart,
+            play::play_restart_cancel,
             snapshots::snapshots_list,
             snapshots::snapshot_take,
             snapshots::snapshot_restore,
@@ -312,6 +319,11 @@ fn main() {
             optimize::open_power_settings,
             optimize::optimize_build,
             optimize::net_online,
+            updates::updates_list,
+            updates::updates_check,
+            updates::set_updates,
+            updates::pack_info,
+            updates::pack_update,
             tasks::tasks_list,
             content::build_screenshot_full,
             content::build_trash_screenshot,

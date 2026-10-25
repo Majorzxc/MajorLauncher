@@ -2,6 +2,7 @@
   import type { Entry } from "../lib/api";
   import { ago, playtime, size } from "../lib/format";
   import Icon from "./Icon.svelte";
+  import { updateCount } from "../lib/updates.svelte";
   import Identicon from "./Identicon.svelte";
   import { loaderLabel } from "../lib/loaders";
 
@@ -46,6 +47,9 @@
       <Identicon seed={entry.id} />
     {/if}
     {#if entry.pinned && !archived}<span class="badge pin" title="Закреплена"><Icon name="pin" size={14} /></span>{/if}
+    {#if updateCount(entry.id) && !archived}
+      <span class="badge upd" title="Есть обновления: {updateCount(entry.id)}"><Icon name="download" size={14} />{updateCount(entry.id)}</span>
+    {/if}
     {#if !busy}
       <button
         class="more"
@@ -140,6 +144,15 @@
     border-radius: var(--r-sm);
     background: var(--surface);
     border: 1px solid var(--border);
+  }
+  .upd {
+    left: auto;
+    right: 48px;
+    width: auto;
+    gap: 3px;
+    padding: 0 6px;
+    font-size: var(--fs-12);
+    font-weight: 600;
   }
   .more {
     position: absolute;

@@ -47,6 +47,7 @@ pub mod snapshots;
 pub mod suspect;
 pub mod system;
 pub mod translate;
+pub mod updates;
 pub mod upgrade;
 pub mod verify;
 

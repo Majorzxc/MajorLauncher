@@ -170,6 +170,9 @@ pub struct Config {
     /// Что делает кнопка «Оптимизировать» (раздел 5.7 ТЗ).
     #[serde(default)]
     pub optimize: crate::optimize::OptimizeSettings,
+    /// Фоновые обновления (раздел 5.13 ТЗ).
+    #[serde(default)]
+    pub updates: crate::updates::UpdateSettings,
 }
 
 pub struct ConfigStore {
@@ -241,6 +244,11 @@ impl ConfigStore {
 
     pub fn set_catalog(&mut self, catalog: CatalogSettings) -> Result<()> {
         self.config.catalog = catalog;
+        self.save()
+    }
+
+    pub fn set_updates(&mut self, updates: crate::updates::UpdateSettings) -> Result<()> {
+        self.config.updates = updates;
         self.save()
     }
 

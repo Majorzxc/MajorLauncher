@@ -149,7 +149,7 @@
   }
   .info {
     flex: 1;
-    min-width: 0;
+    min-width: 240px;
   }
   h1 {
     margin: 0;
@@ -170,8 +170,12 @@
   }
   .actions {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     align-items: center;
     gap: var(--s2);
+    flex: 0 1 auto;
+    max-width: 62%;
   }
   .tab:disabled {
     cursor: default;

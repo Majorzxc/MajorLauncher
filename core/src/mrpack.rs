@@ -21,7 +21,7 @@ use crate::error::{Error, IoContext, Result, json};
 use crate::install::Event;
 use crate::library::{Library, Source};
 use crate::loaders::Loader;
-use crate::modrinth;
+use crate::modrinth::{self, Version};
 use crate::paths::DataDir;
 
 /// Адреса, с которых формат разрешает качать файлы сборки.
@@ -61,6 +61,42 @@ struct PackFile {
 struct Env {
     #[serde(default)]
     client: String,
+}
+
+/// Откуда сборка: проект и версия на Modrinth и какие файлы поставил пакет.
+/// Лежит рядом со сборкой (`.majorlauncher-pack.json`); по нему лаунчер
+/// проверяет обновления сборки и при обновлении убирает файлы старой версии,
+/// не трогая добавленное игроком.
+#[derive(Debug, Clone, Default, serde::Serialize, Deserialize)]
+pub struct Origin {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub version_id: Option<String>,
+    #[serde(default)]
+    pub version_number: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Файлы из списка пакета (пути от папки игры).
+    #[serde(default)]
+    pub files: Vec<String>,
+}
+
+const ORIGIN: &str = ".majorlauncher-pack.json";
+
+/// Откуда сборка (если её поставили из каталога или `.mrpack`).
+pub fn origin(data: &DataDir, build: &str) -> Option<Origin> {
+    let bytes = std::fs::read(data.instance(build).join(ORIGIN)).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn write_origin(game_dir: &Path, origin: &Origin) -> Result<()> {
+    let path = game_dir.join(ORIGIN);
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(origin).expect("сериализуется"),
+    )
+    .at(&path)
 }
 
 /// Что узнали из `.mrpack` до установки.
@@ -175,6 +211,20 @@ pub async fn install(
     name: Option<&str>,
     progress: &(dyn Fn(Event) + Sync),
 ) -> Result<Instance> {
+    install_with(dl, data, pack, name, None, progress).await
+}
+
+/// То же, когда версия Modrinth уже известна (сборка из каталога). Иначе
+/// лаунчер ищет файл `.mrpack` на Modrinth по хешу — чтобы потом проверять
+/// обновления и у сборок из файла.
+async fn install_with(
+    dl: &Downloader,
+    data: &DataDir,
+    pack: &Path,
+    name: Option<&str>,
+    known: Option<&Version>,
+    progress: &(dyn Fn(Event) + Sync),
+) -> Result<Instance> {
     let (index, info) = read_index(pack)?;
     let builds = Builds::new(data.clone());
     let instance = builds.create(
@@ -187,12 +237,59 @@ pub async fn install(
         None,
     )?;
     match fill(dl, data, pack, &index, &instance, progress).await {
-        Ok(()) => Ok(instance),
+        Ok(()) => {
+            let mut origin = match known {
+                Some(v) => origin_of(v),
+                None => lookup_origin(dl, data, pack).await,
+            };
+            origin.title.get_or_insert_with(|| info.name.clone());
+            origin.files = pack_files(&index);
+            let _ = write_origin(&data.instance(&instance.id), &origin);
+            Ok(instance)
+        }
         Err(e) => {
             let _ = builds.trash(&instance.id);
             Err(e)
         }
     }
+}
+
+fn origin_of(v: &Version) -> Origin {
+    Origin {
+        project_id: Some(v.project_id.clone()),
+        version_id: Some(v.id.clone()),
+        version_number: Some(v.version_number.clone()),
+        title: None,
+        files: Vec::new(),
+    }
+}
+
+/// Файл `.mrpack` с Modrinth? Ищем его версию по SHA-1 (без сети — не знаем).
+async fn lookup_origin(dl: &Downloader, data: &DataDir, pack: &Path) -> Origin {
+    let Ok(sha1) = crate::verify::sha1_file(pack) else {
+        return Origin::default();
+    };
+    let ident = crate::mods::identify(dl, data, std::slice::from_ref(&sha1), true).await;
+    match ident.known.get(&sha1) {
+        Some(k) => Origin {
+            project_id: Some(k.project_id.clone()),
+            version_id: Some(k.version_id.clone()),
+            version_number: Some(k.version_number.clone()),
+            title: Some(k.title.clone()),
+            files: Vec::new(),
+        },
+        None => Origin::default(),
+    }
+}
+
+/// Пути файлов пакета, которые нужны игре.
+fn pack_files(index: &Index) -> Vec<String> {
+    index
+        .files
+        .iter()
+        .filter(|f| wanted(f))
+        .map(|f| f.path.replace('\\', "/"))
+        .collect()
 }
 
 async fn fill(
@@ -340,40 +437,13 @@ pub async fn install_from_catalog(
                 .ok_or_else(|| Error::Other("у сборки нет версий".into()))?
         }
     };
-    let file = chosen
-        .file()
-        .filter(|f| f.filename.ends_with(".mrpack"))
-        .ok_or_else(|| Error::Other("у этой версии нет файла .mrpack".into()))?;
-    if !allowed(&file.url) {
-        return Err(Error::Other(format!("непонятный адрес файла {}", file.url)));
-    }
-    let dir = data.cache().join("modpacks");
-    std::fs::create_dir_all(&dir).at(&dir)?;
-    let path = dir.join(format!("{}.mrpack", chosen.id));
-    progress(Event::Downloading {
-        files: 1,
-        bytes: file.size,
-    });
-    dl.download_all(
-        vec![Task {
-            url: file.url.clone(),
-            path: path.clone(),
-            sha1: Some(file.hashes.sha1.clone()),
-            size: Some(file.size),
-        }],
-        &|t| {
-            progress(Event::FileDone {
-                bytes: t.size.unwrap_or(0),
-            })
-        },
-    )
-    .await?;
+    let path = download_pack(dl, data, &chosen, progress).await?;
     let brief = modrinth::briefs(dl, &[&chosen.project_id])
         .await
         .ok()
         .and_then(|b| b.into_iter().next());
     let name = brief.as_ref().map(|b| b.title.clone());
-    let instance = install(dl, data, &path, name.as_deref(), progress).await;
+    let instance = install_with(dl, data, &path, name.as_deref(), Some(&chosen), progress).await;
     let _ = std::fs::remove_file(&path);
     let instance = instance?;
     if let Some(icon) = brief.and_then(|b| b.icon_url) {
@@ -477,4 +547,219 @@ mod tests {
         );
         assert!(inspect(&quilt).is_err());
     }
+}
+
+/// Скачать `.mrpack` версии сборки с Modrinth во временную папку.
+async fn download_pack(
+    dl: &Downloader,
+    data: &DataDir,
+    chosen: &Version,
+    progress: &(dyn Fn(Event) + Sync),
+) -> Result<PathBuf> {
+    let file = chosen
+        .file()
+        .filter(|f| f.filename.ends_with(".mrpack"))
+        .ok_or_else(|| Error::Other("у этой версии нет файла .mrpack".into()))?;
+    if !allowed(&file.url) {
+        return Err(Error::Other(format!("непонятный адрес файла {}", file.url)));
+    }
+    let dir = data.cache().join("modpacks");
+    std::fs::create_dir_all(&dir).at(&dir)?;
+    let path = dir.join(format!("{}.mrpack", chosen.id));
+    progress(Event::Downloading {
+        files: 1,
+        bytes: file.size,
+    });
+    dl.download_all(
+        vec![Task {
+            url: file.url.clone(),
+            path: path.clone(),
+            sha1: Some(file.hashes.sha1.clone()),
+            size: Some(file.size),
+        }],
+        &|t| {
+            progress(Event::FileDone {
+                bytes: t.size.unwrap_or(0),
+            })
+        },
+    )
+    .await?;
+    Ok(path)
+}
+
+/// Новая версия сборки из каталога, если вышла.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PackUpdate {
+    pub version_id: String,
+    pub version_number: String,
+    /// Сейчас стоит.
+    pub current: Option<String>,
+    pub title: Option<String>,
+}
+
+/// Вышла ли новая стабильная версия сборки на Modrinth.
+pub async fn check_update(
+    dl: &Downloader,
+    data: &DataDir,
+    build: &str,
+) -> Result<Option<PackUpdate>> {
+    let Some(origin) = origin(data, build) else {
+        return Ok(None);
+    };
+    let Some(project) = origin.project_id.as_deref() else {
+        return Ok(None);
+    };
+    // Только версии под ту же версию игры: переход на новую игру меняет миры
+    // необратимо — это «Перевести на другую версию», а не обновление.
+    let game = Builds::new(data.clone()).get(build)?.version;
+    let list = modrinth::versions(dl, project, &[], Some(&game)).await?;
+    let Some(best) = modrinth::best(&list) else {
+        return Ok(None);
+    };
+    // Список новые первыми: наша версия есть выше лучшей — значит, у нас новее.
+    let ours = origin.version_id.as_deref();
+    if ours == Some(best.id.as_str()) {
+        return Ok(None);
+    }
+    let pos = |id: &str| list.iter().position(|v| v.id == id);
+    if let (Some(o), Some(b)) = (ours.and_then(pos), pos(&best.id))
+        && o < b
+    {
+        return Ok(None);
+    }
+    Ok(Some(PackUpdate {
+        version_id: best.id.clone(),
+        version_number: best.version_number.clone(),
+        current: origin.version_number.clone(),
+        title: origin.title.clone(),
+    }))
+}
+
+/// Обновить сборку из каталога до версии `version_id` на месте: снапшот,
+/// новая версия игры и загрузчика (если сменились), файлы старой версии
+/// пакета, которых в новой нет, — убираются, новые — ставятся, `overrides`
+/// раскладываются заново. Добавленное игроком не трогается, выключенные им
+/// моды остаются выключенными.
+pub async fn update(
+    dl: &Downloader,
+    data: &DataDir,
+    build: &str,
+    version_id: &str,
+    progress: &(dyn Fn(Event) + Sync),
+) -> Result<Instance> {
+    let builds = Builds::new(data.clone());
+    let instance = builds.get(build)?;
+    let old = origin(data, build)
+        .filter(|o| o.project_id.is_some())
+        .ok_or_else(|| Error::Other("неизвестно, из какой сборки каталога эта сборка".into()))?;
+    let chosen = modrinth::versions_by_id(dl, &[version_id])
+        .await?
+        .into_iter()
+        .next()
+        .filter(|v| Some(&v.project_id) == old.project_id.as_ref())
+        .ok_or_else(|| Error::Other("это версия другой сборки".into()))?;
+    let pack = download_pack(dl, data, &chosen, progress).await?;
+    let result = update_from(dl, data, build, &instance, &old, &chosen, &pack, progress).await;
+    let _ = std::fs::remove_file(&pack);
+    result
+}
+
+#[allow(clippy::too_many_arguments)] // шаги одного обновления
+async fn update_from(
+    dl: &Downloader,
+    data: &DataDir,
+    build: &str,
+    instance: &Instance,
+    old: &Origin,
+    chosen: &Version,
+    pack: &Path,
+    progress: &(dyn Fn(Event) + Sync),
+) -> Result<Instance> {
+    let builds = Builds::new(data.clone());
+    let (index, info) = read_index(pack)?;
+    if info.game != instance.version {
+        return Err(Error::Other(format!(
+            "эта версия сборки — под игру {}, а сборка на {}: переходите через «Перевести на другую версию», миры там копируются",
+            info.game, instance.version
+        )));
+    }
+    let snapshot = crate::snapshots::take(
+        data,
+        build,
+        &format!("перед обновлением сборки до {}", chosen.version_number),
+        false,
+    )?;
+    let applied = async {
+        // Выключенные игроком моды пакета: по проектам (у новой версии файл
+        // называется иначе) и по именам (файл тот же).
+        let target = crate::catalog::Target::Build { id: build.into() };
+        let disabled: std::collections::HashSet<String> = crate::catalog::installed(data, &target)?
+            .into_iter()
+            .filter(|i| !i.enabled)
+            .map(|i| i.project_id)
+            .collect();
+        let new_files: std::collections::HashSet<String> = pack_files(&index).into_iter().collect();
+        let game_dir = data.instance(build);
+        let mods_dir = game_dir.join(Folder::Mods.dir());
+        let mut disable_again: Vec<String> = Vec::new();
+        for rel in &old.files {
+            let Some(file) = rel.strip_prefix("mods/") else {
+                // Файлы старой версии не из модов, которых в новой нет, — убрать.
+                if !new_files.contains(rel)
+                    && let Ok(path) = safe_path(&game_dir, rel)
+                {
+                    let _ = std::fs::remove_file(path);
+                }
+                continue;
+            };
+            let off = format!("{file}.disabled");
+            if new_files.contains(rel) {
+                // Файл остаётся в новой версии, но игрок его выключил: новая
+                // версия ляжет включённой — убираем выключенный и выключим снова.
+                if mods_dir.join(&off).exists() {
+                    crate::mods::remove(data, build, &off)?;
+                    disable_again.push(file.to_string());
+                }
+                continue;
+            }
+            for name in [file.to_string(), off] {
+                if mods_dir.join(&name).exists() {
+                    crate::mods::remove(data, build, &name)?;
+                }
+            }
+        }
+        builds.set_state(
+            build,
+            &info.game,
+            info.loader,
+            info.loader_version.clone(),
+            instance.pinned_mods.clone(),
+        )?;
+        fill(dl, data, pack, &index, instance, progress).await?;
+        for file in &disable_again {
+            if mods_dir.join(file).exists() {
+                crate::content::set_enabled(&game_dir, Folder::Mods, file, false)?;
+            }
+        }
+        for i in crate::catalog::installed(data, &target)? {
+            let off = mods_dir.join(format!("{}.disabled", i.file));
+            if i.enabled && disabled.contains(&i.project_id) && !off.exists() {
+                crate::content::set_enabled(&game_dir, Folder::Mods, &i.file, false)?;
+            }
+        }
+        let mut origin = origin_of(chosen);
+        origin.title = old.title.clone();
+        origin.files = new_files.into_iter().collect();
+        origin.files.sort();
+        write_origin(&game_dir, &origin)?;
+        builds.get(build)
+    }
+    .await;
+    // Не вышло на полпути — вернуть сборку как была, не оставлять смесь версий.
+    applied.map_err(|e| match crate::snapshots::restore(data, build, &snapshot.id) {
+        Ok(()) => Error::Other(format!("обновление не удалось, сборка возвращена как была: {e}")),
+        Err(r) => Error::Other(format!(
+            "обновление не удалось ({e}), и вернуть сборку не вышло ({r}) — откатите снапшот «перед обновлением» вручную"
+        )),
+    })
 }

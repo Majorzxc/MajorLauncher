@@ -143,6 +143,29 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       return { ...db().builds[0], id: "imported", name: a.request.name, version: a.request.version } as T;
     case "net_online":
       return !url.has("offline") as T;
+    case "updates_list":
+    case "updates_check":
+      if (cmd === "updates_check") await sleep(800);
+      return {
+        list: url.has("updates")
+          ? [{ build: "vyzhivanie", name: "Выживание с друзьями", mods: 3, titles: ["Sodium", "Iris", "Lithium"], pack: null }]
+          : [],
+        checked: now() - 600,
+        running: false,
+      } as T;
+    case "set_updates":
+      saveConfig({ ...config(), updates: a.updates });
+      return config() as T;
+    case "pack_info":
+      return (url.has("updates")
+        ? { origin: { project_id: "p", version_id: "v1", version_number: "1.4.0", title: "Fabulously Optimized" }, update: { version_id: "v2", version_number: "1.5.0", current: "1.4.0", title: "Fabulously Optimized" } }
+        : { origin: null, update: null }) as T;
+    case "pack_update":
+      await sleep(1200);
+      return db().builds[0] as T;
+    case "play_restart":
+    case "play_restart_cancel":
+      return undefined as T;
     case "hardware_info":
       return { ram_total_mb: 16381, ram_free_mb: 9019, cores: 8, cpu: "AMD FX(tm)-8300 Eight-Core Processor", gpus: [{ name: "NVIDIA GeForce RTX 3050", discrete: true, driver: "32.0.16.1088", driver_date: "2026-07-22" }, { name: "ATI Radeon 3000 Graphics", discrete: false, driver: "8.970", driver_date: "2015-01-13" }], laptop: false, power_saver: url.has("saver") } as T;
     case "set_optimize":
@@ -211,6 +234,8 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       return {
         status: url.has("downloading")
           ? { build: "vyzhivanie", phase: "downloading", done: 141 * 1024 * 1024, total: 402 * 1024 * 1024, stage: "Загрузка файлов игры: 312" }
+          : url.has("running")
+            ? { build: "vyzhivanie", phase: "running", done: 0, total: 0 }
           : url.has("starting")
             ? { build: "vyzhivanie", phase: "starting", done: 0, total: 0, stage: "Загрузка модов: 162", since: Date.now() - 14000, expected: url.has("first") ? null : 48 }
             : { build: null, phase: "idle", done: 0, total: 0 },

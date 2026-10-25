@@ -90,6 +90,8 @@ export function busyLabel(id: string): string | null {
       return `Загрузка ${percent(s)}%`;
     case "installing":
       return `Ставим загрузчик ${s.done}/${s.total}`;
+    case "running":
+      return s.restart ? "Перезапуск после выхода" : "Игра запущена";
     case "starting": {
       const p = launchPercent(s);
       return p === null ? "Запуск…" : `Запуск ${p}%`;
@@ -122,11 +124,16 @@ export async function start(id: string, version: string | null = null, force = f
 
 function finished(f: Finished) {
   refresh();
+  if (f.warning) toast(f.warning, { error: true });
   // Об отмене окно уже сказало, когда игрок нажал «Отменить».
   if (f.cancelled) return;
   if (f.crashed) play.crash = f;
   else toast(`Игра закрыта: ${duration(f.seconds)} в «${f.name}»`);
-  if (f.warning) toast(f.warning, { error: true });
+}
+
+/// Перезапуск не начался: в сборке проблемы, которые не дадут игре запуститься.
+function blockedRestart(b: { id: string; issues: ModIssue[] }) {
+  play.blocked = { id: b.id, version: null, issues: b.issues };
 }
 
 export async function connect() {
@@ -136,9 +143,11 @@ export async function connect() {
       tick(e.payload);
     });
     await listen<Finished>("play-finished", (e) => finished(e.payload));
+    await listen<{ id: string; issues: ModIssue[] }>("play-blocked", (e) => blockedRestart(e.payload));
   }
   const s = await api.playStatus();
   play.status = s.status;
   tick(s.status);
   if (s.finished) finished(s.finished);
+  if (s.blocked) blockedRestart(s.blocked);
 }

@@ -10,6 +10,7 @@
   import Icon from "../Icon.svelte";
   import MemoryPicker from "../MemoryPicker.svelte";
   import UpgradeDialog from "../UpgradeDialog.svelte";
+  import PackCard from "../PackCard.svelte";
 
   let { entry }: { entry: Entry } = $props();
   let upgrading = $state(false);
@@ -19,23 +20,22 @@
   api.config().then((c) => (config = c));
   api.systemMemory().then((m) => (memory = m));
 
-  // Черновик: сохраняется кнопкой, чтобы не писать файл на каждое движение ползунка.
+  // Сохраняется сразу при изменении — как общие настройки. Раньше был
+  // черновик с кнопкой «Сохранить» внизу: её не замечали, и выбранная память
+  // молча терялась (замечание автора 25.10.2026).
   const current = $derived<BuildSettings>({
     memory_mb: entry.settings?.memory_mb ?? null,
     jvm_args: entry.settings?.jvm_args ?? null,
     own_options: entry.settings?.own_options ?? false,
     own_servers: entry.settings?.own_servers ?? false,
   });
-  let draft: BuildSettings = $state({ memory_mb: null, jvm_args: null, own_options: false, own_servers: false });
+  // «Свои аргументы JVM»: поле видно сразу, сохраняется, когда его покинули.
+  let customJvm = $state(false);
+  let jvmText = $state("");
   $effect(() => {
-    draft = { ...current };
+    customJvm = current.jvm_args !== null;
+    jvmText = current.jvm_args ?? "";
   });
-  const changed = $derived(
-    draft.memory_mb !== current.memory_mb ||
-      draft.jvm_args !== current.jvm_args ||
-      draft.own_options !== current.own_options ||
-      draft.own_servers !== current.own_servers,
-  );
 
   // Загрузчик меняется отдельной кнопкой: это не мелкая настройка.
   let loader: Loader = $state("vanilla");
@@ -83,16 +83,30 @@
     }
   }
 
-  async function saveSettings() {
-    const ok = await attempt("Настройки сборки", () => api.update(entry.id, { settings: draft }).then(() => true));
+  async function saveSettings(patch: Partial<BuildSettings>, note: string | null = null) {
+    const next = { ...current, ...patch };
+    const ok = await attempt("Настройки сборки", () => api.update(entry.id, { settings: next }).then(() => true));
     if (ok) {
-      toast("Настройки сборки сохранены");
+      if (note) toast(note);
       refresh();
     }
+  }
+
+  function memoryNote(mb: number | null): string {
+    const gb = (v: number) => `${(v / 1024).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} ГБ`;
+    return mb === null
+      ? "Память — как в общих настройках, со следующего запуска"
+      : `Память для «${entry.name}»: ${gb(mb)} — со следующего запуска`;
+  }
+
+  function saveJvm() {
+    const text = jvmText.trim();
+    if (text !== (current.jvm_args ?? "")) saveSettings({ jvm_args: text || null }, "Аргументы JVM сохранены");
   }
 </script>
 
 {#if !entry.quick}
+  {#key entry.id}<PackCard {entry} />{/key}
   <div class="card block">
     <h3>Версия игры: {entry.version}</h3>
     <p class="muted small">
@@ -134,7 +148,7 @@
 <div class="card block">
   <h3>Общее для всех сборок</h3>
   <label class="opt">
-    <input type="checkbox" checked={!draft.own_options} onchange={(e) => (draft.own_options = !e.currentTarget.checked)} />
+    <input type="checkbox" checked={!current.own_options} onchange={(e) => saveSettings({ own_options: !e.currentTarget.checked })} />
     Общие настройки игры
   </label>
   <p class="muted small">
@@ -142,7 +156,7 @@
     <button class="link" onclick={() => openSettings("profile")}>Открыть настройки игры</button>
   </p>
   <label class="opt">
-    <input type="checkbox" checked={!draft.own_servers} onchange={(e) => (draft.own_servers = !e.currentTarget.checked)} />
+    <input type="checkbox" checked={!current.own_servers} onchange={(e) => saveSettings({ own_servers: !e.currentTarget.checked })} />
     Общий список серверов
   </label>
   <p class="muted small">Добавили сервер в одной сборке — он появится во всех.</p>
@@ -151,32 +165,43 @@
 <div class="card block">
   <h3>Память для игры</h3>
   <MemoryPicker
-    value={draft.memory_mb}
+    value={current.memory_mb}
     inherit={inheritMemory}
     total={memory?.total_mb ?? null}
-    onchange={(v) => (draft.memory_mb = v)}
+    onchange={(v) => saveSettings({ memory_mb: v }, memoryNote(v))}
   />
 </div>
 
 <div class="card block">
   <h3>Аргументы JVM</h3>
   <label class="opt">
-    <input type="radio" checked={draft.jvm_args === null} onchange={() => (draft.jvm_args = null)} />
+    <input
+      type="radio"
+      checked={!customJvm}
+      onchange={() => {
+        customJvm = false;
+        if (current.jvm_args !== null) saveSettings({ jvm_args: null }, "Аргументы JVM — как в общих настройках");
+      }}
+    />
     Как в общих настройках{config?.game.jvm_args ? `: ${config.game.jvm_args}` : " (нет)"}
   </label>
   <label class="opt">
-    <input type="radio" checked={draft.jvm_args !== null} onchange={() => (draft.jvm_args = draft.jvm_args ?? "")} />
+    <input type="radio" checked={customJvm} onchange={() => (customJvm = true)} />
     Свои
   </label>
-  {#if draft.jvm_args !== null}
-    <input class="input mono" bind:value={draft.jvm_args} placeholder="-XX:+UseG1GC" spellcheck="false" />
+  {#if customJvm}
+    <input
+      class="input mono"
+      bind:value={jvmText}
+      placeholder="-XX:+UseG1GC"
+      spellcheck="false"
+      onchange={saveJvm}
+      onkeydown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+    />
     <p class="muted small">Через пробел. Неверный аргумент не даст игре запуститься — тогда верните «Как в общих».</p>
   {/if}
 </div>
 
-<div class="buttons">
-  <button class="btn btn-primary" disabled={!changed} onclick={saveSettings}>Сохранить</button>
-</div>
 
 <div class="card block verify">
   <h3>Проверить файлы</h3>

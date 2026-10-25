@@ -1,6 +1,8 @@
 <script lang="ts">
   // Моды сборки (разделы 5.4 и 5.6 ТЗ): что за мод (Modrinth или сведения
   // из jar), предупреждения с кнопками, обновления и закрепление версии.
+  import { play } from "../../lib/play.svelte";
+  import RestartDialog from "../RestartDialog.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { api, type Entry, type ModAction, type ModInfo, type ModsReport } from "../../lib/api";
   import { refresh } from "../../lib/builds.svelte";
@@ -129,6 +131,7 @@
     for (const f of list) out.add(SHORT.find(([re]) => re.test(f.what))?.[1] ?? f.what);
     return [...out].join(", ");
   }
+  let restarting = $state(false);
 </script>
 
 {#if entry.loader === "vanilla"}
@@ -136,6 +139,17 @@
     <Icon name="warning" size={18} />В ванильной сборке моды не загрузятся: выберите загрузчик на вкладке «Настройки».
   </p>
 {/if}
+
+{#if play.status.build === entry.id && play.status.phase === "running"}
+  <p class="running">
+    <Icon name="info" size={18} />
+    <span class="grow">Игра запущена: добавленные и выключенные сейчас моды применятся при следующем запуске.</span>
+    {#if !play.status.restart}
+      <button class="btn btn-sm" onclick={() => (restarting = true)}><Icon name="refresh" size={16} />Перезапустить и вернуться</button>
+    {/if}
+  </p>
+{/if}
+{#if restarting}<RestartDialog onclose={() => (restarting = false)} />{/if}
 
 {#if issues.length}
   <ul class="issues" aria-label="Предупреждения">
@@ -251,6 +265,16 @@
 {/if}
 
 <style>
+  .running {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    margin: 0 0 var(--s3);
+    padding: var(--s2) var(--s3);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    font-size: var(--fs-14);
+  }
   .code {
     text-decoration: underline dotted;
     cursor: help;
