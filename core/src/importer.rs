@@ -26,6 +26,7 @@ pub enum Source {
     Prism,
     Official,
     TLauncher,
+    Legacy,
     CurseForge,
     Modrinth,
     Folder,
@@ -37,6 +38,7 @@ impl Source {
             Source::Prism => "Prism / MultiMC",
             Source::Official => "Официальный лаунчер",
             Source::TLauncher => "TLauncher",
+            Source::Legacy => "Legacy Launcher",
             Source::CurseForge => "CurseForge",
             Source::Modrinth => "Modrinth App",
             Source::Folder => "Папка",
@@ -97,6 +99,11 @@ fn locations() -> Vec<(Source, PathBuf)> {
         ));
         out.push((Source::Official, a.join(".minecraft")));
     }
+    // TLauncher и Legacy Launcher могут держать игру где угодно — папку
+    // берём из их настроек.
+    for dir in launcher_game_dirs() {
+        out.push((Source::Official, dir));
+    }
     if let Some(h) = &home {
         out.push((
             Source::CurseForge,
@@ -109,9 +116,16 @@ fn locations() -> Vec<(Source, PathBuf)> {
 /// Сборки других лаунчеров на этом ПК.
 pub fn scan() -> Vec<Found> {
     let mut out = Vec::new();
+    let mut roots = std::collections::HashSet::new();
     for (source, place) in locations() {
         match source {
-            Source::Official => out.extend(minecraft_root(&place)),
+            Source::Official => {
+                // Одна папка игры могла найтись дважды (настройки и APPDATA).
+                let key = place.display().to_string().to_lowercase();
+                if roots.insert(key.trim_end_matches(['\\', '/']).to_string()) {
+                    out.extend(minecraft_root(&place));
+                }
+            }
             _ => {
                 let Ok(entries) = std::fs::read_dir(&place) else {
                     continue;
@@ -138,7 +152,9 @@ pub fn inspect(path: &Path) -> Result<Vec<Found>> {
     if !path.is_dir() {
         return Err(Error::Other(format!("папки {} нет", path.display())));
     }
-    if path.join("launcher_profiles.json").exists() {
+    // Выбрали папку самого TLauncher или Legacy Launcher — игра в его настройках.
+    let path = &settings_game_dir(path).unwrap_or_else(|| path.to_path_buf());
+    if path.join("launcher_profiles.json").exists() || path.join("versions").is_dir() {
         let found = minecraft_root(path);
         if !found.is_empty() {
             return Ok(found);
@@ -339,24 +355,50 @@ fn modrinth_profile(dir: &Path) -> Option<Found> {
     Some(f)
 }
 
-/// `.minecraft` официального лаунчера или TLauncher: профили из
-/// `launcher_profiles.json`, версия — из `versions/<id>/<id>.json`.
-fn minecraft_root(root: &Path) -> Vec<Found> {
-    let Ok(bytes) = std::fs::read(root.join("launcher_profiles.json")) else {
-        return Vec::new();
-    };
-    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-        return Vec::new();
-    };
-    let tl = root.join("TlauncherProfiles.json").exists()
-        || root.join("tlauncher-2.0.properties").exists();
-    let source = if tl {
+/// Кто хозяин папки игры: TLauncher и Legacy Launcher кладут рядом свои
+/// файлы профилей (Windows не различает регистр — сравниваем имена как есть).
+fn root_source(root: &Path) -> Source {
+    let names: Vec<String> = std::fs::read_dir(root)
+        .map(|d| {
+            d.flatten()
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    if names.iter().any(|n| n == "tlauncher_profiles.json") {
+        Source::Legacy
+    } else if names
+        .iter()
+        .any(|n| n == "TlauncherProfiles.json" || n == "tlauncher-2.0.properties")
+    {
         Source::TLauncher
     } else {
         Source::Official
-    };
+    }
+}
+
+/// `.minecraft` официального лаунчера, TLauncher или Legacy Launcher:
+/// профили из `launcher_profiles.json`, версия — из `versions/<id>/<id>.json`.
+/// У TLauncher и Legacy профилей обычно нет — сборкой считается каждая
+/// установленная версия (папка игры у них общая).
+fn minecraft_root(root: &Path) -> Vec<Found> {
+    let v: serde_json::Value = std::fs::read(root.join("launcher_profiles.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let source = root_source(root);
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    if source != Source::Official {
+        for id in installed_versions(root) {
+            seen.insert((id.clone(), root.to_path_buf()));
+            let (version, loader, loader_version, problem) = resolve_version(root, &id);
+            let mut f = fill(source, id, root, version, loader, loader_version);
+            f.problem = problem;
+            vanilla_shared(&mut f);
+            out.push(f);
+        }
+    }
     for (_, p) in v["profiles"].as_object().into_iter().flatten() {
         let Some(id) = p["lastVersionId"].as_str() else {
             continue;
@@ -380,9 +422,147 @@ fn minecraft_root(root: &Path) -> Vec<Found> {
             .to_string();
         let mut f = fill(source, name, &game, version, loader, loader_version);
         f.problem = problem;
+        if game == root {
+            vanilla_shared(&mut f);
+        }
         out.push(f);
     }
     out
+}
+
+/// Ванильная версия в общей папке: моды там — от версии с загрузчиком, в
+/// ванильную сборку их не переносим (и не показываем).
+fn vanilla_shared(f: &mut Found) {
+    if f.loader == Some(Loader::Vanilla) {
+        f.mods = 0;
+    }
+}
+
+/// Установленные версии лаунчера: папки `versions/<id>` с `<id>.json` и jar.
+fn installed_versions(root: &Path) -> Vec<String> {
+    let mut out: Vec<String> = std::fs::read_dir(root.join("versions"))
+        .map(|d| {
+            d.flatten()
+                .filter_map(|e| {
+                    let id = e.file_name().to_string_lossy().to_string();
+                    let dir = e.path();
+                    (dir.join(format!("{id}.json")).exists()).then_some(id)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out
+}
+
+/// Папки игры TLauncher и Legacy Launcher из их настроек: установленные
+/// программы (реестр Windows) и `%APPDATA%\.tlauncher`.
+fn launcher_game_dirs() -> Vec<PathBuf> {
+    let mut places: Vec<PathBuf> = installed_launchers();
+    if let Some(a) = std::env::var_os("APPDATA") {
+        places.push(PathBuf::from(a).join(".tlauncher"));
+    }
+    places.iter().filter_map(|p| settings_game_dir(p)).collect()
+}
+
+/// Папка игры из настроек лаунчера в папке `dir` (`tl.properties`,
+/// `tlauncher-2.0.properties`, `legacy*.properties`): `minecraft.gamedir`.
+/// Нет настройки — у Legacy Launcher игра по умолчанию в `game` рядом.
+fn settings_game_dir(dir: &Path) -> Option<PathBuf> {
+    let files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            let n = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            n.ends_with(".properties") && (n.starts_with("tl") || n.starts_with("legacy"))
+        })
+        .collect();
+    for f in &files {
+        let text = std::fs::read_to_string(f).unwrap_or_default();
+        if let Some(raw) = text
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("minecraft.gamedir="))
+        {
+            let path = PathBuf::from(unescape_properties(raw.trim()));
+            if path.is_dir() {
+                return Some(path);
+            }
+        }
+    }
+    let game = dir.join("game");
+    (!files.is_empty() && game.join("versions").is_dir()).then_some(game)
+}
+
+/// Значение из Java `.properties`: `D\:\\Minecraft\\game` → `D:\Minecraft\game`.
+fn unescape_properties(raw: &str) -> String {
+    let mut out = String::new();
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some(other) => out.push(other),
+                None => {}
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Папки установленных TLauncher и Legacy Launcher — из записей об
+/// установке программ в реестре Windows.
+#[cfg(windows)]
+fn installed_launchers() -> Vec<PathBuf> {
+    use winreg::RegKey;
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
+    let mut out = Vec::new();
+    let roots = [
+        (
+            HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+    ];
+    for (hive, path) in roots {
+        let Ok(list) = RegKey::predef(hive).open_subkey_with_flags(path, KEY_READ) else {
+            continue;
+        };
+        for name in list.enum_keys().flatten() {
+            let Ok(app) = list.open_subkey_with_flags(&name, KEY_READ) else {
+                continue;
+            };
+            let title: String = app.get_value("DisplayName").unwrap_or_default();
+            let lower = title.to_lowercase();
+            if !(lower.contains("legacy launcher") || lower.contains("tlauncher")) {
+                continue;
+            }
+            let place: String = app.get_value("InstallLocation").unwrap_or_default();
+            let place = place.trim().trim_matches('"');
+            if !place.is_empty() {
+                out.push(PathBuf::from(place));
+            }
+        }
+    }
+    out
+}
+
+#[cfg(not(windows))]
+fn installed_launchers() -> Vec<PathBuf> {
+    Vec::new()
 }
 
 type Resolved = (
@@ -400,10 +580,13 @@ fn resolve_version(root: &Path, id: &str) -> Resolved {
         .ok()
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
     {
+        // Версия игры: от какой унаследована, или чей jar (так пишут TLauncher
+        // и Legacy Launcher: «Fabric 1.21.10» с `"jar": "1.21.10"`), иначе сама.
         let game = v["inheritsFrom"]
             .as_str()
-            .map(str::to_string)
-            .or_else(|| v["id"].as_str().map(str::to_string));
+            .or_else(|| v["jar"].as_str())
+            .or_else(|| v["id"].as_str())
+            .map(str::to_string);
         for lib in v["libraries"].as_array().into_iter().flatten() {
             let name = lib["name"].as_str().unwrap_or("");
             let mut parts = name.split(':');
@@ -426,7 +609,7 @@ fn resolve_version(root: &Path, id: &str) -> Resolved {
                 _ => {}
             }
         }
-        if v["inheritsFrom"].is_null() {
+        if v["inheritsFrom"].is_null() && v["jar"].is_null() {
             return (game, Some(Loader::Vanilla), None, None);
         }
     }
@@ -566,19 +749,11 @@ const SKIP_ROOT: &[&str] = &[
     "bin",
     "resources",
     "home",
-    "launcher_accounts.json",
-    "launcher_accounts_microsoft_store.json",
-    "launcher_profiles.json",
-    "launcher_profiles_microsoft_store.json",
-    "launcher_settings.json",
-    "launcher_ui_state.json",
-    "launcher_entitlements.json",
-    "launcher_product_state.json",
-    "launcher_msa_credentials.bin",
-    "launcher_log.txt",
-    "launcher_cef_log.txt",
+    "server-resource-packs",
     "treatment_tags.json",
-    "TlauncherProfiles.json",
+    // Профили TLauncher и Legacy хранят токены входа — их не переносим.
+    "tlauncherprofiles.json",
+    "tlauncher_profiles.json",
     "tlauncher-2.0.properties",
     "usercache.json",
     "usernamecache.json",
@@ -628,17 +803,15 @@ pub async fn import(
         None,
     )?;
     let to = data.instance(&new.id);
-    let is_root = game.join("launcher_profiles.json").exists();
+    // Общая папка игры лаунчера (в ней ещё версии, библиотеки, ассеты).
+    let is_root = game.join("launcher_profiles.json").exists()
+        || game.join("versions").is_dir()
+        || game.join("libraries").is_dir();
     let result = async {
         let entries: Vec<_> = std::fs::read_dir(&game).at(&game)?.flatten().collect();
         for e in entries {
             let name = e.file_name().to_string_lossy().to_string();
-            let lower = name.to_lowercase();
-            if SKIP.contains(&name.as_str())
-                || (is_root && SKIP_ROOT.contains(&name.as_str()))
-                || lower.ends_with(".log")
-                || (name == "saves" && !req.worlds)
-            {
+            if skipped(&name, is_root, req.worlds, req.loader) {
                 continue;
             }
             stage(&format!("Копируем {name}"));
@@ -663,6 +836,19 @@ pub async fn import(
             Err(e)
         }
     }
+}
+
+/// Не переносить: журналы, кэши, служебные файлы и токены чужого лаунчера;
+/// миры — если игрок не просил; моды — в ванильную сборку из общей папки.
+fn skipped(name: &str, is_root: bool, worlds: bool, loader: Loader) -> bool {
+    let lower = name.to_lowercase();
+    SKIP.contains(&lower.as_str())
+        // Служебные файлы официального лаунчера (аккаунты, настройки,
+        // журналы) — все начинаются с «launcher_».
+        || (is_root && (SKIP_ROOT.contains(&lower.as_str()) || lower.starts_with("launcher_")))
+        || lower.ends_with(".log")
+        || (lower == "saves" && !worlds)
+        || (lower == "mods" && loader == Loader::Vanilla && is_root)
 }
 
 /// Копия дерева. Уже лежащий тот же файл (ресурспак из библиотеки) не трогаем.
@@ -768,8 +954,94 @@ mod tests {
         assert_eq!(resolve_version(&m, "1.12.2").1, Some(Loader::Vanilla));
         assert_eq!(resolve_version(&m, "Мой профиль").1, None);
 
+        // Legacy Launcher: папка игры в настройках, версии без профилей,
+        // у Fabric-версии вместо inheritsFrom — поле jar.
+        let ll = root.path().join("LL");
+        let game = ll.join("game");
+        let fab = "Fabric 1.21.10";
+        std::fs::create_dir_all(game.join("versions").join(fab)).unwrap();
+        std::fs::create_dir_all(game.join("versions/1.21.4")).unwrap();
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/sodium.jar"), b"x").unwrap();
+        std::fs::write(
+            game.join("versions").join(fab).join(format!("{fab}.json")),
+            r#"{"id":"Fabric 1.21.10","jar":"1.21.10","libraries":[{"name":"net.fabricmc:fabric-loader:0.19.5"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            game.join("versions/1.21.4/1.21.4.json"),
+            r#"{"id":"1.21.4"}"#,
+        )
+        .unwrap();
+        std::fs::write(game.join("launcher_profiles.json"), r#"{"profiles":{}}"#).unwrap();
+        std::fs::write(game.join("tlauncher_profiles.json"), "{}").unwrap();
+        std::fs::write(
+            ll.join("tl.properties"),
+            format!(
+                "minecraft.gamedir={}\n",
+                game.display()
+                    .to_string()
+                    .replace('\\', "\\\\")
+                    .replace(':', "\\:")
+            ),
+        )
+        .unwrap();
+        assert_eq!(settings_game_dir(&ll).as_deref(), Some(game.as_path()));
+        let list = inspect(&ll).unwrap();
+        assert_eq!(list.len(), 2, "{list:?}");
+        let fabric = list.iter().find(|f| f.name == fab).unwrap();
+        assert_eq!(fabric.source, Source::Legacy);
+        assert_eq!(fabric.version.as_deref(), Some("1.21.10"));
+        assert_eq!(
+            (fabric.loader, fabric.loader_version.as_deref()),
+            (Some(Loader::Fabric), Some("0.19.5"))
+        );
+        assert_eq!(fabric.mods, 1);
+        let vanilla = list.iter().find(|f| f.name == "1.21.4").unwrap();
+        assert_eq!((vanilla.loader, vanilla.mods), (Some(Loader::Vanilla), 0));
+        assert_eq!(
+            unescape_properties(r"D\:\\Minecraft\\game"),
+            r"D:\Minecraft\game"
+        );
+
         // Просто папка: нет ни mods, ни saves — не сборка.
         assert!(inspect(root.path()).is_err());
+    }
+
+    #[test]
+    fn never_copies_launcher_secrets() {
+        let f = Loader::Fabric;
+        for name in [
+            "tlauncher_profiles.json",
+            "TlauncherProfiles.json",
+            "launcher_accounts.json",
+            "launcher_msa_credentials.bin",
+            "versions",
+            "Libraries",
+            "logs",
+            "latest.log",
+        ] {
+            assert!(skipped(name, true, true, f), "{name}");
+        }
+        for name in [
+            "mods",
+            "config",
+            "saves",
+            "options.txt",
+            "servers.dat",
+            "schematics",
+        ] {
+            assert!(!skipped(name, true, true, f), "{name}");
+        }
+        assert!(skipped("saves", true, false, f), "миры — по галочке");
+        assert!(
+            skipped("mods", true, true, Loader::Vanilla),
+            "ванилле моды из общей папки не нужны"
+        );
+        assert!(
+            !skipped("mods", false, true, Loader::Vanilla),
+            "папку сборки переносим целиком"
+        );
     }
 
     #[test]

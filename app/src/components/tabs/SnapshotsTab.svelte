@@ -191,8 +191,9 @@
     padding: 0;
     border: 0;
     background: none;
-    color: var(--accent);
+    color: var(--text);
     font: inherit;
+    text-decoration: underline;
     cursor: pointer;
   }
   .diff {

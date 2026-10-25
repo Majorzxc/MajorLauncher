@@ -2,6 +2,8 @@
   import ContextMenu, { type MenuItem } from "../components/ContextMenu.svelte";
   import BuildTile from "../components/BuildTile.svelte";
   import EditBuild from "../components/EditBuild.svelte";
+  import ExportDialog from "../components/ExportDialog.svelte";
+  import UpgradeDialog from "../components/UpgradeDialog.svelte";
   import ImportPack from "../components/ImportPack.svelte";
   import ImportLauncher from "../components/ImportLauncher.svelte";
   import Icon from "../components/Icon.svelte";
@@ -32,6 +34,8 @@
 
   let menu: { x: number; y: number; items: MenuItem[]; anchor?: Element } | null = $state(null);
   let editing: Entry | null = $state(null);
+  let exporting = $state<Entry | null>(null);
+  let upgrading = $state<Entry | null>(null);
   let creating = $state(false);
   let importer = $state<ImportPack | null>(null);
   let importing = $state(false);
@@ -115,8 +119,9 @@
         { label: "Редактировать", icon: "edit", onclick: () => (editing = b) },
         { label: "Открыть папку", icon: "folder", onclick: () => attempt("Папка", () => api.openFolder(b.id)) },
         { label: "Копировать", icon: "copy", onclick: () => duplicate(b) },
-        { label: "Экспорт", icon: "export", hint: "этап 6" },
-        { label: "Снапшот", icon: "snapshot", hint: "этап 6" },
+        { label: "Экспорт в .mrpack…", icon: "export", onclick: () => (exporting = b) },
+        { label: "Снапшоты", icon: "snapshot", onclick: () => openBuild(b.id, "snapshots") },
+        { label: "Перевести на другую версию…", icon: "refresh", onclick: () => (upgrading = b) },
         {
           label: b.pinned ? "Открепить" : "Закрепить",
           icon: "pin",
@@ -378,6 +383,8 @@
 
 {#if menu}<ContextMenu {...menu} onclose={() => (menu = null)} />{/if}
 {#if editing}<EditBuild entry={editing} onclose={() => (editing = null)} />{/if}
+{#if exporting}<ExportDialog entry={exporting} onclose={() => (exporting = null)} />{/if}
+{#if upgrading}<UpgradeDialog entry={upgrading} onclose={() => (upgrading = null)} />{/if}
 {#if creating}
   <Wizard
     onclose={() => (creating = false)}

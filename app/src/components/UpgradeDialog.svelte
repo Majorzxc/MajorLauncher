@@ -182,8 +182,9 @@
           которым они нужны, могут не запуститься — лаунчер предупредит на вкладке «Моды».
         </p>
       {/if}
-      <button class="link small" onclick={() => (showAll = !showAll)}>
-        {showAll ? "Скрыть список модов" : "Все моды: что во что обновится"}
+      <button class="btn btn-sm toggle" aria-expanded={showAll} onclick={() => (showAll = !showAll)}>
+        <span class="chev" class:open={showAll}><Icon name="chevron-right" size={16} /></span>
+        {showAll ? "Скрыть список модов" : `Все моды: что во что обновится (${plan.mods.length})`}
       </button>
       {#if showAll}
         <ul class="list all small">
@@ -404,13 +405,15 @@
     margin: 0 0 var(--s3);
     padding-left: var(--s5);
   }
-  .link {
+  .toggle {
     margin-bottom: var(--s3);
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent);
-    cursor: pointer;
+  }
+  .chev {
+    display: inline-flex;
+    transition: transform 0.15s;
+  }
+  .chev.open {
+    transform: rotate(90deg);
   }
   .back {
     margin-right: auto;
