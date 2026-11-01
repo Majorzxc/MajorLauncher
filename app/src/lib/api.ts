@@ -18,6 +18,53 @@ export interface Config {
   catalog?: CatalogSettings;
   optimize?: OptimizeSettings;
   updates?: UpdateSettings;
+  ai?: AiSettings;
+}
+
+/// Сервис ИИ-разбора.
+export type AiProvider = "anthropic" | "openai" | "gemini" | "openrouter" | "ollama" | "lmstudio" | "custom";
+
+/// «Настройки → ИИ-разбор».
+export interface AiSettings {
+  enabled: boolean;
+  provider: AiProvider;
+  /// Пусто — модель по умолчанию (есть только у Claude).
+  model: string;
+  /// Пусто — адрес сервиса по умолчанию.
+  url: string;
+  preview: boolean;
+  auto_unknown: boolean;
+  auto_critical: boolean;
+  auto_warnings: boolean;
+  daily_limit: number;
+}
+
+/// Ответ ИИ.
+export interface AiAnswer {
+  at: number;
+  /// «Claude · claude-opus-5-5».
+  by: string;
+  /// Markdown.
+  text: string;
+  truncated: boolean;
+  /// Спросил сам лаунчер после игры.
+  auto: boolean;
+}
+
+/// Что уйдёт в сервис.
+export interface AiPrepared {
+  text: string;
+  bytes: number;
+  tokens: number;
+  to: string;
+}
+
+/// Разбор последней игры сборки.
+export interface ProblemSession {
+  at: number;
+  analysis: Analysis;
+  crashed?: boolean;
+  ai?: AiAnswer | null;
 }
 
 /// «Настройки → Обновления».
@@ -554,6 +601,8 @@ export interface Finished {
   rollback?: { id: string; reason: string; created: number } | null;
   /// Разбор анализатора ошибок.
   analysis?: Analysis | null;
+  /// Лаунчер сам спросил ИИ — ответ придёт событием «ai-answer».
+  ai_auto?: boolean;
 }
 
 /// Находка анализатора ошибок.
@@ -698,11 +747,18 @@ export const api = {
   modsPin: (id: string, project: string, pinned: boolean) => call<Instance>("mods_pin", { id, project, pinned }),
   worldsCheck: (id: string, version: string | null) => call<RiskyWorld[]>("worlds_check", { id, version }),
   playCancel: () => call<void>("play_cancel"),
-  problemsLast: (id: string) => call<{ at: number; analysis: Analysis } | null>("problems_last", { id }),
+  problemsLast: (id: string) => call<ProblemSession | null>("problems_last", { id }),
   problemsCounts: () => call<Record<string, number>>("problems_counts"),
   analyzeLog: (id: string, file: string) => call<Analysis>("analyze_log", { id, file }),
   openDriverPage: () => call<void>("open_driver_page"),
   rulesInfo: () => call<[number, boolean]>("rules_info"),
+  setAi: (ai: AiSettings) => call<Config>("set_ai", { ai }),
+  aiKeys: () => call<AiProvider[]>("ai_keys"),
+  aiSetKey: (provider: AiProvider, key: string) => call<void>("ai_set_key", { provider, key }),
+  aiModels: (ai: AiSettings) => call<string[]>("ai_models", { ai }),
+  aiUsedToday: () => call<number>("ai_used_today"),
+  aiPreview: (build: string, file: string | null) => call<AiPrepared>("ai_preview", { build, file }),
+  aiAsk: (build: string, file: string | null, text: string | null) => call<AiAnswer>("ai_ask", { build, file, text }),
   updatesList: () => call<{ list: BuildUpdates[]; checked: number | null; running: boolean }>("updates_list"),
   updatesCheck: () => call<{ list: BuildUpdates[]; checked: number | null; running: boolean }>("updates_check"),
   setUpdates: (updates: UpdateSettings) => call<Config>("set_updates", { updates }),

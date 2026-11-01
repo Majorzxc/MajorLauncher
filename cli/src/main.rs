@@ -80,6 +80,8 @@ enum Command {
         #[arg(long)]
         key: Option<std::path::PathBuf>,
     },
+    /// Очистить файл от личных данных так же, как перед ИИ-разбором.
+    Sanitize { file: std::path::PathBuf },
     /// Разбор лога сборки анализатором ошибок (этап 7): `latest.log` и
     /// последний отчёт о падении; `--crash` — считать, что игра упала.
     Analyze {
@@ -88,6 +90,9 @@ enum Command {
         log: Option<std::path::PathBuf>,
         #[arg(long)]
         crash: bool,
+        /// Показать текст для ИИ-разбора (лог из `logs/`) — уже очищенный.
+        #[arg(long)]
+        ai: Option<String>,
     },
     /// Сборки других лаунчеров на этом ПК; `--guess` — угадать версию по модам.
     Others {
@@ -358,7 +363,29 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                 }
             }
         }
-        Command::Analyze { build, log, crash } => {
+        Command::Sanitize { file } => {
+            let text = std::fs::read(&file).map_err(|e| Error::Other(e.to_string()))?;
+            let private = majorlauncher_core::ai::private(&data);
+            print!(
+                "{}",
+                majorlauncher_core::ai::sanitize(&String::from_utf8_lossy(&text), &private)
+            );
+        }
+        Command::Analyze {
+            ai: Some(file),
+            build,
+            ..
+        } => {
+            let text = majorlauncher_core::ai::gather(&dl, &data, &build, Some(&file)).await?;
+            println!(
+                "{text}
+--- {} байт",
+                text.len()
+            );
+        }
+        Command::Analyze {
+            build, log, crash, ..
+        } => {
             use majorlauncher_core::analyzer::{self, Analyzer};
             let game = data.instance(&build);
             let log = log.unwrap_or_else(|| game.join("logs").join("latest.log"));

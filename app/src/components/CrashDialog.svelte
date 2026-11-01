@@ -8,6 +8,7 @@
   import { ago, plural } from "../lib/format";
   import { attempt, toast } from "../lib/toast.svelte";
   import AnalysisView from "./AnalysisView.svelte";
+  import AiPanel from "./AiPanel.svelte";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
 
@@ -34,6 +35,7 @@
   {#if info.analysis}
     <AnalysisView build={info.build} analysis={info.analysis} warnings={false} onaction={onclose} />
   {/if}
+  <AiPanel build={info.build} pending={info.ai_auto ?? false} onleave={onclose} />
   {#if info.tail.length}
     <button class="btn btn-sm btn-quiet tail-btn" onclick={() => (tail = !tail)}>
       {tail ? "Скрыть последние строки" : "Последние строки вывода игры"}

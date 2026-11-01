@@ -9,6 +9,7 @@
 //! [`game`] запускает сборку и следит за игрой, [`playtime`] ведёт статистику.
 
 pub mod account;
+pub mod ai;
 pub mod analyzer;
 pub mod builds;
 pub mod cancel;

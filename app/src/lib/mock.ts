@@ -159,6 +159,40 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       if (cmd === "analyze_log") return analysis as T;
       return (url.has("problems") ? { at: now() - 3600, analysis } : null) as T;
     }
+    case "set_ai":
+      saveConfig({ ...config(), ai: a.ai });
+      return config() as T;
+    case "ai_keys":
+      return JSON.parse(localStorage.getItem("mock-ai-keys") ?? "[]") as T;
+    case "ai_set_key": {
+      const keys: string[] = JSON.parse(localStorage.getItem("mock-ai-keys") ?? "[]");
+      const next = keys.filter((k) => k !== a.provider);
+      if (a.key.trim()) next.push(a.provider);
+      localStorage.setItem("mock-ai-keys", JSON.stringify(next));
+      return undefined as T;
+    }
+    case "ai_models":
+      await sleep(500);
+      return (a.ai.provider === "anthropic" ? ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] : ["llama3.1:8b", "qwen2.5:14b"]) as T;
+    case "ai_used_today":
+      return 1 as T;
+    case "ai_preview":
+      await sleep(300);
+      return {
+        text: "## Сборка\nMinecraft 1.21.1, Fabric 0.16.9. Модов включено: 42.\nИгра закрылась с ошибкой.\n\n## Разбор лаунчера\nВстроенные правила ничего не узнали.\n\n## Лог игры (выдержка)\n```\n[main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.16.9\n[main/INFO]: Setting user: <player>\nC:\\Users\\<user>\\AppData\\Roaming\n…\n[Render thread/ERROR]: Unreported exception thrown!\njava.lang.IllegalStateException: boom\n```",
+        bytes: 24_300,
+        tokens: 6_075,
+        to: "Claude · claude-opus-5-5",
+      } as T;
+    case "ai_ask":
+      await sleep(1500);
+      return {
+        at: now(),
+        by: "Claude · claude-opus-5-5",
+        text: "1. **Что случилось** — игра упала при загрузке мира.\n2. **Причина** — мод **Roughly Enough Items** обратился к ещё не загруженному предмету:\n   `java.lang.NullPointerException: Cannot invoke x`\n3. **Что сделать**\n   - Обновите Roughly Enough Items во вкладке «Моды».\n   - Если не поможет — выключите его и запустите снова.",
+        truncated: false,
+        auto: false,
+      } as T;
     case "updates_list":
     case "updates_check":
       if (cmd === "updates_check") await sleep(800);

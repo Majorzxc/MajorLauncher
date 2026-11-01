@@ -6,6 +6,7 @@
 //! (что скачать, что запустить, какой цвет допустим) принимает ядро.
 
 mod accounts;
+mod ai;
 mod analyzer;
 mod builds;
 mod catalog;
@@ -330,6 +331,13 @@ fn main() {
             analyzer::analyze_log,
             analyzer::open_driver_page,
             analyzer::rules_info,
+            ai::set_ai,
+            ai::ai_keys,
+            ai::ai_set_key,
+            ai::ai_models,
+            ai::ai_used_today,
+            ai::ai_preview,
+            ai::ai_ask,
             tasks::tasks_list,
             content::build_screenshot_full,
             content::build_trash_screenshot,

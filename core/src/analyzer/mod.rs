@@ -992,6 +992,12 @@ pub struct Session {
     /// Секунды с 1970 года — когда закончилась игра.
     pub at: u64,
     pub analysis: Analysis,
+    /// Игра упала (а не закрылась сама).
+    #[serde(default)]
+    pub crashed: bool,
+    /// Ответ ИИ-разбора по этой игре.
+    #[serde(default)]
+    pub ai: Option<crate::ai::Answer>,
 }
 
 fn session_path(data: &crate::paths::DataDir, build: &str) -> Option<PathBuf> {
@@ -1000,18 +1006,35 @@ fn session_path(data: &crate::paths::DataDir, build: &str) -> Option<PathBuf> {
         .then(|| data.cache().join("problems").join(format!("{build}.json")))
 }
 
-pub fn save_session(data: &crate::paths::DataDir, build: &str, analysis: &Analysis) {
+pub fn save_session(data: &crate::paths::DataDir, build: &str, analysis: &Analysis, crashed: bool) {
+    write_session(
+        data,
+        build,
+        &Session {
+            at: crate::builds::now(),
+            analysis: analysis.clone(),
+            crashed,
+            ai: None,
+        },
+    );
+}
+
+/// Запомнить ответ ИИ у последней игры.
+pub fn save_answer(data: &crate::paths::DataDir, build: &str, answer: &crate::ai::Answer) {
+    if let Some(mut s) = last_session(data, build) {
+        s.ai = Some(answer.clone());
+        write_session(data, build, &s);
+    }
+}
+
+fn write_session(data: &crate::paths::DataDir, build: &str, session: &Session) {
     let Some(path) = session_path(data, build) else {
         return;
-    };
-    let session = Session {
-        at: crate::builds::now(),
-        analysis: analysis.clone(),
     };
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(&path, serde_json::to_vec(&session).expect("сериализуется"));
+    let _ = std::fs::write(&path, serde_json::to_vec(session).expect("сериализуется"));
 }
 
 pub fn last_session(data: &crate::paths::DataDir, build: &str) -> Option<Session> {

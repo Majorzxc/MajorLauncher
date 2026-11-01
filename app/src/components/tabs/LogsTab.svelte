@@ -1,8 +1,9 @@
 <script lang="ts">
   // Логи игры и краш-отчёты; сверху — разбор последней игры анализатором,
   // у каждого лога — «Разобрать».
-  import { api, type Analysis, type LogFile } from "../../lib/api";
+  import { api, type Analysis, type LogFile, type ProblemSession } from "../../lib/api";
   import AnalysisView from "../AnalysisView.svelte";
+  import AiPanel from "../AiPanel.svelte";
   import Modal from "../Modal.svelte";
   import { ago, size } from "../../lib/format";
   import { attempt } from "../../lib/toast.svelte";
@@ -22,7 +23,7 @@
       .catch((e) => (error = String(e)));
   });
 
-  let last = $state<{ at: number; analysis: Analysis } | null>(null);
+  let last = $state<ProblemSession | null>(null);
   $effect(() => {
     api.problemsLast(id).then((s) => (last = s)).catch(() => {});
   });
@@ -49,6 +50,7 @@
       <span class="muted small">{lastCount ? `проблем: ${lastCount}` : "проблем не найдено"}</span>
     </h3>
     {#if lastCount}<AnalysisView build={id} analysis={last.analysis} />{/if}
+    {#if lastCount || last.crashed || last.ai}<AiPanel build={id} answer={last.ai ?? null} />{/if}
   </div>
 {/if}
 <div class="bar">
@@ -90,6 +92,7 @@
     {:else}
       <p class="muted">Анализатор ничего не нашёл: в этом логе только обычный шум модов.</p>
     {/if}
+    <AiPanel build={id} file={c.file} onleave={() => (checked = null)} />
   </Modal>
 {/if}
 

@@ -173,6 +173,9 @@ pub struct Config {
     /// Фоновые обновления (раздел 5.13 ТЗ).
     #[serde(default)]
     pub updates: crate::updates::UpdateSettings,
+    /// ИИ-разбор ошибок (раздел 5.8 ТЗ); ключи — в хранилище Windows.
+    #[serde(default)]
+    pub ai: crate::ai::AiSettings,
 }
 
 pub struct ConfigStore {
@@ -249,6 +252,11 @@ impl ConfigStore {
 
     pub fn set_updates(&mut self, updates: crate::updates::UpdateSettings) -> Result<()> {
         self.config.updates = updates;
+        self.save()
+    }
+
+    pub fn set_ai(&mut self, ai: crate::ai::AiSettings) -> Result<()> {
+        self.config.ai = ai;
         self.save()
     }
 

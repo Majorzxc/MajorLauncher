@@ -78,6 +78,8 @@ pub struct Finished {
     rollback: Option<Hint>,
     /// Разбор анализатора ошибок: что случилось, кто виноват, что сделать.
     analysis: Option<Analysis>,
+    /// Лаунчер сам спросил ИИ — ответ придёт событием `ai-answer`.
+    ai_auto: bool,
 }
 
 #[derive(Default)]
@@ -568,6 +570,7 @@ fn watch(
             streak: 0,
             rollback: None,
             analysis: None,
+            ai_auto: false,
         },
         Ok(o) => {
             let stats = Stats::new(&data)
@@ -605,6 +608,7 @@ fn watch(
                 streak: streak.crashes,
                 rollback,
                 analysis: None,
+                ai_auto: false,
             }
         }
         Err(e) => Finished {
@@ -620,6 +624,7 @@ fn watch(
             streak: 0,
             rollback: None,
             analysis: None,
+            ai_auto: false,
         },
     };
     if !finished.cancelled {
@@ -630,7 +635,8 @@ fn watch(
             tauri::async_runtime::block_on(analyzer::index(&state.http, &data, &instance.id))
         };
         let analysis = analyzer.finish(finished.crashed, report.as_ref(), &index);
-        analyzer::save_session(&data, &instance.id, &analysis);
+        analyzer::save_session(&data, &instance.id, &analysis, finished.crashed);
+        finished.ai_auto = crate::ai::auto(&app, &data, &instance.id, &analysis, finished.crashed);
         finished.analysis = Some(analysis);
     }
 
@@ -665,6 +671,7 @@ fn watch(
                         streak: 0,
                         rollback: None,
                         analysis: None,
+                        ai_auto: false,
                     });
                     show(&app);
                 }

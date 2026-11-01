@@ -15,6 +15,7 @@
   import { connectTasks, running, share, tasks } from "./lib/tasks.svelte";
   import { connectUpdates } from "./lib/updates.svelte";
   import { loadProblems } from "./lib/problems.svelte";
+  import { connectAi } from "./lib/ai.svelte";
   import PlanDialog from "./components/catalog/PlanDialog.svelte";
   import { catalog } from "./lib/catalog.svelte";
   import { cropper, finish } from "./lib/crop.svelte";
@@ -55,6 +56,7 @@
     ready = true;
     connectTasks();
     connectUpdates();
+    connectAi();
     loadProblems();
     if (!needsDataDir && !missingDir) connect();
   });
