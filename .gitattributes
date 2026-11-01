@@ -3,3 +3,5 @@
 *.png binary
 *.ico binary
 *.icns binary
+# Правила анализатора подписаны побайтно: без замены переводов строк.
+rules/* -text
