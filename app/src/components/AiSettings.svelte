@@ -122,12 +122,17 @@
   async function loadModels() {
     if (!opts) return;
     loadingModels = true;
-    const list = await attempt("Модели", () => api.aiModels(opts!));
+    const found = await attempt("Модели", () => api.aiModels(opts!));
     loadingModels = false;
-    if (list) {
-      models = list;
-      toast(list.length ? `Сервис отвечает, моделей: ${list.length}` : "Сервис отвечает, но моделей не назвал");
-    }
+    if (!found) return;
+    models = found.list;
+    // API нашёлся по другому адресу (с /v1 на конце) — запомнить его.
+    const fixed = opts.provider === "custom" && found.url.replace(/\/$/, "") !== opts.url.replace(/\/$/, "");
+    if (fixed) await save({ url: found.url });
+    toast(
+      (fixed ? `Адрес API исправлен на ${found.url}. ` : "") +
+        (found.list.length ? `Сервис отвечает, моделей: ${found.list.length}` : "Сервис отвечает, но моделей не назвал"),
+    );
   }
 
   function link(url: string) {

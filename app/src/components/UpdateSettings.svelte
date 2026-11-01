@@ -64,14 +64,17 @@
 
   <div class="card block">
     <div class="row">
-      <span class="grow muted small">
-        {updates.running
-          ? "Проверяю…"
-          : updates.checked
-            ? `Последняя проверка — ${checkedAt(updates.checked)}`
-            : "Ещё не проверялось с запуска лаунчера"}
+      <!-- Две строки друг под другом: в одну они не помещались и обрезались. -->
+      <span class="status muted small">
+        <span>
+          {updates.running
+            ? "Проверяю…"
+            : updates.checked
+              ? `Последняя проверка — ${checkedAt(updates.checked)}`
+              : "Ещё не проверялось с запуска лаунчера"}
+        </span>
+        {#if rules}<span>Правила разбора ошибок: версия {rules[0]}{rules[1] ? " с GitHub" : ", встроенные"}</span>{/if}
       </span>
-      {#if rules}<span class="muted small">Правила разбора ошибок: версия {rules[0]}{rules[1] ? " с GitHub" : ", встроенные"}</span>{/if}
       <button class="btn btn-sm" disabled={updates.running} onclick={checkNow}><Icon name="refresh" size={16} />Проверить сейчас</button>
     </div>
     {#if updates.list.length}
@@ -133,6 +136,12 @@
   .grow {
     flex: 1;
     min-width: 0;
+  }
+  .status {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
   }
   .found {
     margin: 0;

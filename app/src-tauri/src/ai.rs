@@ -65,7 +65,7 @@ pub async fn ai_set_key(provider: Provider, key: String) -> CmdResult<()> {
 
 /// Модели сервиса — заодно проверка адреса и ключа (бесплатно).
 #[tauri::command]
-pub async fn ai_models(ai: AiSettings) -> CmdResult<Vec<String>> {
+pub async fn ai_models(ai: AiSettings) -> CmdResult<ai::Models> {
     let provider = ai.provider;
     let key = blocking(move || Ok(key_of(provider))).await?;
     ai::models(&ai, key.as_deref()).await.map_err(text)

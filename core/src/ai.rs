@@ -775,28 +775,68 @@ fn network_error(settings: &AiSettings, e: reqwest::Error) -> Error {
     Error::Other(format!("{name}: нет связи с {} ({e})", settings.url()))
 }
 
+/// Адреса, по которым пробовать API: как указал игрок, а если там не API
+/// (веб-страница сайта, 404) — с `/v1` на конце. Многие пишут адрес сайта
+/// без `/v1` — так было у автора с api.autorouter.top.
+fn bases(settings: &AiSettings) -> Vec<String> {
+    let url = settings.url();
+    if url.ends_with("/v1") || settings.provider != Provider::Custom {
+        vec![url]
+    } else {
+        vec![url.clone(), format!("{url}/v1")]
+    }
+}
+
+/// Запрос к API: `body` — POST с JSON, без него — GET. Возвращает ответ и
+/// адрес, по которому API нашёлся.
+async fn call(
+    settings: &AiSettings,
+    key: Option<&str>,
+    path: &str,
+    body: Option<&Value>,
+) -> Result<(Value, String)> {
+    let client = client()?;
+    let bases = bases(settings);
+    let mut not_api = None;
+    for (i, base) in bases.iter().enumerate() {
+        let url = format!("{base}{path}");
+        let mut req = match body {
+            Some(b) => client.post(&url).json(b),
+            None => client.get(&url),
+        };
+        req = auth(req, settings, key);
+        if settings.provider == Provider::OpenRouter {
+            req = req
+                .header("HTTP-Referer", "https://github.com/Majorzxc/MajorLauncher")
+                .header("X-Title", "MajorLauncher");
+        }
+        let resp = req.send().await.map_err(|e| network_error(settings, e))?;
+        let status = resp.status().as_u16();
+        let bytes = resp.bytes().await.map_err(|e| network_error(settings, e))?;
+        let json = serde_json::from_slice::<Value>(&bytes).ok();
+        let last = i + 1 == bases.len();
+        // Не API (страница сайта или нет такого пути) — следующий адрес.
+        if !last && (json.is_none() || matches!(status, 404 | 405)) {
+            not_api = Some(base.clone());
+            continue;
+        }
+        if !(200..300).contains(&status) {
+            return Err(service_error(settings, status, &bytes));
+        }
+        return match json {
+            Some(v) => Ok((v, base.clone())),
+            None => Err(Error::Other(format!(
+                "{}: по адресу {} отвечает веб-страница, а не API — проверьте адрес в настройках (обычно он заканчивается на /v1)",
+                settings.provider.title(),
+                not_api.unwrap_or_else(|| base.clone()),
+            ))),
+        };
+    }
+    unreachable!("хотя бы один адрес")
+}
+
 async fn post(settings: &AiSettings, key: Option<&str>, path: &str, body: &Value) -> Result<Value> {
-    let req = client()?
-        .post(format!("{}{path}", settings.url()))
-        .json(body);
-    let mut req = auth(req, settings, key);
-    if settings.provider == Provider::OpenRouter {
-        req = req
-            .header("HTTP-Referer", "https://github.com/Majorzxc/MajorLauncher")
-            .header("X-Title", "MajorLauncher");
-    }
-    let resp = req.send().await.map_err(|e| network_error(settings, e))?;
-    let status = resp.status().as_u16();
-    let bytes = resp.bytes().await.map_err(|e| network_error(settings, e))?;
-    if !(200..300).contains(&status) {
-        return Err(service_error(settings, status, &bytes));
-    }
-    serde_json::from_slice(&bytes).map_err(|_| {
-        Error::Other(format!(
-            "{}: непонятный ответ сервиса",
-            settings.provider.title()
-        ))
-    })
+    Ok(call(settings, key, path, Some(body)).await?.0)
 }
 
 /// Спросить ИИ. `text` — уже очищенный запрос (тот, что видел игрок).
@@ -886,26 +926,11 @@ fn strip_thinking(text: &str) -> String {
 }
 
 /// Модели сервиса — для выбора в настройках.
-pub async fn models(settings: &AiSettings, key: Option<&str>) -> Result<Vec<String>> {
+pub async fn models(settings: &AiSettings, key: Option<&str>) -> Result<Models> {
     if settings.url().is_empty() {
         return Err(Error::Other("сначала укажите адрес сервиса".into()));
     }
-    let req = client()?.get(format!("{}/models", settings.url()));
-    let resp = auth(req, settings, key)
-        .send()
-        .await
-        .map_err(|e| network_error(settings, e))?;
-    let status = resp.status().as_u16();
-    let bytes = resp.bytes().await.map_err(|e| network_error(settings, e))?;
-    if !(200..300).contains(&status) {
-        return Err(service_error(settings, status, &bytes));
-    }
-    let v: Value = serde_json::from_slice(&bytes).map_err(|_| {
-        Error::Other(format!(
-            "{}: непонятный список моделей",
-            settings.provider.title()
-        ))
-    })?;
+    let (v, url) = call(settings, key, "/models", None).await?;
     let mut list: Vec<String> = v
         .get("data")
         .or(v.get("models"))
@@ -919,11 +944,19 @@ pub async fn models(settings: &AiSettings, key: Option<&str>) -> Result<Vec<Stri
                 .map(|s| s.trim_start_matches("models/").to_string())
         })
         .collect();
-    list.dedup();
     if settings.provider != Provider::Anthropic {
         list.sort();
     }
-    Ok(list)
+    list.dedup();
+    Ok(Models { list, url })
+}
+
+/// Модели сервиса и адрес, по которому нашёлся API (может отличаться от
+/// указанного — с `/v1` на конце).
+#[derive(Debug, Clone, Serialize)]
+pub struct Models {
+    pub list: Vec<String>,
+    pub url: String,
 }
 
 /// Сколько раз сегодня лаунчер спросил сам: `cache/ai-usage.json`.
@@ -1105,6 +1138,61 @@ Fabric Loader 0.15.11 for 1.20.1, Java 17.0.10.7 com.mojang:authlib:4.0.43";
         assert!(take_auto(&data, 2));
         assert!(!take_auto(&data, 2));
         assert_eq!(used_today(&data), 2);
+    }
+
+    /// Сервис, у которого по адресу без `/v1` — страница сайта (как
+    /// api.autorouter.top): лаунчер сам находит API под `/v1`.
+    #[tokio::test]
+    async fn finds_api_under_v1() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 65536];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = req.split_whitespace().nth(1).unwrap_or("").to_string();
+                let (ctype, body) = match path.as_str() {
+                    "/v1/models" => (
+                        "application/json",
+                        r#"{"data":[{"id":"gpt-6-luna"},{"id":"a-model"}]}"#,
+                    ),
+                    "/v1/chat/completions" => (
+                        "application/json",
+                        r#"{"choices":[{"message":{"content":"**Причина** — мод."},"finish_reason":"stop"}]}"#,
+                    ),
+                    _ => ("text/html", "<!doctype html><html>сайт</html>"),
+                };
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(resp.as_bytes()).await;
+            }
+        });
+        let settings = AiSettings {
+            enabled: true,
+            provider: Provider::Custom,
+            url: format!("http://127.0.0.1:{port}"),
+            model: "gpt-6-luna".into(),
+            ..AiSettings::default()
+        };
+        let m = models(&settings, Some("k")).await.unwrap();
+        assert_eq!(m.list, ["a-model", "gpt-6-luna"]);
+        assert_eq!(m.url, format!("http://127.0.0.1:{port}/v1"));
+        let a = ask(&settings, Some("k"), "лог").await.unwrap();
+        assert_eq!(a.text, "**Причина** — мод.");
+        // Указан неверный путь и с /v1 — понятная ошибка, а не «непонятный ответ».
+        let wrong = AiSettings {
+            url: format!("http://127.0.0.1:{port}/api/v1"),
+            ..settings
+        };
+        let e = ask(&wrong, Some("k"), "лог").await.unwrap_err().to_string();
+        assert!(e.contains("веб-страница, а не API"), "{e}");
     }
 
     #[test]

@@ -173,7 +173,12 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
     }
     case "ai_models":
       await sleep(500);
-      return (a.ai.provider === "anthropic" ? ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] : ["llama3.1:8b", "qwen2.5:14b"]) as T;
+      return {
+        list: a.ai.provider === "anthropic" ? ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] : ["llama3.1:8b", "qwen2.5:14b"],
+        url: a.ai.provider === "custom" && a.ai.url && !a.ai.url.endsWith("/v1") ? `${a.ai.url.replace(/\/$/, "")}/v1` : a.ai.url,
+      } as T;
+    case "rules_info":
+      return [1, false] as T;
     case "ai_used_today":
       return 1 as T;
     case "ai_preview":
