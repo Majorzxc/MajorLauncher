@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "oom",
+      "level": "critical",
+      "any": [
+        "java.lang.OutOfMemoryError"
+      ],
+      "title": "Игре не хватило памяти",
+      "text": "Java исчерпала выделенную память и остановилась. Дайте сборке больше памяти или нажмите «Оптимизировать» — лаунчер подберёт её по числу модов.",
+      "actions": [
+        "memory",
+        "optimize"
+      ]
+    },
+    {
+      "id": "entrypoint",
+      "level": "critical",
+      "any": [
+        "Could not execute entrypoint stage"
+      ],
+      "regex": "Could not execute entrypoint stage '[^']+' due to errors, provided by '(?P<mod>[^']+)'",
+      "title": "Мод «{mod}» упал при запуске игры",
+      "text": "Ошибка в коде самого мода: он не смог запуститься с этой версией игры или с другими модами сборки. Обычно помогает обновить мод; если обновления нет — выключить его.",
+      "actions": [
+        "update_mod",
+        "disable_mod"
+      ]
+    },
+    {
+      "id": "fabric_missing",
+      "level": "critical",
+      "any": [
+        "which is missing"
+      ],
+      "regex": "Mod '(?P<name>[^']+)' \\((?P<mod>[^)]+)\\) \\S+ requires (?:version \\S+ (?:or later )?of |any version (?:between \\S+ and \\S+ )?of )?(?:mod )?'?(?P<dep>[^',(]+?)'?(?: \\((?P<depid>[^)]+)\\))?, which is missing",
+      "title": "Моду «{name}» нужен «{dep}», а его нет",
+      "text": "Не хватает зависимости — без неё мод не запустится. Скачайте её из каталога или выключите мод.",
+      "actions": [
+        "find_dep",
+        "disable_mod"
+      ],
+      "group_by": "dep"
+    },
+    {
+      "id": "fabric_java",
+      "level": "warning",
+      "any": [
+        "(java), but only the wrong version is present"
+      ],
+      "regex": "Mod '(?P<name>[^']+)' \\((?P<mod>[^)]+)\\) \\S+ requires version (?P<want>\\S+) or later of '[^']+' \\(java\\), but only the wrong version is present: (?P<have>[^!]+)",
+      "exclusive": true,
+      "title": "Моду «{name}» нужна Java {want}, а игра идёт на Java {have}",
+      "text": "Fabric сообщил об этом вместе с другими ошибками. Часто это необязательная часть мода, которая просто не включится, — тогда игре не мешает. Если игра падает только из-за этого — найдите версию мода под эту версию игры или выключите его.",
+      "actions": [
+        "update_mod",
+        "disable_mod"
+      ]
+    },
+    {
+      "id": "fabric_wrong_version",
+      "level": "critical",
+      "any": [
+        "but only the wrong version is present"
+      ],
+      "regex": "Mod '(?P<name>[^']+)' \\((?P<mod>[^)]+)\\) \\S+ requires (?P<want>.+?) of (?:mod )?'(?P<dep>[^']+)'(?: \\((?P<depid>[^)]+)\\))?, but only the wrong version is present: (?P<have>[^!]+)",
+      "title": "Моду «{name}» нужен другой «{dep}»",
+      "text": "Ему нужна {want}, а стоит {have}. Обновите «{dep}» (или поставьте подходящую версию) либо выключите «{name}».",
+      "actions": [
+        "find_dep",
+        "disable_mod"
+      ]
+    },
+    {
+      "id": "fabric_breaks",
+      "level": "critical",
+      "any": [
+        "is incompatible with"
+      ],
+      "regex": "Mod '(?P<name>[^']+)' \\((?P<mod>[^)]+)\\) \\S+ is incompatible with (?:any version of |version \\S+ of )?(?:mod )?'(?P<dep>[^']+)'(?: \\((?P<depid>[^)]+)\\))?",
+      "title": "«{name}» несовместим с «{dep}»",
+      "text": "Автор мода заявил, что вместе они не работают. Оставьте один из двух.",
+      "actions": [
+        "disable_mod",
+        "disable_dep"
+      ]
+    },
+    {
+      "id": "forge_missing",
+      "level": "critical",
+      "any": [
+        "Actual version: '[MISSING]'"
+      ],
+      "regex": "Mod ID: '(?P<dep>[^']+)', Requested by: '(?P<mod>[^']+)', Expected range: '(?P<want>[^']*)', Actual version: '\\[MISSING\\]'",
+      "title": "Моду «{mod}» нужен «{dep}», а его нет",
+      "text": "Не хватает зависимости (нужна версия {want}). Скачайте её из каталога или выключите мод.",
+      "actions": [
+        "find_dep",
+        "disable_mod"
+      ],
+      "group_by": "dep"
+    },
+    {
+      "id": "forge_wrong_version",
+      "level": "critical",
+      "any": [
+        "Actual version: '"
+      ],
+      "regex": "Mod ID: '(?P<dep>[^']+)', Requested by: '(?P<mod>[^']+)', Expected range: '(?P<want>[^']*)', Actual version: '(?P<have>[^'\\[][^']*)'",
+      "title": "Моду «{mod}» нужен другой «{dep}»",
+      "text": "Нужна версия {want}, а стоит {have}. Обновите «{dep}» или выключите «{mod}».",
+      "actions": [
+        "find_dep",
+        "disable_mod"
+      ]
+    },
+    {
+      "id": "mixin_apply",
+      "level": "critical",
+      "any": [
+        "Mixin apply for mod",
+        "Mixin apply failed"
+      ],
+      "regex": "Mixin apply (?:for mod (?P<mod>[\\w.-]+) )?failed",
+      "title": "Мод «{mod}» не смог встроиться в игру",
+      "text": "Мод правит код игры (mixin), а нужное место изменилось — мод для другой версии игры или конфликтует с другим модом. Обновите или выключите его.",
+      "actions": [
+        "update_mod",
+        "disable_mod"
+      ]
+    },
+    {
+      "id": "mixin_injection",
+      "level": "critical",
+      "any": [
+        "Critical injection failure",
+        "InjectionError"
+      ],
+      "regex": "(?:Critical injection failure|InjectionError).*?from mod (?P<mod>[\\w.-]+)",
+      "title": "Мод «{mod}» не смог встроиться в игру",
+      "text": "Мод правит код игры (mixin), а нужное место изменилось — мод для другой версии игры или конфликтует с другим модом. Обновите или выключите его.",
+      "actions": [
+        "update_mod",
+        "disable_mod"
+      ]
+    },
+    {
+      "id": "java_version",
+      "level": "critical",
+      "any": [
+        "UnsupportedClassVersionError"
+      ],
+      "regex": "UnsupportedClassVersionError: (?P<class>\\S+) has been compiled by a more recent version of the Java Runtime \\(class file version (?P<need>\\d+)",
+      "title": "Мод требует более новую Java",
+      "text": "Часть кода собрана под Java новее той, на которой идёт эта версия игры. Скорее всего, мод не для этой версии игры — найдите подходящую версию мода или выключите его.",
+      "actions": [
+        "update_mod",
+        "disable_mod"
+      ]
+    },
+    {
+      "id": "opengl",
+      "level": "critical",
+      "any": [
+        "WGL: The driver does not appear to support OpenGL",
+        "Pixel format not accelerated",
+        "GLFW error 65542",
+        "GLFW error 65543",
+        "Failed to create the GLFW window",
+        "OpenGL 3.2 is required"
+      ],
+      "title": "Видеокарта не запустила игру",
+      "text": "Драйвер видеокарты не дал игре нужный OpenGL. Обновите драйвер видеокарты; на ноутбуке — «Оптимизировать» переведёт игру на отдельную видеокарту.",
+      "actions": [
+        "driver",
+        "optimize"
+      ]
+    },
+    {
+      "id": "driver_crash",
+      "level": "critical",
+      "any": [
+        "atio6axx.dll",
+        "nvoglv64.dll",
+        "ig9icd64.dll",
+        "ig75icd64.dll",
+        "igxelpicd64.dll",
+        "ig11icd64.dll",
+        "ig12icd64.dll"
+      ],
+      "crash_only": true,
+      "title": "Игра упала внутри драйвера видеокарты",
+      "text": "Ошибка в драйвере, а не в игре. Обновите драйвер видеокарты; если не поможет — выключите шейдеры или моды отрисовки по одному.",
+      "actions": [
+        "driver"
+      ]
+    },
+    {
+      "id": "no_space",
+      "level": "critical",
+      "any": [
+        "No space left on device",
+        "Недостаточно места на диске",
+        "There is not enough space on the disk"
+      ],
+      "title": "На диске закончилось место",
+      "text": "Игре некуда сохранить мир и настройки. Освободите место на диске с папкой данных — иначе мир может сохраниться не полностью.",
+      "actions": []
+    },
+    {
+      "id": "world_corrupt",
+      "level": "critical",
+      "any": [
+        "level.dat",
+        "Failed to load level",
+        "Couldn't load level data"
+      ],
+      "regex": "(?:Exception reading \\S*level\\.dat|Failed to load level|Couldn't load level data|Failed to read level\\.dat)",
+      "title": "Мир не читается",
+      "text": "Файл мира повреждён или из более новой версии игры. Не открывайте мир снова, пока не сделаете копию: в папке «backups» сборки могут быть копии, которые лаунчер делал перед запуском старых версий.",
+      "actions": [
+        "open_backups"
+      ]
+    },
+    {
+      "id": "class_missing",
+      "level": "critical",
+      "any": [
+        "NoClassDefFoundError",
+        "ClassNotFoundException"
+      ],
+      "regex": "(?:NoClassDefFoundError|ClassNotFoundException): (?P<class>[\\w/.$]+)",
+      "crash_only": true,
+      "title": "Моду не хватает кода другого мода",
+      "text": "Мод обращается к классу {class}, которого нет: скорее всего, не хватает другого мода (зависимости) или он не той версии. Обновите мод или выключите его.",
+      "actions": [
+        "update_mod",
+        "disable_mod"
+      ]
+    },
+    {
+      "id": "cant_keep_up",
+      "level": "warning",
+      "any": [
+        "Can't keep up!"
+      ],
+      "regex": "Running (?P<ms>\\d+)ms or (?P<ticks>\\d+) ticks behind",
+      "title": "Мир не успевал обсчитываться",
+      "text": "Логика мира (мобы, механизмы, рост растений) отставала до {ms} мс. Чаще всего из-за тяжёлых модов генерации или механизмов, нехватки памяти или слабого процессора. «Оптимизировать» поставит Lithium и подберёт память.",
+      "actions": [
+        "optimize"
+      ]
+    },
+    {
+      "id": "pack_broken",
+      "level": "warning",
+      "any": [
+        "pack metadata"
+      ],
+      "regex": "Couldn't load (?:file/)?(?P<pack>.+?)(?:\\.zip)? pack metadata",
+      "skip_if_mod": "pack",
+      "title": "Ресурспак «{pack}» не загрузился",
+      "text": "Файл пака повреждён или собран для другой версии игры. Он просто не применится — уберите его или найдите версию под эту игру.",
+      "actions": []
+    },
+    {
+      "id": "mixin_target_missing",
+      "level": "warning",
+      "any": [
+        "@Mixin target"
+      ],
+      "regex": "@Mixin target (?P<target>\\S+) was not found .*? from mod (?P<mod>[\\w.-]+)",
+      "title": "Мод «{mod}» работает не полностью",
+      "text": "Мод рассчитан на другую версию другого мода или игры — часть его функций для совместимости не включилась. Обычно игре не мешает.",
+      "actions": []
+    },
+    {
+      "id": "sound",
+      "level": "warning",
+      "any": [
+        "Failed to open OpenAL device",
+        "Error starting SoundSystem",
+        "Failed to initialize SoundSystem"
+      ],
+      "title": "Звук не запустился",
+      "text": "Игра не смогла открыть звуковое устройство. Проверьте, что наушники или колонки подключены и выбраны в Windows, и перезапустите игру.",
+      "actions": []
+    }
+  ]
+}

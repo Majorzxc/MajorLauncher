@@ -120,6 +120,12 @@ pub enum Action {
     Optimize,
     /// Открыть настройки питания Windows.
     PowerSettings,
+    /// Открыть страницу драйверов видеокарты.
+    Driver,
+    /// Включить выключенный мод (нужная зависимость лежит выключенной).
+    Enable { file: String },
+    /// Открыть папку копий миров сборки.
+    Backups,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -171,8 +177,9 @@ struct MetaCache {
 }
 
 /// 2 — вложенные jar по списку из описания мода (17.10.2026);
-/// 3 — подозрительный код (18.10.2026).
-const META_VERSION: u32 = 3;
+/// 3 — подозрительный код (18.10.2026);
+/// 4 — пакеты классов для анализатора ошибок (01.11.2026).
+const META_VERSION: u32 = 4;
 
 fn read_meta_cache(path: &Path) -> MetaCache {
     let cache: MetaCache = read_json(path);
@@ -1262,6 +1269,9 @@ pub fn apply(data: &DataDir, build: &str, action: &Action) -> Result<()> {
             }
             Ok(())
         }
+        Action::Enable { file } => {
+            content::set_enabled(&game_dir, Folder::Mods, file, true).map(|_| ())
+        }
         _ => Err(Error::Other(
             "это действие выполняется через каталог".into(),
         )),
@@ -1364,6 +1374,7 @@ mod tests {
                     depends,
                 }],
                 provides: Vec::new(),
+                packages: Vec::new(),
             },
             malware: None,
             suspect: Vec::new(),

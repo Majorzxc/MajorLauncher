@@ -143,6 +143,22 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       return { ...db().builds[0], id: "imported", name: a.request.name, version: a.request.version } as T;
     case "net_online":
       return !url.has("offline") as T;
+    case "problems_counts":
+      return (url.has("problems") ? { vyzhivanie: 3 } : {}) as T;
+    case "problems_last":
+    case "analyze_log": {
+      const analysis = {
+        critical: [],
+        warnings: [
+          { rule: "mod_error", severity: "warning", title: "Мод «Roughly Enough Items» выдавал ошибки во время игры", text: "2 раза в логе. Игра не упала, но часть функций мода могла не сработать. Если что-то ведёт себя странно — обновите мод.", culprit: { id: "roughlyenoughitems", name: "Roughly Enough Items", file: "RoughlyEnoughItems-21.9.813-fabric.jar" }, actions: [{ kind: "update", version_id: "x", file: "RoughlyEnoughItems-21.9.813-fabric.jar" }], count: 2, lines: ["java.lang.NullPointerException: Cannot invoke x"] },
+          { rule: "pack_broken", severity: "warning", title: "Ресурспак «animated-items 1.21.x» не загрузился", text: "Файл пака повреждён или собран для другой версии игры.", culprit: null, actions: [], count: 4, lines: ["Couldn't load file/animated-items.zip pack metadata"] },
+        ],
+        crash_report: null,
+        rules_version: 1,
+      };
+      if (cmd === "analyze_log") return analysis as T;
+      return (url.has("problems") ? { at: now() - 3600, analysis } : null) as T;
+    }
     case "updates_list":
     case "updates_check":
       if (cmd === "updates_check") await sleep(800);
@@ -240,7 +256,7 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
             ? { build: "vyzhivanie", phase: "starting", done: 0, total: 0, stage: "Загрузка модов: 162", since: Date.now() - 14000, expected: url.has("first") ? null : 48 }
             : { build: null, phase: "idle", done: 0, total: 0 },
         finished: url.has("crash")
-          ? { build: "vyzhivanie", name: "Выживание с друзьями", seconds: 0, code: 1, crashed: true, no_window: true, tail: ["Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space", "	at net.minecraft.client.main.Main.main(Main.java:42)"], warning: null, streak: url.has("streak") ? 3 : 1, rollback: url.has("streak") ? { id: "3", reason: "перед установкой: Iris Shaders", created: now() - 300 } : null }
+          ? { build: "vyzhivanie", name: "Выживание с друзьями", seconds: 0, code: 1, crashed: true, no_window: true, tail: ["Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space", "	at net.minecraft.client.main.Main.main(Main.java:42)"], warning: null, analysis: { critical: [{ rule: "entrypoint", severity: "critical", title: "Мод «Fish of Thieves» упал при запуске игры", text: "Ошибка в коде самого мода: он не смог запуститься с этой версией игры или с другими модами сборки. Обычно помогает обновить мод; если обновления нет — выключить его.", culprit: { id: "fishofthieves", name: "Fish of Thieves", file: "fishofthieves-fabric-26.1.2.jar" }, actions: [{ kind: "update", version_id: "v", file: "fishofthieves-fabric-26.1.2.jar" }, { kind: "disable", file: "fishofthieves-fabric-26.1.2.jar" }], count: 1, lines: ["java.lang.RuntimeException: Could not execute entrypoint stage 'main' due to errors, provided by 'fishofthieves'"] }], warnings: [{ rule: "cant_keep_up", severity: "warning", title: "Мир не успевал обсчитываться", text: "…", culprit: null, actions: [{ kind: "optimize" }], count: 3, lines: [] }], crash_report: "crash-2026-10-24_22.29.15-client.txt", rules_version: 1 }, streak: url.has("streak") ? 3 : 1, rollback: url.has("streak") ? { id: "3", reason: "перед установкой: Iris Shaders", created: now() - 300 } : null }
           : null,
       } as T;
     case "tasks_list":

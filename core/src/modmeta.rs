@@ -29,6 +29,10 @@ pub struct JarMeta {
     pub mods: Vec<ModEntry>,
     /// id, которые мод приносит с собой: вложенные jar и `provides`.
     pub provides: Vec<String>,
+    /// Пакеты классов мода (`com.example.mod`) — по ним анализатор ошибок
+    /// узнаёт мод в стеке вызовов.
+    #[serde(default)]
+    pub packages: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -87,6 +91,26 @@ pub fn read(jar: &Path) -> JarMeta {
     read_zip(file, 0)
 }
 
+/// Пакеты классов: первые три уровня (`com.example.mod`), не больше 32.
+fn packages<R: Read + std::io::Seek>(zip: &zip::ZipArchive<R>) -> Vec<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for name in zip.file_names() {
+        if !name.ends_with(".class") || name.starts_with("META-INF/") {
+            continue;
+        }
+        let parts: Vec<&str> = name.split('/').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let depth = (parts.len() - 1).min(3);
+        out.insert(parts[..depth].join("."));
+        if out.len() >= 32 {
+            break;
+        }
+    }
+    out.into_iter().collect()
+}
+
 fn entry<R: Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, name: &str) -> Option<Vec<u8>> {
     let mut e = zip.by_name(name).ok()?;
     if e.size() > 8 * 1024 * 1024 {
@@ -139,6 +163,9 @@ fn read_zip<R: Read + std::io::Seek>(reader: R, depth: usize) -> JarMeta {
         && let Some(bytes) = entry(&mut zip, "mcmod.info")
     {
         mcmod(&bytes, &mut meta);
+    }
+    if depth == 0 {
+        meta.packages = packages(&zip);
     }
     // Вложенные jar — их моды считаются стоящими.
     if depth < 2 {

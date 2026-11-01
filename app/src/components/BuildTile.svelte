@@ -3,6 +3,7 @@
   import { ago, playtime, size } from "../lib/format";
   import Icon from "./Icon.svelte";
   import { updateCount } from "../lib/updates.svelte";
+  import { problems } from "../lib/problems.svelte";
   import Identicon from "./Identicon.svelte";
   import { loaderLabel } from "../lib/loaders";
 
@@ -47,6 +48,11 @@
       <Identicon seed={entry.id} />
     {/if}
     {#if entry.pinned && !archived}<span class="badge pin" title="Закреплена"><Icon name="pin" size={14} /></span>{/if}
+    {#if problems.counts[entry.id] && !archived}
+      <span class="badge prob" title="Проблем в последней игре: {problems.counts[entry.id]} — вкладка «Логи»"
+        ><Icon name="warning" size={14} />{problems.counts[entry.id]}</span
+      >
+    {/if}
     {#if updateCount(entry.id) && !archived}
       <span class="badge upd" title="Есть обновления: {updateCount(entry.id)}"><Icon name="download" size={14} />{updateCount(entry.id)}</span>
     {/if}
@@ -144,6 +150,18 @@
     border-radius: var(--r-sm);
     background: var(--surface);
     border: 1px solid var(--border);
+  }
+  .prob {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    left: auto;
+    right: 100px;
+    width: auto;
+    padding: 0 6px;
+    color: var(--warning);
+    font-size: var(--fs-12);
+    font-weight: 600;
   }
   .upd {
     left: auto;

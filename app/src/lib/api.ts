@@ -218,7 +218,10 @@ export type ModAction =
   | { kind: "update"; version_id: string; file: string }
   | { kind: "memory" }
   | { kind: "optimize" }
-  | { kind: "power_settings" };
+  | { kind: "power_settings" }
+  | { kind: "driver" }
+  | { kind: "enable"; file: string }
+  | { kind: "backups" };
 
 export interface ModIssue {
   level: "block" | "warn" | "tip";
@@ -549,6 +552,27 @@ export interface Finished {
   streak?: number;
   /// Снапшот, к которому стоит откатиться (падает после изменения сборки).
   rollback?: { id: string; reason: string; created: number } | null;
+  /// Разбор анализатора ошибок.
+  analysis?: Analysis | null;
+}
+
+/// Находка анализатора ошибок.
+export interface Finding {
+  rule: string;
+  severity: "critical" | "warning";
+  title: string;
+  text: string;
+  culprit: { id: string; name: string; file: string | null } | null;
+  actions: ModAction[];
+  count: number;
+  lines: string[];
+}
+
+export interface Analysis {
+  critical: Finding[];
+  warnings: Finding[];
+  crash_report: string | null;
+  rules_version: number;
 }
 
 /// Сборка другого лаунчера, найденная для импорта.
@@ -674,6 +698,11 @@ export const api = {
   modsPin: (id: string, project: string, pinned: boolean) => call<Instance>("mods_pin", { id, project, pinned }),
   worldsCheck: (id: string, version: string | null) => call<RiskyWorld[]>("worlds_check", { id, version }),
   playCancel: () => call<void>("play_cancel"),
+  problemsLast: (id: string) => call<{ at: number; analysis: Analysis } | null>("problems_last", { id }),
+  problemsCounts: () => call<Record<string, number>>("problems_counts"),
+  analyzeLog: (id: string, file: string) => call<Analysis>("analyze_log", { id, file }),
+  openDriverPage: () => call<void>("open_driver_page"),
+  rulesInfo: () => call<[number, boolean]>("rules_info"),
   updatesList: () => call<{ list: BuildUpdates[]; checked: number | null; running: boolean }>("updates_list"),
   updatesCheck: () => call<{ list: BuildUpdates[]; checked: number | null; running: boolean }>("updates_check"),
   setUpdates: (updates: UpdateSettings) => call<Config>("set_updates", { updates }),

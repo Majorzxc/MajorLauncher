@@ -195,6 +195,8 @@ fn target_path(dir: &std::path::Path, target: Target) -> CmdResult<std::path::Pa
                 "screenshots",
                 "saves",
                 "logs",
+                "crash-reports",
+                "backups",
             ];
             if !allowed.contains(&name.as_str()) {
                 return Err(format!("папку «{name}» открыть нельзя"));

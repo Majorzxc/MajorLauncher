@@ -15,6 +15,8 @@
   import Icon from "./Icon.svelte";
 
   let opts = $state<UpdateSettings | null>(null);
+  let rules = $state<[number, boolean] | null>(null);
+  api.rulesInfo().then((r) => (rules = r)).catch(() => {});
   api.config().then((c) => (opts = c.updates ?? { check: true, auto_mods: false, auto_packs: false }));
 
   async function set(key: keyof UpdateSettings, value: boolean) {
@@ -33,7 +35,8 @@
         <b>Проверять обновления в фоне</b>
         <span class="muted small"
           >Через минуту после запуска лаунчера и дальше раз в 6 часов: моды сборок и сами сборки из каталога. Только
-          проверка у Modrinth — ничего не меняется, о новом лаунчер скажет.</span
+          проверка у Modrinth — ничего не меняется, о новом лаунчер скажет. Заодно скачиваются правила разбора ошибок
+          с GitHub — они подписаны, чужой файл лаунчер не примет.</span
         >
       </span>
     </label>
@@ -68,6 +71,7 @@
             ? `Последняя проверка — ${checkedAt(updates.checked)}`
             : "Ещё не проверялось с запуска лаунчера"}
       </span>
+      {#if rules}<span class="muted small">Правила разбора ошибок: версия {rules[0]}{rules[1] ? " с GitHub" : ", встроенные"}</span>{/if}
       <button class="btn btn-sm" disabled={updates.running} onclick={checkNow}><Icon name="refresh" size={16} />Проверить сейчас</button>
     </div>
     {#if updates.list.length}

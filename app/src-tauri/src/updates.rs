@@ -149,6 +149,13 @@ pub async fn run(app: &AppHandle) {
             list.push(found);
         }
     }
+    // Правила анализатора ошибок — с GitHub, с проверкой подписи.
+    if let Ok(Some(v)) = majorlauncher_core::analyzer::remote::refresh(&state.http, &data).await {
+        let _ = app.emit(
+            "updates-applied",
+            format!("Правила разбора ошибок обновлены до версии {v}"),
+        );
+    }
     // Уведомить о новом — один раз на каждое обновление.
     let fresh: Vec<String> = {
         let mut u = state.updates.lock().unwrap();

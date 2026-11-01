@@ -6,6 +6,7 @@
 //! (что скачать, что запустить, какой цвет допустим) принимает ядро.
 
 mod accounts;
+mod analyzer;
 mod builds;
 mod catalog;
 mod content;
@@ -324,6 +325,11 @@ fn main() {
             updates::set_updates,
             updates::pack_info,
             updates::pack_update,
+            analyzer::problems_last,
+            analyzer::problems_counts,
+            analyzer::analyze_log,
+            analyzer::open_driver_page,
+            analyzer::rules_info,
             tasks::tasks_list,
             content::build_screenshot_full,
             content::build_trash_screenshot,

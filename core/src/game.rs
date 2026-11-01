@@ -507,6 +507,7 @@ impl Game {
         mut self,
         mut on_window: impl FnMut(),
         mut on_stage: impl FnMut(String),
+        mut on_output: impl FnMut(&str),
     ) -> Result<Outcome> {
         let (tx, rx) = mpsc::channel::<String>();
         // Вывод читаем постоянно: если канал переполнится, игра встанет.
@@ -573,6 +574,7 @@ impl Game {
                         stage = order;
                         on_stage(text);
                     }
+                    on_output(&line);
                     on_line(&mut tracker, line)
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -585,7 +587,24 @@ impl Game {
                 continue;
             }
             polled = Instant::now();
-            if let Some(title) = system::window_title(pid) {
+            // Окно ошибки Fabric/Quilt («Fabric Loader 0.17.3») — не игра:
+            // лаунчер не прячется, а ждёт, пока игрок его прочитает и закроет.
+            let title = system::window_title(pid);
+            if title
+                .as_deref()
+                .is_some_and(|t| t.starts_with("Fabric Loader") || t.starts_with("Quilt Loader"))
+                && stage < 100
+            {
+                stage = 100;
+                on_stage(
+                    "Загрузчик показал ошибку — прочитайте и закройте его окно, лаунчер разберёт причину"
+                        .into(),
+                );
+            }
+            if let Some(title) = title
+                && !title.starts_with("Fabric Loader")
+                && !title.starts_with("Quilt Loader")
+            {
                 if !had_window {
                     had_window = true;
                     on_window();
@@ -604,6 +623,7 @@ impl Game {
         // Дочитываем то, что игра успела написать перед закрытием. Не ждём
         // дольше полсекунды: вывод могли унаследовать процессы, запущенные игрой.
         while let Ok(line) = rx.recv_timeout(Duration::from_millis(500)) {
+            on_output(&line);
             on_line(&mut tracker, line);
         }
         Ok(Outcome {

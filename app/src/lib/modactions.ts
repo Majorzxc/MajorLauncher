@@ -33,6 +33,12 @@ export function actionLabel(a: ModAction): string {
       return "Оптимизировать";
     case "power_settings":
       return "Настройки питания";
+    case "driver":
+      return "Обновить драйвер";
+    case "enable":
+      return "Включить мод";
+    case "backups":
+      return "Копии миров";
   }
 }
 
@@ -43,6 +49,7 @@ export async function runAction(id: string, a: ModAction, name: string | null = 
     case "delete":
     case "trust":
     case "disable_extra":
+    case "enable":
       return !!(await attempt("Моды", () => api.modsApply(id, a).then(() => true)));
     case "install":
       catalog.pick = { kind: "build", id };
@@ -70,6 +77,12 @@ export async function runAction(id: string, a: ModAction, name: string | null = 
       return false;
     case "power_settings":
       await attempt("Настройки питания", () => api.openPowerSettings());
+      return false;
+    case "driver":
+      await attempt("Драйвер", () => api.openDriverPage());
+      return false;
+    case "backups":
+      await attempt("Копии миров", () => api.open(id, { kind: "folder", name: "backups" }));
       return false;
     case "update": {
       const titles = await attempt("Обновление", () => api.modsUpdate(id, [[a.version_id, a.file]], name ? `Обновление: ${name}` : null));

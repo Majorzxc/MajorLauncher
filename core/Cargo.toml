@@ -15,6 +15,8 @@ getrandom = "0.4.3"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 keyring-core = "1.0.0"
 md-5 = "0.11.0"
+regex = "1"
+ring = "0.17"
 reqwest = { version = "0.13.5", default-features = false, features = ["stream", "json", "native-tls", "http2"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

@@ -71,6 +71,24 @@ enum Command {
         #[arg(long)]
         offline: bool,
     },
+    /// Правила анализатора на GitHub: `keygen <файл>` — новый ключ подписи
+    /// (закрытый — в файл, открытый — на экран), `sign --key <ключ> <json>` —
+    /// подписать файл правил (рядом появится `.sig`).
+    Rules {
+        action: String,
+        file: std::path::PathBuf,
+        #[arg(long)]
+        key: Option<std::path::PathBuf>,
+    },
+    /// Разбор лога сборки анализатором ошибок (этап 7): `latest.log` и
+    /// последний отчёт о падении; `--crash` — считать, что игра упала.
+    Analyze {
+        build: String,
+        #[arg(long)]
+        log: Option<std::path::PathBuf>,
+        #[arg(long)]
+        crash: bool,
+    },
     /// Сборки других лаунчеров на этом ПК; `--guess` — угадать версию по модам.
     Others {
         #[arg(long)]
@@ -300,6 +318,78 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
             }
             if !r.online && !offline {
                 println!("Modrinth не ответил — показано известное");
+            }
+        }
+        Command::Rules { action, file, key } => {
+            use majorlauncher_core::analyzer::remote;
+            match action.as_str() {
+                "keygen" => {
+                    if file.exists() {
+                        return Err(Error::Other(format!(
+                            "{} уже есть — не перезаписываю",
+                            file.display()
+                        )));
+                    }
+                    let (private, public) = remote::keygen()?;
+                    std::fs::write(&file, private).map_err(|e| Error::Other(e.to_string()))?;
+                    println!("закрытый ключ: {}\nоткрытый ключ: {public}", file.display());
+                }
+                "sign" => {
+                    let key = key.ok_or_else(|| Error::Other("нужен --key".into()))?;
+                    let pkcs8 = std::fs::read(&key).map_err(|e| Error::Other(e.to_string()))?;
+                    let json = std::fs::read(&file).map_err(|e| Error::Other(e.to_string()))?;
+                    // Файл должен разбираться — иначе лаунчер его отвергнет.
+                    let rules = majorlauncher_core::analyzer::Rules::parse(
+                        std::str::from_utf8(&json).map_err(|e| Error::Other(e.to_string()))?,
+                    )?;
+                    let sig = remote::sign(&json, &pkcs8)?;
+                    let out = file.with_extension("json.sig");
+                    std::fs::write(&out, &sig).map_err(|e| Error::Other(e.to_string()))?;
+                    println!(
+                        "версия правил {}; подпись: {}",
+                        rules.version,
+                        out.display()
+                    );
+                }
+                _ => {
+                    return Err(Error::Other(
+                        "rules keygen <файл> | rules sign --key <ключ> <json>".into(),
+                    ));
+                }
+            }
+        }
+        Command::Analyze { build, log, crash } => {
+            use majorlauncher_core::analyzer::{self, Analyzer};
+            let game = data.instance(&build);
+            let log = log.unwrap_or_else(|| game.join("logs").join("latest.log"));
+            let text = std::fs::read(&log)
+                .map(|b| String::from_utf8_lossy(&b).to_string())
+                .unwrap_or_default();
+            let index = analyzer::index(&dl, &data, &build).await;
+            let report = analyzer::find_crash_report(&game, 0);
+            let mut a = Analyzer::new(analyzer::remote::current(&data));
+            a.text(&text);
+            let r = a.finish(crash || report.is_some(), report.as_ref(), &index);
+            for (kind, list) in [("КРИТИЧНО", &r.critical), ("ПРЕДУПРЕЖДЕНИЕ", &r.warnings)]
+            {
+                for f in list {
+                    println!("{kind} [{}] ×{} {}", f.rule, f.count, f.title);
+                    println!("    {}", f.text);
+                    if let Some(c) = &f.culprit {
+                        println!(
+                            "    виновник: {} ({}) {}",
+                            c.name,
+                            c.id,
+                            c.file.as_deref().unwrap_or("—")
+                        );
+                    }
+                    if !f.actions.is_empty() {
+                        println!("    действия: {:?}", f.actions);
+                    }
+                }
+            }
+            if let Some(c) = &r.crash_report {
+                println!("отчёт о падении: {c}");
             }
         }
         Command::Others { guess } => {

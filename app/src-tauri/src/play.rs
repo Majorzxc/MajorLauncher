@@ -5,6 +5,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use majorlauncher_core::analyzer::{self, Analysis, Analyzer};
 use majorlauncher_core::builds::QUICK_ID;
 use majorlauncher_core::cancel::Cancel;
 use majorlauncher_core::game::{self, Game};
@@ -75,6 +76,8 @@ pub struct Finished {
     streak: u32,
     /// Падает раз за разом после изменения сборки — снапшот, к которому откатиться.
     rollback: Option<Hint>,
+    /// Разбор анализатора ошибок: что случилось, кто виноват, что сделать.
+    analysis: Option<Analysis>,
 }
 
 #[derive(Default)]
@@ -535,7 +538,14 @@ fn watch(
             }
         }
     };
-    let outcome = game.wait(on_window, |stage| update(&app, |s| s.stage = Some(stage)));
+    // Анализатор ошибок читает вывод игры, пока она идёт (раздел 5.8 ТЗ).
+    let started_at = game.start;
+    let mut analyzer = Analyzer::new(analyzer::remote::current(&data));
+    let outcome = game.wait(
+        on_window,
+        |stage| update(&app, |s| s.stage = Some(stage)),
+        |line| analyzer.line(line),
+    );
 
     // Изменённые в игре настройки и серверы — в общие.
     let synced = game::after_exit(&data, &instance, &version)
@@ -543,7 +553,7 @@ fn watch(
         .map(|e| format!("Изменения настроек игры не сохранились в общие: {e}"));
     let cancelled = cancel.is_cancelled();
     let last_place = outcome.as_ref().ok().and_then(|o| o.last_place.clone());
-    let finished = match outcome {
+    let mut finished = match outcome {
         // Отменили до окна игры: ни статистики, ни краша.
         _ if cancelled => Finished {
             build: instance.id.clone(),
@@ -557,6 +567,7 @@ fn watch(
             cancelled: true,
             streak: 0,
             rollback: None,
+            analysis: None,
         },
         Ok(o) => {
             let stats = Stats::new(&data)
@@ -593,6 +604,7 @@ fn watch(
                 cancelled: false,
                 streak: streak.crashes,
                 rollback,
+                analysis: None,
             }
         }
         Err(e) => Finished {
@@ -607,8 +619,20 @@ fn watch(
             cancelled: false,
             streak: 0,
             rollback: None,
+            analysis: None,
         },
     };
+    if !finished.cancelled {
+        let game_dir = data.instance(&instance.id);
+        let report = analyzer::find_crash_report(&game_dir, started_at);
+        let index = {
+            let state = app.state::<AppState>();
+            tauri::async_runtime::block_on(analyzer::index(&state.http, &data, &instance.id))
+        };
+        let analysis = analyzer.finish(finished.crashed, report.as_ref(), &index);
+        analyzer::save_session(&data, &instance.id, &analysis);
+        finished.analysis = Some(analysis);
+    }
 
     // «Перезапустить и вернуться»: игра вышла сама (не упала) — сразу снова,
     // в тот же мир или на сервер. Окно лаунчера не показываем: оно закроется
@@ -640,6 +664,7 @@ fn watch(
                         cancelled: true,
                         streak: 0,
                         rollback: None,
+                        analysis: None,
                     });
                     show(&app);
                 }

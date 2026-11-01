@@ -8,6 +8,8 @@ import { refresh } from "./builds.svelte";
 import { duration } from "./format";
 import { inTauri } from "./tauri";
 import { toast } from "./toast.svelte";
+import { openBuild } from "./nav.svelte";
+import { loadProblems } from "./problems.svelte";
 
 export const play = $state({
   status: { build: null, phase: "idle", done: 0, total: 0 } as PlayStatus,
@@ -128,7 +130,14 @@ function finished(f: Finished) {
   // Об отмене окно уже сказало, когда игрок нажал «Отменить».
   if (f.cancelled) return;
   if (f.crashed) play.crash = f;
-  else toast(`Игра закрыта: ${duration(f.seconds)} в «${f.name}»`);
+  else {
+    const n = f.analysis?.warnings.length ?? 0;
+    toast(
+      `Игра закрыта: ${duration(f.seconds)} в «${f.name}»` + (n ? ` · предупреждений за игру: ${n}` : ""),
+      n ? { action: { label: "Подробнее", run: () => openBuild(f.build, "logs") } } : {},
+    );
+  }
+  loadProblems();
 }
 
 /// Перезапуск не начался: в сборке проблемы, которые не дадут игре запуститься.
