@@ -176,6 +176,9 @@ pub struct Config {
     /// ИИ-разбор ошибок (раздел 5.8 ТЗ); ключи — в хранилище Windows.
     #[serde(default)]
     pub ai: crate::ai::AiSettings,
+    /// Скины: программа-редактор, спорные скины в каталоге.
+    #[serde(default)]
+    pub skins: crate::skins::SkinSettings,
 }
 
 pub struct ConfigStore {
@@ -252,6 +255,11 @@ impl ConfigStore {
 
     pub fn set_updates(&mut self, updates: crate::updates::UpdateSettings) -> Result<()> {
         self.config.updates = updates;
+        self.save()
+    }
+
+    pub fn set_skins(&mut self, skins: crate::skins::SkinSettings) -> Result<()> {
+        self.config.skins = skins;
         self.save()
     }
 

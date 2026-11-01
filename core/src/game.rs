@@ -101,6 +101,10 @@ pub async fn prepare(
         extra_jvm_args: jvm_args,
         quick_play,
     };
+    // Офлайн-ник: надетый скин — в CustomSkinLoader сборки, если он стоит.
+    if account.kind == crate::account::Kind::Offline {
+        let _ = crate::skins::apply_local(data, &opts.game_dir, &account.id, &account.name);
+    }
     let cmd = launch::build(data, &prepared, &session, &opts)?;
     let version = GameVersion {
         release: prepared.version.release_time.clone(),

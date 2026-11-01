@@ -18,6 +18,7 @@ mod mods;
 mod optimize;
 mod play;
 mod settings;
+mod skins;
 mod snapshots;
 mod tasks;
 mod updates;
@@ -150,8 +151,12 @@ pub fn open_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .center()
         .background_color(Color(r, g, b, 255))
         // Без GPU: 154 → 97 МБ (замер 03.10.2026). Интерфейсу из плиток
-        // и кнопок видеокарта не нужна; WebGL для 3D-скинов — этап 8.
-        .additional_browser_args(BROWSER_ARGS)
+        // и кнопок видеокарта не нужна. 3D-скины рисуются без WebGL
+        // (lib/skin3d.ts): с WebGL окно выходило за 150 МБ (этап 8).
+        .additional_browser_args(
+            // Для замеров памяти: свои флаги WebView2 (только проверочный экземпляр).
+            &std::env::var("MAJORLAUNCHER_BROWSER_ARGS").unwrap_or_else(|_| BROWSER_ARGS.into()),
+        )
         .visible(true);
     // Проверочный экземпляр — со своей папкой WebView2: если рядом открыт
     // лаунчер игрока с другими флагами браузера, общая папка не даёт окну
@@ -338,6 +343,28 @@ fn main() {
             ai::ai_used_today,
             ai::ai_preview,
             ai::ai_ask,
+            skins::skins_list,
+            skins::skin_png,
+            skins::skin_path,
+            skins::skin_add_file,
+            skins::skin_lookup,
+            skins::skin_texture,
+            skins::skin_add_texture,
+            skins::skin_add_url,
+            skins::skin_rename,
+            skins::skin_set_slim,
+            skins::skin_remove,
+            skins::skin_export,
+            skins::skin_catalog,
+            skins::set_skins,
+            skins::skin_edit,
+            skins::skin_stop_watch,
+            skins::skin_reveal,
+            skins::skin_worn,
+            skins::skin_wear,
+            skins::skin_loader_builds,
+            skins::skin_cape,
+            skins::skin_cape_set,
             tasks::tasks_list,
             content::build_screenshot_full,
             content::build_trash_screenshot,

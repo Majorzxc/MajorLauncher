@@ -23,6 +23,7 @@
   import Placeholder from "./screens/Placeholder.svelte";
   import Settings from "./screens/Settings.svelte";
   import Stats from "./screens/Stats.svelte";
+  import Skins from "./screens/Skins.svelte";
   import { api, type DataStatus } from "./lib/api";
   import { toast } from "./lib/toast.svelte";
   import { size } from "./lib/format";
@@ -115,6 +116,8 @@
       <Stats />
     {:else if nav.section === "mods"}
       <Mods />
+    {:else if nav.section === "skins"}
+      <Skins />
     {:else if nav.section === "settings"}
       <Settings />
     {:else}

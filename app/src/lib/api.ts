@@ -19,6 +19,63 @@ export interface Config {
   optimize?: OptimizeSettings;
   updates?: UpdateSettings;
   ai?: AiSettings;
+  skins?: SkinSettings;
+}
+
+/// «Скины»: программа-редактор и спорные скины в каталоге.
+export interface SkinSettings {
+  editor: string | null;
+  show_sensitive: boolean;
+}
+
+/// Скин из библиотеки.
+export interface Skin {
+  id: string;
+  name: string;
+  slim: boolean;
+  source: string;
+  page?: string | null;
+  added: number;
+}
+
+export type NickSource = "mojang" | "ely";
+
+/// Текстуры игрока по нику.
+export interface Textures {
+  name: string;
+  skin: string | null;
+  slim: boolean;
+  cape: string | null;
+}
+
+export type SkinCatalogId = "ely" | "mineskin";
+
+export interface SkinCatalogQuery {
+  catalog: SkinCatalogId;
+  search: string;
+  sort: string;
+  kind: string;
+  slim_only: boolean;
+  page: string;
+  show_sensitive: boolean;
+}
+
+export interface CatalogSkin {
+  id: string;
+  url: string;
+  name: string | null;
+  slim: boolean | null;
+  tags: string[];
+  likes: number | null;
+  wearers: number | null;
+  page: string | null;
+}
+
+export interface SkinCatalogPage {
+  items: CatalogSkin[];
+  next: string | null;
+  total: number | null;
+  hidden: number;
 }
 
 /// Сервис ИИ-разбора.
@@ -753,6 +810,29 @@ export const api = {
   openDriverPage: () => call<void>("open_driver_page"),
   rulesInfo: () => call<[number, boolean]>("rules_info"),
   setAi: (ai: AiSettings) => call<Config>("set_ai", { ai }),
+  skins: () => call<Skin[]>("skins_list"),
+  skinPng: (id: string) => call<ArrayBuffer>("skin_png", { id }),
+  skinPath: (id: string) => call<string>("skin_path", { id }),
+  skinAddFile: (path: string) => call<Skin>("skin_add_file", { path }),
+  skinLookup: (nick: string, from: NickSource) => call<Textures>("skin_lookup", { nick, from }),
+  skinTexture: (url: string) => call<ArrayBuffer>("skin_texture", { url }),
+  skinAddTexture: (url: string, name: string, source: string, page: string | null, slim: boolean | null) =>
+    call<Skin>("skin_add_texture", { url, name, source, page, slim }),
+  skinAddUrl: (url: string) => call<Skin>("skin_add_url", { url }),
+  skinRename: (id: string, name: string) => call<Skin>("skin_rename", { id, name }),
+  skinSetSlim: (id: string, slim: boolean) => call<Skin>("skin_set_slim", { id, slim }),
+  skinRemove: (id: string) => call<void>("skin_remove", { id }),
+  skinExport: (id: string, to: string) => call<void>("skin_export", { id, to }),
+  skinCatalog: (query: SkinCatalogQuery) => call<SkinCatalogPage>("skin_catalog", { query }),
+  setSkins: (skins: SkinSettings) => call<Config>("set_skins", { skins }),
+  skinEdit: (id: string) => call<void>("skin_edit", { id }),
+  skinStopWatch: () => call<void>("skin_stop_watch"),
+  skinReveal: (id: string) => call<void>("skin_reveal", { id }),
+  skinWorn: (account: string) => call<string | null>("skin_worn", { account }),
+  skinWear: (account: string, skin: string | null) => call<void>("skin_wear", { account, skin }),
+  skinCape: (account: string) => call<ArrayBuffer>("skin_cape", { account }),
+  skinCapeSet: (account: string, file: string | null, url: string | null) => call<void>("skin_cape_set", { account, file, url }),
+  skinLoaderBuilds: () => call<{ id: string; name: string; has: boolean; vanilla: boolean }[]>("skin_loader_builds"),
   aiKeys: () => call<AiProvider[]>("ai_keys"),
   aiSetKey: (provider: AiProvider, key: string) => call<void>("ai_set_key", { provider, key }),
   aiModels: (ai: AiSettings) => call<{ list: string[]; url: string }>("ai_models", { ai }),

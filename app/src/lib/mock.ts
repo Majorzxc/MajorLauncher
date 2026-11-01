@@ -5,7 +5,7 @@
 //   ?missing — папка данных не найдена; ?moved — диск сменил букву
 //   ?starting — игра запускается (этап и проценты)
 //   ?risky — миры из более новой версии; ?crash&streak — падает подряд, откат
-//   ?empty — ни одной сборки
+//   ?empty — ни одной сборки; ?offline — по умолчанию офлайн-ник
 
 import type { Entry, Instance, TrashEntry, VersionInfo } from "./api";
 
@@ -24,6 +24,44 @@ function config() {
     game: { on_launch: "close", memory_mb: null, jvm_args: "" },
     optimize: { hardware: true, mods: true, memory: true, gpu: true, system: true, graphics: false, fps: false, intro_seen: false },
   };
+}
+
+const MOCK_SKINS = [
+  { id: "a1", name: "Рыцарь", slim: false, source: "каталог Ely.by", page: "https://ely.by/skins/s1", added: now() - 100 },
+  { id: "b2", name: "Алекс в худи", slim: true, source: "файл", added: now() - 200 },
+  { id: "c3", name: "jeb_", slim: false, source: "ник jeb_ (Minecraft)", added: now() - 300 },
+];
+
+/// Скин-заглушка 64×64: цвета зависят от ключа, чтобы фигуры различались.
+async function mockSkinPng(key: string): Promise<ArrayBuffer> {
+  let h = 0;
+  for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const hue = h % 360;
+  const slim = key.includes("b2") || h % 4 === 0;
+  const c = new OffscreenCanvas(64, 64);
+  const g = c.getContext("2d")!;
+  const fill = (color: string, x: number, y: number, w: number, hh: number) => {
+    g.fillStyle = color;
+    g.fillRect(x, y, w, hh);
+  };
+  fill("#e0b088", 0, 0, 32, 16); // голова
+  fill("#3a2a1a", 8, 8, 8, 2); // волосы
+  fill("#3a2a1a", 8, 8, 1, 4);
+  fill("#3a2a1a", 15, 8, 1, 4);
+  fill("#ffffff", 9, 12, 2, 1);
+  fill("#ffffff", 13, 12, 2, 1);
+  fill("#2850a0", 10, 12, 1, 1);
+  fill("#2850a0", 14, 12, 1, 1);
+  fill(`hsl(${hue} 60% 45%)`, 16, 16, 24, 16); // тело
+  fill(`hsl(${hue} 60% 45%)`, 40, 16, slim ? 14 : 16, 16); // правая рука
+  fill("#e0b088", 44, 28, slim ? 3 : 4, 4); // кисть
+  fill(`hsl(${hue} 60% 45%)`, 32, 48, slim ? 14 : 16, 16); // левая рука
+  fill("#e0b088", 36, 60, slim ? 3 : 4, 4);
+  fill(`hsl(${(hue + 180) % 360} 40% 30%)`, 0, 16, 16, 16); // ноги
+  fill(`hsl(${(hue + 180) % 360} 40% 30%)`, 16, 48, 16, 16);
+  fill(`hsl(${hue} 70% 60%)`, 20, 36, 8, 3); // куртка — второй слой
+  const blob = await c.convertToBlob({ type: "image/png" });
+  return blob.arrayBuffer();
 }
 
 function saveConfig(c: unknown) {
@@ -110,8 +148,8 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       return (url.has("noacc") || !config().data_dir
         ? []
         : [
-            { id: "ely-1", kind: "ely", name: "Majorzxc", is_default: true },
-            { id: "offline-steve", kind: "offline", name: "Steve", is_default: false },
+            { id: "ely-1", kind: "ely", name: "Majorzxc", is_default: !url.has("offline") },
+            { id: "offline-steve", kind: "offline", name: "Steve", is_default: url.has("offline") },
           ]) as T;
     case "account_add_ely":
       await sleep(500);
@@ -177,6 +215,78 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
         list: a.ai.provider === "anthropic" ? ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] : ["llama3.1:8b", "qwen2.5:14b"],
         url: a.ai.provider === "custom" && a.ai.url && !a.ai.url.endsWith("/v1") ? `${a.ai.url.replace(/\/$/, "")}/v1` : a.ai.url,
       } as T;
+    case "skins_list":
+      return JSON.parse(localStorage.getItem("mock-skins") ?? "null") ?? MOCK_SKINS;
+    case "skin_png":
+    case "skin_texture":
+      return (await mockSkinPng(String(a.id ?? a.url))) as T;
+    case "skin_lookup":
+      await sleep(400);
+      return { name: a.nick, skin: `https://textures.minecraft.net/texture/${a.nick}`, slim: false, cape: null } as T;
+    case "skin_add_texture":
+    case "skin_add_url":
+    case "skin_add_file": {
+      const list = JSON.parse(localStorage.getItem("mock-skins") ?? "null") ?? MOCK_SKINS;
+      const s = { id: String(Date.now()), name: a.name ?? "Новый скин", slim: !!a.slim, source: a.source ?? "файл", page: a.page ?? null, added: now() };
+      localStorage.setItem("mock-skins", JSON.stringify([s, ...list]));
+      return s as T;
+    }
+    case "skin_rename":
+    case "skin_set_slim": {
+      const list = JSON.parse(localStorage.getItem("mock-skins") ?? "null") ?? MOCK_SKINS;
+      const s = list.find((x: { id: string }) => x.id === a.id);
+      if (a.name) s.name = a.name;
+      if (a.slim !== undefined) s.slim = a.slim;
+      localStorage.setItem("mock-skins", JSON.stringify(list));
+      return s as T;
+    }
+    case "skin_remove": {
+      const list = JSON.parse(localStorage.getItem("mock-skins") ?? "null") ?? MOCK_SKINS;
+      localStorage.setItem("mock-skins", JSON.stringify(list.filter((x: { id: string }) => x.id !== a.id)));
+      return undefined as T;
+    }
+    case "skin_catalog": {
+      await sleep(300);
+      const q = a.query;
+      const page = Number(q.page || 1);
+      const items = Array.from({ length: 40 }, (_, i) => ({
+        id: `${q.catalog}-${page}-${i}`,
+        url: `https://ely.by/storage/skins/${q.catalog}-${page}-${i}.png`,
+        name: q.catalog === "mineskin" ? (i % 3 ? null : `skin ${i}`) : null,
+        slim: q.catalog === "ely" ? i % 4 === 0 : null,
+        tags: q.catalog === "ely" ? ["Knight", "Medieval", "fantasy"].slice(0, (i % 3) + 1) : [],
+        likes: q.catalog === "ely" ? 1000 - i * 7 : null,
+        wearers: q.catalog === "ely" ? 500 - i : null,
+        page: q.catalog === "ely" ? `https://ely.by/skins/s${i}` : null,
+      }));
+      return { items, next: page < 3 ? String(page + 1) : null, total: q.catalog === "ely" ? 120 : null, hidden: page === 1 ? 2 : 0 } as T;
+    }
+    case "set_skins":
+      saveConfig({ ...config(), skins: a.skins });
+      return config() as T;
+    case "skin_edit":
+    case "skin_stop_watch":
+    case "skin_reveal":
+    case "skin_export":
+      return undefined as T;
+    case "skin_worn":
+      return localStorage.getItem(`mock-worn-${a.account}`) as T;
+    case "skin_wear":
+      if (a.skin) localStorage.setItem(`mock-worn-${a.account}`, a.skin);
+      else localStorage.removeItem(`mock-worn-${a.account}`);
+      return undefined as T;
+    case "skin_cape":
+      return (localStorage.getItem(`mock-cape-${a.account}`) ? await mockSkinPng("cape") : new ArrayBuffer(0)) as T;
+    case "skin_cape_set":
+      if (a.file || a.url) localStorage.setItem(`mock-cape-${a.account}`, "1");
+      else localStorage.removeItem(`mock-cape-${a.account}`);
+      return undefined as T;
+    case "skin_loader_builds":
+      return [
+        { id: "vyzhivanie", name: "Выживание с друзьями", has: true, vanilla: false },
+        { id: "tech", name: "Техно 1.20.1", has: false, vanilla: false },
+        { id: "vanilla", name: "Ванилла 1.21", has: false, vanilla: true },
+      ] as T;
     case "rules_info":
       return [1, false] as T;
     case "ai_used_today":
