@@ -5,6 +5,7 @@
   import Icon from "./Icon.svelte";
   import { onMount } from "svelte";
   import { api } from "../lib/api";
+  import { hideOffer, offerShown, restartTutorial } from "../lib/tutorial.svelte";
 
   // Нет интернета — сказать сразу, а не ошибкой каталога или входа. Проверка
   // раз в полторы минуты: одно соединение с Modrinth.
@@ -30,6 +31,18 @@
     >
   {/if}
 
+  {#if offerShown()}
+    <!-- Неделю после отказа от обучения (раздел 6.4 ТЗ), потом — только в настройках. -->
+    <span class="offer">
+      <button class="offer-go" onclick={restartTutorial}><Icon name="info" size={16} />Пройти обучение</button>
+      <button
+        class="offer-x"
+        aria-label="Убрать кнопку обучения"
+        title="Убрать — обучение останется в «Настройки → О программе»"
+        onclick={hideOffer}><Icon name="close" size={14} /></button
+      >
+    </span>
+  {/if}
   <Downloads />
   <AccountMenu />
 </header>
@@ -44,6 +57,35 @@
     border-radius: var(--r);
     color: var(--warning);
     white-space: nowrap;
+  }
+  .offer {
+    display: inline-flex;
+    align-items: center;
+    height: var(--h-sm);
+    border: 1px solid var(--accent);
+    border-radius: var(--r);
+    white-space: nowrap;
+  }
+  .offer button {
+    display: inline-flex;
+    align-items: center;
+    height: 100%;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+  .offer-go {
+    gap: 6px;
+    padding: 0 var(--s2) 0 var(--s3);
+    font-size: var(--fs-14);
+  }
+  .offer-x {
+    padding: 0 var(--s2);
+    color: var(--text-muted);
+  }
+  .offer button:hover {
+    color: var(--text);
+    background: var(--surface-raised);
   }
   .logo {
     grid-area: 1 / 1;

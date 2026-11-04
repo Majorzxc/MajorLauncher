@@ -1,7 +1,6 @@
 <script lang="ts">
   // Страница проекта прямо в лаунчере (раздел 5.4 ТЗ): описание, картинки,
   // версии с отметкой «подходит к сборке», установка нужной версии.
-  import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type CatalogVersion, type Project, type ProjectType } from "../../lib/api";
   import { busy, catalog, install, installModpack, installed, searchTarget } from "../../lib/catalog.svelte";
   import { openSettings } from "../../lib/nav.svelte";
@@ -9,7 +8,7 @@
   import { ago, count, size } from "../../lib/format";
   import { renderMarkdown } from "../../lib/markdown";
   import { translateHtml } from "../../lib/translate";
-  import { inTauri } from "../../lib/tauri";
+  import { interceptLinks, openExternal } from "../../lib/links";
   import Icon from "../Icon.svelte";
 
   let { id }: { id: string } = $props();
@@ -72,20 +71,7 @@
       .catch((e) => (versionsError = String(e)));
   });
 
-  function open(url: string | null) {
-    if (!url) return;
-    if (inTauri) openUrl(url);
-    else window.open(url);
-  }
-
-  // Ссылки в описании — во внешнем браузере, а не внутри окна лаунчера.
-  function intercept(e: MouseEvent) {
-    const a = (e.target as HTMLElement).closest("a");
-    if (!a) return;
-    e.preventDefault();
-    const href = a.getAttribute("href");
-    if (href?.startsWith("http")) open(href);
-  }
+  const open = (url: string | null) => openExternal(url).catch(() => {});
 
   const links = $derived(
     project
@@ -173,7 +159,7 @@
     </p>
     <!-- Перевод вставлен текстом в уже очищенный HTML (lib/translate.ts). -->
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-    <article class="md" onclick={intercept}>{@html shownHtml}</article>
+    <article class="md" onclick={interceptLinks}>{@html shownHtml}</article>
   {:else if tab === "gallery"}
     <div class="gallery">
       {#each project.gallery as g (g.url)}
@@ -311,51 +297,23 @@
   .tabs {
     margin-bottom: var(--s4);
   }
+  /* Описание мода — крупнее, чем общий вид Markdown (base.css). */
   .md {
     max-width: 860px;
     line-height: 1.6;
-    user-select: text;
-    overflow-wrap: anywhere;
-  }
-  .md :global(img) {
-    max-width: 100%;
-    height: auto;
-    border-radius: var(--r);
-  }
-  .md :global(a) {
-    color: var(--text);
-    text-decoration: underline;
   }
   .md :global(h1),
   .md :global(h2),
   .md :global(h3) {
     margin: var(--s5) 0 var(--s2);
-    line-height: 1.25;
+    font-size: revert;
   }
   .md :global(pre),
   .md :global(code) {
-    font-family: Consolas, monospace;
     font-size: var(--fs-14);
-    background: var(--surface-raised);
-    border-radius: var(--r-sm);
   }
   .md :global(pre) {
     padding: var(--s3);
-    overflow: auto;
-  }
-  .md :global(table) {
-    border-collapse: collapse;
-  }
-  .md :global(td),
-  .md :global(th) {
-    padding: var(--s1) var(--s2);
-    border: 1px solid var(--border);
-  }
-  .md :global(blockquote) {
-    margin: var(--s3) 0;
-    padding-left: var(--s3);
-    border-left: 3px solid var(--border-strong);
-    color: var(--text-muted);
   }
   .gallery {
     display: grid;

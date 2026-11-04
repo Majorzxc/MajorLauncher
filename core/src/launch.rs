@@ -32,6 +32,8 @@ pub struct LaunchCommand {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub cwd: PathBuf,
+    /// Переменные окружения для процесса игры поверх обычных.
+    pub env: Vec<(String, PathBuf)>,
 }
 
 /// Аргументы JVM для старых версий, в описании которых их нет.
@@ -178,11 +180,57 @@ pub fn build(
     }
     args.extend(legacy_server);
 
+    // До 1.6 игра кладёт текстурпаки, звуки, статистику и журнал в
+    // `%APPDATA%\.minecraft`, мимо папки сборки: подменяем APPDATA, и всё это
+    // оказывается в `<сборка>\.minecraft` (см. `content::packs_dir`).
+    let env = if legacy_home(version) {
+        vec![("APPDATA".to_string(), game_dir.clone())]
+    } else {
+        Vec::new()
+    };
     Ok(LaunchCommand {
         program: java::executable(&prepared.java_home, opts.console),
         args,
         cwd: game_dir.clone(),
+        env,
     })
+}
+
+/// Версия до 1.6: свою папку берёт из `%APPDATA%`, а не из `--gameDir`.
+pub fn legacy_home(version: &crate::meta::VersionJson) -> bool {
+    joins_server(version) == Join::No
+}
+
+/// То же по номеру версии сборки: по скачанному описанию версии, а пока его
+/// нет — по самому номеру (1.5.2, b1.7.3, снапшоты 12w… и 13w01–13w15).
+pub fn legacy_layout(data: &DataDir, version: &str) -> bool {
+    if let Ok(bytes) = std::fs::read(data.version_json(version))
+        && let Ok(json) = serde_json::from_slice::<crate::meta::VersionJson>(&bytes)
+    {
+        return legacy_home(&json);
+    }
+    let old_prefix = ["a", "b", "c", "rd-", "inf-"].iter().any(|p| {
+        version.starts_with(p) && version[p.len()..].starts_with(|c: char| c.is_ascii_digit())
+    });
+    if old_prefix {
+        return true;
+    }
+    if let Some(rest) = version.strip_prefix("1.") {
+        return rest
+            .split(['.', '-', '_'])
+            .next()
+            .and_then(|m| m.parse::<u32>().ok())
+            .is_some_and(|m| m < 6);
+    }
+    // Снапшоты вида 13w16a: год и неделя.
+    let (year, week) = (version.get(..2), version.get(3..5));
+    if version.get(2..3) == Some("w")
+        && let (Some(Ok(y)), Some(Ok(w))) =
+            (year.map(str::parse::<u32>), week.map(str::parse::<u32>))
+    {
+        return y < 13 || (y == 13 && w < 16);
+    }
+    false
 }
 
 /// Как версия заходит на сервер при запуске.
@@ -421,6 +469,53 @@ mod tests {
             }),
         );
         assert!(!args.contains(&"--server".to_string()));
+    }
+
+    #[test]
+    fn old_versions_keep_their_files_in_the_build() {
+        let ancient: crate::meta::VersionJson = serde_json::from_str(
+            r#"{"id":"1.5.2","mainClass":"M","assetIndex":{"id":"pre-1.6","url":"u","sha1":"s","size":1},
+            "downloads":{"client":{"url":"u","sha1":"s","size":1}},
+            "minecraftArguments":"${auth_player_name} ${auth_session} --gameDir ${game_directory}"}"#,
+        )
+        .unwrap();
+        assert!(legacy_home(&ancient));
+        let modern: crate::meta::VersionJson = serde_json::from_str(
+            r#"{"id":"1.6.4","mainClass":"M","assetIndex":{"id":"legacy","url":"u","sha1":"s","size":1},
+            "downloads":{"client":{"url":"u","sha1":"s","size":1}},
+            "minecraftArguments":"--username ${auth_player_name} --session ${auth_session}"}"#,
+        )
+        .unwrap();
+        assert!(!legacy_home(&modern));
+
+        // Описания версии ещё нет — по номеру.
+        let dir = tempfile::tempdir().unwrap();
+        let data = DataDir::new(dir.path());
+        for old in [
+            "1.5.2",
+            "1.0",
+            "1.2.5",
+            "b1.7.3",
+            "a1.2.6",
+            "c0.30_01c",
+            "rd-132211",
+            "12w50a",
+            "13w10b",
+        ] {
+            assert!(legacy_layout(&data, old), "{old}");
+        }
+        for new in [
+            "1.6.4",
+            "1.12.2",
+            "1.21.1",
+            "26.3",
+            "13w16a",
+            "24w14a",
+            "1.21.11-rc1",
+            "something",
+        ] {
+            assert!(!legacy_layout(&data, new), "{new}");
+        }
     }
 
     #[test]

@@ -203,7 +203,7 @@
     </div>
   </div>
   {:else}
-  <div class="bar">
+  <div class="bar" data-tour="mods-target">
     <span class="label">Куда ставить</span>
     <div class="target"><Select shrink label="Куда ставить" icon="builds" value={pickKey} options={targets} onchange={choose} /></div>
     {#if pick?.kind === "library"}

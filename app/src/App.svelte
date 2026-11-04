@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import CrashDialog from "./components/CrashDialog.svelte";
   import Header from "./components/Header.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -11,6 +11,11 @@
   import CropCover from "./components/CropCover.svelte";
   import BlockedDialog from "./components/BlockedDialog.svelte";
   import Tooltip from "./components/Tooltip.svelte";
+  import Tour from "./components/Tour.svelte";
+  import DropOverlay from "./components/DropOverlay.svelte";
+  import { connectDrop } from "./lib/drop.svelte";
+  import type { TourId } from "./lib/tours";
+  import { sectionOpened, setTutorial } from "./lib/tutorial.svelte";
   import { goBack, goForward, track } from "./lib/history.svelte";
   import { connectTasks, running, share, tasks } from "./lib/tasks.svelte";
   import { connectUpdates } from "./lib/updates.svelte";
@@ -20,7 +25,6 @@
   import { catalog } from "./lib/catalog.svelte";
   import { cropper, finish } from "./lib/crop.svelte";
   import Mods from "./screens/Mods.svelte";
-  import Placeholder from "./screens/Placeholder.svelte";
   import Settings from "./screens/Settings.svelte";
   import Stats from "./screens/Stats.svelte";
   import Servers from "./screens/Servers.svelte";
@@ -32,35 +36,42 @@
   import OptimizeDialog from "./components/OptimizeDialog.svelte";
   import { connect, play, start } from "./lib/play.svelte";
   import Modal from "./components/Modal.svelte";
-  import { ALL } from "./lib/sections";
   import { apply, loadImage } from "./lib/theme.svelte";
 
-  const section = $derived(ALL.find((s) => s.id === nav.section)!);
-
   let ready = $state(false);
-  let needsDataDir = $state(false);
+  // Мастер первого запуска или выбор папки данных вместо окна с разделами.
+  let first = $state<null | "wizard" | "data">(null);
+  let dataDir = $state<string | null>(null);
   // Папка данных пропала: диск отключён или сменил букву, а найти её не вышло.
   let missingDir = $state<string | null>(null);
-  // Шапка перечитывает аккаунты, когда выбрана папка данных.
-  let generation = $state(0);
 
   // Окно уже показано и покрашено в фон темы (это делает Rust-часть при старте).
   onMount(async () => {
     const config = await api.config();
     apply(config.appearance);
     loadImage();
-    needsDataDir = !config.data_dir;
-    if (!needsDataDir) {
+    setTutorial(config.tutorial);
+    dataDir = config.data_dir;
+    if (config.data_dir) {
       const status = await api.dataDirCheck().catch(() => null);
       missingDir = status?.missing ?? null;
       if (status) movedNote(status);
     }
+    first = !(config.tutorial?.onboarded ?? true) && !missingDir ? "wizard" : !config.data_dir || missingDir ? "data" : null;
     ready = true;
     connectTasks();
     connectUpdates();
     connectAi();
+    connectDrop();
     loadProblems();
-    if (!needsDataDir && !missingDir) connect();
+    if (!first) connect();
+  });
+
+  // Подсказки раздела при первом его открытии (если обучение включено).
+  const tourId = $derived<TourId>(nav.section === "builds" && nav.build ? "build" : nav.section);
+  $effect(() => {
+    const id = tourId;
+    if (ready && !first) untrack(() => sectionOpened(id));
   });
 
   /// Диск с данными сменил букву, и лаунчер сам нашёл папку — сказать об этом.
@@ -90,24 +101,28 @@
   const downloading = $derived(active.find((t) => t.total > 0) ?? null);
 </script>
 
+{#if !ready}
+  <!-- пусто: тема ещё применяется -->
+{:else if first}
+  <main class="alone">
+    <FirstRun
+      mode={first}
+      missing={missingDir}
+      {dataDir}
+      onmoved={movedNote}
+      ondone={() => {
+        first = null;
+        missingDir = null;
+        connect();
+      }}
+    />
+  </main>
+{:else}
 <div class="app">
-  {#key generation}<Header />{/key}
+  <Header />
   <Sidebar current={nav.section} onselect={go} />
   <main>
-    {#if !ready}
-      <!-- пусто: тема ещё применяется -->
-    {:else if needsDataDir || missingDir}
-      <FirstRun
-        missing={missingDir}
-        onmoved={movedNote}
-        ondone={() => {
-          needsDataDir = false;
-          missingDir = null;
-          generation++;
-          connect();
-        }}
-      />
-    {:else if nav.section === "home"}
+    {#if nav.section === "home"}
       <Home />
     {:else if nav.section === "builds" && nav.build}
       {#key nav.build}<BuildPage id={nav.build} />{/key}
@@ -123,8 +138,6 @@
       <Skins />
     {:else if nav.section === "settings"}
       <Settings />
-    {:else}
-      <Placeholder {section} />
     {/if}
   </main>
   {#if downloading}
@@ -139,9 +152,12 @@
     </button>
   {/if}
 </div>
+{/if}
 <svelte:window onmousedown={mouse} onmouseup={mouse} onkeydown={keys} />
 <Toasts />
 <Tooltip />
+<Tour />
+<DropOverlay />
 {#if catalog.ask}
   <PlanDialog
     plan={catalog.ask.plan}
@@ -195,6 +211,10 @@
     grid-template-columns: var(--nav-w) minmax(0, 1fr);
     grid-template-rows: var(--header-h) minmax(0, 1fr) auto;
     height: 100vh;
+  }
+  main.alone {
+    height: 100vh;
+    padding: 0;
   }
   main {
     grid-area: 2 / 2;

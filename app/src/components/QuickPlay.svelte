@@ -46,7 +46,7 @@
   }
 </script>
 
-<section class="quick card">
+<section class="quick card" data-tour="home-quick">
   <div class="text">
     <b>Быстрая игра</b>
     <span class="muted small">Любая ванильная версия без сборки. Миры и настройки общие для всех версий.</span>

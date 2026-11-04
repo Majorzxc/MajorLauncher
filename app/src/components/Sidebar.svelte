@@ -18,10 +18,10 @@
 {/snippet}
 
 <nav aria-label="Разделы">
-  <div class="group">
+  <div class="group" data-tour="nav">
     {#each TOP as s (s.id)}{@render item(s)}{/each}
   </div>
-  <div class="group bottom">
+  <div class="group bottom" data-tour="nav-bottom">
     {#each BOTTOM as s (s.id)}{@render item(s)}{/each}
   </div>
 </nav>

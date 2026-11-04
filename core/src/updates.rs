@@ -22,6 +22,15 @@ pub struct UpdateSettings {
     /// Обновлять сборки из каталога самому.
     #[serde(default)]
     pub auto_packs: bool,
+    /// Проверять, не вышла ли новая версия лаунчера (GitHub Releases).
+    #[serde(default = "yes")]
+    pub launcher: bool,
+    /// Скачивать новую версию лаунчера самому; ставится она по кнопке.
+    #[serde(default = "yes")]
+    pub launcher_download: bool,
+    /// Стабильные выпуски или ещё и пробные.
+    #[serde(default)]
+    pub channel: crate::selfupdate::Channel,
 }
 
 fn yes() -> bool {
@@ -34,6 +43,9 @@ impl Default for UpdateSettings {
             check: true,
             auto_mods: false,
             auto_packs: false,
+            launcher: true,
+            launcher_download: true,
+            channel: crate::selfupdate::Channel::Stable,
         }
     }
 }

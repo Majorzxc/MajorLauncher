@@ -20,7 +20,25 @@ export interface Config {
   updates?: UpdateSettings;
   ai?: AiSettings;
   skins?: SkinSettings;
+  tutorial?: Tutorial;
 }
+
+/// Первый запуск и обучение (раздел 6.4 ТЗ).
+export interface Tutorial {
+  /// Мастер первого запуска пройден.
+  onboarded: boolean;
+  /// Подсказки разделов показываются при первом открытии.
+  enabled: boolean;
+  /// Уже показанные туры.
+  seen: string[];
+  /// До какого времени (Unix, с) кнопка «Пройти обучение» видна в шапке.
+  offer_until: number | null;
+}
+
+export type TutorialAction =
+  | { action: "finish"; tutorial: boolean }
+  | { action: "seen"; id: string }
+  | { action: "restart" | "stop" | "hide_offer" };
 
 /// «Скины»: программа-редактор и спорные скины в каталоге.
 export interface SkinSettings {
@@ -129,6 +147,31 @@ export interface UpdateSettings {
   check: boolean;
   auto_mods: boolean;
   auto_packs: boolean;
+  /// Проверять новую версию лаунчера.
+  launcher: boolean;
+  /// Скачивать её самому (ставится по кнопке).
+  launcher_download: boolean;
+  channel: "stable" | "beta";
+}
+
+/// Новая версия лаунчера на GitHub (подпись уже проверило ядро).
+export interface LauncherRelease {
+  version: string;
+  beta: boolean;
+  notes: string;
+  published: string | null;
+  page: string;
+  size: number;
+}
+
+export interface LauncherUpdate {
+  current: string;
+  available: LauncherRelease | null;
+  /// Установщик скачан и проверен.
+  ready: boolean;
+  checked: number | null;
+  busy: boolean;
+  error: string | null;
 }
 
 export interface PackUpdate {
@@ -414,6 +457,8 @@ export interface Entry extends Instance {
   state: "active" | "archived";
   has_cover: boolean;
   archive_size: number | null;
+  /// Включённых модов; у архивных — null.
+  mods: number | null;
 }
 
 export interface TrashEntry {
@@ -848,6 +893,7 @@ export const api = {
   dataDirSuggestion: () => call<DirCheck>("data_dir_suggestion"),
   inspectDir: (path: string) => call<DirCheck>("inspect_dir", { path }),
   setDataDir: (path: string) => call<Config>("set_data_dir", { path }),
+  tutorial: (action: TutorialAction) => call<Config>("tutorial", { action }),
   dataDirCheck: () => call<DataStatus>("data_dir_check"),
   openDataDir: () => call<void>("open_data_dir"),
   setGame: (game: GameSettings) => call<Config>("set_game", { game }),
@@ -927,6 +973,9 @@ export const api = {
   updatesList: () => call<{ list: BuildUpdates[]; checked: number | null; running: boolean }>("updates_list"),
   updatesCheck: () => call<{ list: BuildUpdates[]; checked: number | null; running: boolean }>("updates_check"),
   setUpdates: (updates: UpdateSettings) => call<Config>("set_updates", { updates }),
+  launcherUpdate: () => call<LauncherUpdate>("launcher_update_view"),
+  launcherUpdateCheck: () => call<LauncherUpdate>("launcher_update_check"),
+  launcherUpdateInstall: () => call<void>("launcher_update_install"),
   packInfo: (id: string) => call<PackInfo>("pack_info", { id }),
   packUpdate: (id: string, version: string) => call<Instance>("pack_update", { id, version }),
   hardwareInfo: () => call<Hardware>("hardware_info"),

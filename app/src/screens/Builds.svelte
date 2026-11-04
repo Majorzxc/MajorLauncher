@@ -17,6 +17,7 @@
   import { openBuild, optimizing } from "../lib/nav.svelte";
   import { busyLabel, start } from "../lib/play.svelte";
   import { openModpacks } from "../lib/catalog.svelte";
+  import { acceptDrop, ext } from "../lib/drop.svelte";
 
   type Filter = { kind: "all" } | { kind: "pinned" } | { kind: "archive" } | { kind: "group"; name: string };
   type Sort = "played" | "name" | "created" | "playtime";
@@ -241,6 +242,16 @@
       ],
     };
   }
+
+  // Перетащенный .mrpack — новая сборка, как «Импорт → Из файла .mrpack».
+  acceptDrop(() => ({
+    hint: "Сборка из файла .mrpack поставится как новая",
+    ondrop: (paths) => {
+      const pack = paths.find((p) => ext(p) === "mrpack");
+      if (!pack) return toast("Сюда перетаскивают сборку .mrpack. Моды и паки — на страницу сборки.", { error: true });
+      importer?.inspect(pack);
+    },
+  }));
 </script>
 
 {#if view === "trash"}
@@ -291,9 +302,12 @@
     <button
       class="btn"
       title="Из другого лаунчера (Prism, официальный, TLauncher, CurseForge, Modrinth App) или из файла .mrpack"
+      data-tour="builds-import"
       onclick={() => (importing = true)}><Icon name="import" size={18} />Импорт</button
     >
-    <button class="btn btn-primary" onclick={() => (creating = true)}><Icon name="plus" size={18} />Новая сборка</button>
+    <button class="btn btn-primary" data-tour="builds-create" onclick={() => (creating = true)}
+      ><Icon name="plus" size={18} />Новая сборка</button
+    >
   </div>
   <ImportPack bind:this={importer} />
   {#if importing}
@@ -306,7 +320,7 @@
     />
   {/if}
 
-  <div class="chips" role="tablist" aria-label="Группы">
+  <div class="chips" role="tablist" aria-label="Группы" data-tour="builds-groups">
     <button class="chip" class:on={isFilter({ kind: "all" })} onclick={() => (filter = { kind: "all" })}>
       Все <span>{active.length}</span>
     </button>
@@ -367,7 +381,7 @@
       <p class="muted">{query ? "Ничего не найдено" : "Здесь пока пусто"}</p>
     </div>
   {:else}
-    <div class="grid">
+    <div class="grid" data-tour="builds-grid">
       {#each shown as b (b.state + b.id)}
         <BuildTile
           entry={b}

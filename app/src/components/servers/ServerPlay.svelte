@@ -75,7 +75,7 @@
   onkeydown={(e) => open && e.key === "Escape" && (open = false)}
 />
 
-<div class="play" bind:this={root}>
+<div class="play" bind:this={root} data-tour="server-play">
   {#if mine && cancellable(servers.launch!.build)}
     <button class="btn btn-sm" title="Отменить запуск" onclick={cancel}><Icon name="stop" size={16} />{label}</button>
   {:else if mine}

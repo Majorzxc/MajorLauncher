@@ -80,6 +80,27 @@ enum Command {
         #[arg(long)]
         key: Option<std::path::PathBuf>,
     },
+    /// Выпуски лаунчера: `keygen <файл>` — новый ключ подписи выпусков,
+    /// `sign --key <ключ> [--version X] <установщик>` — рядом появятся
+    /// `update.json` и `update.json.sig` для GitHub Releases. Версия по
+    /// умолчанию — версия этой сборки `mlcli`.
+    Release {
+        action: String,
+        file: std::path::PathBuf,
+        #[arg(long)]
+        key: Option<std::path::PathBuf>,
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Есть ли новая версия лаунчера на GitHub (с проверкой подписи).
+    SelfUpdate {
+        /// Канал «Бета»: ещё и пробные версии.
+        #[arg(long)]
+        beta: bool,
+        /// Считать свою версию такой (по умолчанию — версия этой сборки).
+        #[arg(long)]
+        current: Option<String>,
+    },
     /// Очистить файл от личных данных так же, как перед ИИ-разбором.
     Sanitize { file: std::path::PathBuf },
     /// Разбор лога сборки анализатором ошибок (этап 7): `latest.log` и
@@ -360,7 +381,6 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
             }
         }
         Command::Rules { action, file, key } => {
-            use majorlauncher_core::analyzer::remote;
             match action.as_str() {
                 "keygen" => {
                     if file.exists() {
@@ -369,7 +389,7 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                             file.display()
                         )));
                     }
-                    let (private, public) = remote::keygen()?;
+                    let (private, public) = majorlauncher_core::signing::keygen()?;
                     std::fs::write(&file, private).map_err(|e| Error::Other(e.to_string()))?;
                     println!("закрытый ключ: {}\nоткрытый ключ: {public}", file.display());
                 }
@@ -381,7 +401,7 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                     let rules = majorlauncher_core::analyzer::Rules::parse(
                         std::str::from_utf8(&json).map_err(|e| Error::Other(e.to_string()))?,
                     )?;
-                    let sig = remote::sign(&json, &pkcs8)?;
+                    let sig = majorlauncher_core::signing::sign(&json, &pkcs8)?;
                     let out = file.with_extension("json.sig");
                     std::fs::write(&out, &sig).map_err(|e| Error::Other(e.to_string()))?;
                     println!(
@@ -395,6 +415,62 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                         "rules keygen <файл> | rules sign --key <ключ> <json>".into(),
                     ));
                 }
+            }
+        }
+        Command::Release {
+            action,
+            file,
+            key,
+            version,
+        } => {
+            use majorlauncher_core::{selfupdate, signing};
+            let fail = |e: std::io::Error| Error::Other(e.to_string());
+            match action.as_str() {
+                "keygen" => {
+                    if file.exists() {
+                        return Err(Error::Other(format!(
+                            "{} уже есть — не перезаписываю",
+                            file.display()
+                        )));
+                    }
+                    let (private, public) = signing::keygen()?;
+                    std::fs::write(&file, private).map_err(fail)?;
+                    println!("закрытый ключ: {}\nоткрытый ключ: {public}", file.display());
+                }
+                "sign" => {
+                    let key = key.ok_or_else(|| Error::Other("нужен --key".into()))?;
+                    let pkcs8 = std::fs::read(&key).map_err(fail)?;
+                    let version = version.unwrap_or_else(|| majorlauncher_core::VERSION.into());
+                    let (manifest, bytes, sig) = selfupdate::sign_release(&file, &version, &pkcs8)?;
+                    // Чужим ключом подписанный выпуск лаунчер не примет — лучше не выпускать.
+                    if !signing::verify(&bytes, &sig, selfupdate::PUBLIC_KEY) {
+                        return Err(Error::Other(
+                            "ключ не тот, что вшит в лаунчер: такое обновление лаунчер не примет"
+                                .into(),
+                        ));
+                    }
+                    let dir = file.parent().unwrap_or(std::path::Path::new("."));
+                    std::fs::write(dir.join(selfupdate::MANIFEST), &bytes).map_err(fail)?;
+                    std::fs::write(dir.join(selfupdate::SIGNATURE), &sig).map_err(fail)?;
+                    println!(
+                        "{} {} · {} байт · sha256 {}",
+                        manifest.file, manifest.version, manifest.size, manifest.sha256
+                    );
+                }
+                _ => {
+                    return Err(Error::Other(
+                        "release keygen <файл> | release sign --key <ключ> [--version X] <установщик>".into(),
+                    ));
+                }
+            }
+        }
+        Command::SelfUpdate { beta, current } => {
+            use majorlauncher_core::selfupdate::{self, Channel};
+            let channel = if beta { Channel::Beta } else { Channel::Stable };
+            let current = current.unwrap_or_else(|| majorlauncher_core::VERSION.into());
+            match selfupdate::check(&dl, channel, &current).await? {
+                Some(a) => println!("есть {} ({} байт): {}", a.version, a.size, a.page),
+                None => println!("новее {current} нет"),
             }
         }
         Command::Sanitize { file } => {

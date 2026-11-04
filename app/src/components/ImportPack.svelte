@@ -20,10 +20,14 @@
   export async function pick() {
     if (!inTauri) return toast("В браузере файлы не выбрать", { error: true });
     const picked = await open({ title: "Сборка .mrpack", filters: [{ name: "Сборка Modrinth", extensions: ["mrpack"] }] });
-    if (typeof picked !== "string") return;
+    if (typeof picked === "string") await inspect(picked);
+  }
+
+  /// Показать, что в файле (выбран в окне или перетащен в «Сборки»).
+  export async function inspect(file: string) {
     try {
-      info = await api.mrpackInspect(picked);
-      path = picked;
+      info = await api.mrpackInspect(file);
+      path = file;
       name = info.name;
     } catch (e) {
       toast(String(e), { error: true });

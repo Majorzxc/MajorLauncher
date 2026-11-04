@@ -10,6 +10,7 @@
   import { date, size } from "../lib/format";
   import { inTauri } from "../lib/tauri";
   import { attempt, toast } from "../lib/toast.svelte";
+  import { acceptDrop, ext } from "../lib/drop.svelte";
 
   type Folder = LibraryItem["folder"];
   let tab: Folder | "mods" = $state("mods");
@@ -55,12 +56,30 @@
       filters: [{ name: "Архив", extensions: ["zip"] }],
     });
     const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    await addPaths(folder, paths);
+  }
+
+  async function addPaths(folder: Folder, paths: string[]) {
     if (!paths.length) return;
     const errors = await attempt("Библиотека", () => api.libraryAdd(folder, paths));
     errors?.forEach((e) => toast(e, { error: true }));
     if (errors && errors.length < paths.length) toast(`Добавлено: ${paths.length - errors.length} — уже во всех сборках.`);
     load();
   }
+
+  // Перетащенные архивы — в шейдеры, если открыта их вкладка, иначе в ресурспаки.
+  acceptDrop(() => {
+    const folder: Folder = tab === "shaderpacks" ? "shaderpacks" : "resourcepacks";
+    return {
+      hint: `${folder === "shaderpacks" ? "Шейдеры" : "Ресурспаки"} (.zip) добавятся в библиотеку — во все сборки`,
+      ondrop: (paths) => {
+        const zips = paths.filter((p) => ext(p) === "zip");
+        if (!zips.length) return toast("В библиотеку перетаскивают ресурспаки и шейдеры (.zip)", { error: true });
+        tab = folder;
+        addPaths(folder, zips);
+      },
+    };
+  });
 
   async function removeConfirmed() {
     const list = removing!;

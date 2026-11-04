@@ -3,9 +3,9 @@
   // свои скины или каталог. Пока раздел открыт, лаунчер следит за файлом,
   // открытым в редакторе, и принимает перетащенные в окно PNG.
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { onDestroy, onMount } from "svelte";
   import { api } from "../lib/api";
+  import { acceptDrop, ext } from "../lib/drop.svelte";
   import { forget } from "../lib/skinrender";
   import { loadSkins, skins } from "../lib/skins.svelte";
   import { inTauri } from "../lib/tauri";
@@ -15,8 +15,18 @@
   import SkinStage from "../components/skins/SkinStage.svelte";
 
   let library = $state<SkinLibrary>();
-  let dropping = $state(false);
   const off: UnlistenFn[] = [];
+
+  acceptDrop(() => ({
+    hint: "Скины (PNG 64×64) добавятся в «Мои скины»",
+    ondrop: (paths) => {
+      const pngs = paths.filter((x) => ext(x) === "png");
+      if (!pngs.length) return toast("Перетащите файл скина PNG", { error: true });
+      skins.view = "mine";
+      // Библиотека могла ещё не отрисоваться после смены вида.
+      queueMicrotask(() => library?.addPaths(pngs));
+    },
+  }));
 
   onMount(async () => {
     loadSkins();
@@ -34,21 +44,6 @@
         skins.version++;
       }),
     );
-    off.push(
-      await getCurrentWebview().onDragDropEvent((e) => {
-        const p = e.payload;
-        if (p.type === "enter" || p.type === "over") dropping = true;
-        else if (p.type === "leave") dropping = false;
-        else if (p.type === "drop") {
-          dropping = false;
-          const pngs = p.paths.filter((x) => x.toLowerCase().endsWith(".png"));
-          if (!pngs.length) return toast("Перетащите файл скина PNG", { error: true });
-          skins.view = "mine";
-          // Библиотека могла ещё не отрисоваться после смены вида.
-          queueMicrotask(() => library?.addPaths(pngs));
-        }
-      }),
-    );
   });
 
   onDestroy(() => {
@@ -57,12 +52,12 @@
   });
 </script>
 
-<div class="skins" class:dropping>
-  <aside class="left">
+<div class="skins">
+  <aside class="left" data-tour="skins-stage">
     <SkinStage />
   </aside>
   <section class="right">
-    <div class="views" role="tablist" aria-label="Мои скины или каталог">
+    <div class="views" role="tablist" aria-label="Мои скины или каталог" data-tour="skins-views">
       <button class="chip" role="tab" aria-selected={skins.view === "mine"} class:on={skins.view === "mine"} onclick={() => (skins.view = "mine")}>
         Мои скины{skins.list.length ? ` · ${skins.list.length}` : ""}
       </button>
@@ -76,7 +71,6 @@
       <SkinCatalog />
     {/if}
   </section>
-  {#if dropping}<div class="drop">Отпустите — скин добавится в библиотеку</div>{/if}
 </div>
 
 <style>
@@ -98,17 +92,5 @@
     display: flex;
     gap: var(--s2);
     margin-bottom: var(--s4);
-  }
-  .drop {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    border: 2px dashed var(--accent);
-    border-radius: var(--r-card);
-    background: color-mix(in srgb, var(--bg) 80%, transparent);
-    font-size: var(--fs-16);
-    font-weight: 600;
-    pointer-events: none;
   }
 </style>

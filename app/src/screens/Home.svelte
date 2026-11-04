@@ -9,7 +9,7 @@
   import { api } from "../lib/api";
   import { accounts } from "../lib/accounts.svelte";
   import { builds, refresh } from "../lib/builds.svelte";
-  import { ago, playtime } from "../lib/format";
+  import { ago, count, playtime, plural } from "../lib/format";
   import { go, nav, openBuild } from "../lib/nav.svelte";
   import { busyLabel, start } from "../lib/play.svelte";
   import { loaderLabel } from "../lib/loaders";
@@ -62,7 +62,7 @@
 {#if !builds.loaded}
   <!-- пусто: список сборок загружается -->
 {:else if !current}
-  <div class="empty card">
+  <div class="empty card" data-tour="home-empty">
     <Icon name="builds" size={40} />
     <h1>Сборок пока нет</h1>
     <p class="muted">Сборка — это версия игры со своими мирами, модами и настройками.</p>
@@ -70,7 +70,7 @@
   </div>
   <QuickPlay />
 {:else}
-  <section class="hero card">
+  <section class="hero card" data-tour="home-build">
     <button class="cover-btn" aria-label="Открыть сборку {current.name}" onclick={() => openBuild(current.id)}>
       <Cover id={current.id} size={176} />
     </button>
@@ -102,12 +102,15 @@
           >
         {/if}
       </div>
-      <p class="muted">{current.version} · {loaderLabel(current)}</p>
+      <p class="muted">
+        {current.version} · {loaderLabel(current)}{#if current.loader !== "vanilla" && current.mods != null}
+          · {count(current.mods)} {plural(current.mods, ["мод", "мода", "модов"])}{/if}
+      </p>
       <p class="meta muted">
         <span><Icon name="time" size={16} />{playtime(current.playtime)} в игре</span>
         <span>{lastRun(current.last_played)}</span>
       </p>
-      <div class="actions">
+      <div class="actions" data-tour="home-play">
         <PlayButton id={current.id} large />
         <button class="btn" onclick={() => openBuild(current.id)}>Открыть сборку</button>
       </div>

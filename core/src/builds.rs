@@ -100,6 +100,22 @@ pub struct Entry {
     pub has_cover: bool,
     /// Размер архива — у архивных сборок он известен сразу.
     pub archive_size: Option<u64>,
+    /// Включённых модов (у архивных не считается).
+    pub mods: Option<u32>,
+}
+
+/// Сколько включённых модов в папке сборки — только по именам, без чтения jar.
+fn enabled_mods(game_dir: &Path) -> u32 {
+    std::fs::read_dir(game_dir.join("mods")).map_or(0, |read| {
+        read.flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .ends_with(".jar")
+            })
+            .count() as u32
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,6 +223,7 @@ impl Builds {
             };
             out.push(Entry {
                 has_cover: dir.join(COVER).exists(),
+                mods: Some(enabled_mods(&dir)),
                 instance,
                 state: State::Active,
                 archive_size: None,
@@ -220,6 +237,7 @@ impl Builds {
                 instance: m.instance,
                 state: State::Archived,
                 archive_size: Some(m.size),
+                mods: None,
             });
         }
         Ok(out)

@@ -18,13 +18,33 @@ fn game_dir(state: &State<AppState>, id: &str) -> CmdResult<std::path::PathBuf> 
     Builds::new(state.data()?).game_dir(id).map_err(text)
 }
 
+/// Версия сборки до 1.6: вместо ресурспаков у неё текстурпаки (`Folder::TexturePacks`).
+fn legacy(state: &State<AppState>, id: &str) -> CmdResult<bool> {
+    let data = state.data()?;
+    let build = Builds::new(data.clone()).get(id).map_err(text)?;
+    Ok(majorlauncher_core::launch::legacy_layout(
+        &data,
+        &build.version,
+    ))
+}
+
+/// Папка сборки и папка паков под её версию.
+fn place(
+    state: &State<AppState>,
+    id: &str,
+    folder: Folder,
+) -> CmdResult<(std::path::PathBuf, Folder)> {
+    let legacy = folder == Folder::ResourcePacks && legacy(state, id)?;
+    Ok((game_dir(state, id)?, folder.for_version(legacy)))
+}
+
 #[tauri::command]
 pub async fn build_files(
     state: State<'_, AppState>,
     id: String,
     folder: Folder,
 ) -> CmdResult<Vec<FileEntry>> {
-    let dir = game_dir(&state, &id)?;
+    let (dir, folder) = place(&state, &id, folder)?;
     blocking(move || content::files(&dir, folder).map_err(text)).await
 }
 
@@ -36,7 +56,7 @@ pub async fn build_add_files(
     folder: Folder,
     paths: Vec<String>,
 ) -> CmdResult<Vec<String>> {
-    let dir = game_dir(&state, &id)?;
+    let (dir, folder) = place(&state, &id, folder)?;
     let data = state.data()?;
     let paths: Vec<std::path::PathBuf> = paths.into_iter().map(Into::into).collect();
     blocking(move || {
@@ -56,7 +76,8 @@ pub fn build_set_enabled(
     file: String,
     enabled: bool,
 ) -> CmdResult<String> {
-    content::set_enabled(&game_dir(&state, &id)?, folder, &file, enabled).map_err(text)
+    let (dir, folder) = place(&state, &id, folder)?;
+    content::set_enabled(&dir, folder, &file, enabled).map_err(text)
 }
 
 #[tauri::command]
@@ -147,7 +168,7 @@ pub fn build_reveal(
     id: String,
     target: Target,
 ) -> CmdResult<()> {
-    let path = target_path(&game_dir(&state, &id)?, target)?;
+    let path = target_path(&state, &id, target)?;
     app.opener().reveal_item_in_dir(path).map_err(text)
 }
 
@@ -179,13 +200,14 @@ pub fn build_open(
     id: String,
     target: Target,
 ) -> CmdResult<()> {
-    let path = target_path(&game_dir(&state, &id)?, target)?;
+    let path = target_path(&state, &id, target)?;
     app.opener()
         .open_path(path.display().to_string(), None::<&str>)
         .map_err(text)
 }
 
-fn target_path(dir: &std::path::Path, target: Target) -> CmdResult<std::path::PathBuf> {
+fn target_path(state: &State<AppState>, id: &str, target: Target) -> CmdResult<std::path::PathBuf> {
+    let dir = &game_dir(state, id)?;
     Ok(match target {
         Target::Folder { name } => {
             let allowed = [
@@ -201,11 +223,19 @@ fn target_path(dir: &std::path::Path, target: Target) -> CmdResult<std::path::Pa
             if !allowed.contains(&name.as_str()) {
                 return Err(format!("папку «{name}» открыть нельзя"));
             }
-            let path = dir.join(&name);
+            let path = match name.as_str() {
+                "resourcepacks" if legacy(state, id)? => {
+                    dir.join(".minecraft").join("texturepacks")
+                }
+                _ => dir.join(&name),
+            };
             std::fs::create_dir_all(&path).map_err(text)?;
             path
         }
-        Target::File { folder, file } => content::inside(dir, folder, &file).map_err(text)?,
+        Target::File { folder, file } => {
+            let (dir, folder) = place(state, id, folder)?;
+            content::inside(&dir, folder, &file).map_err(text)?
+        }
         Target::World { folder } => {
             if folder.contains(['/', '\\', ':']) || folder == ".." || folder == "." {
                 return Err(format!("недопустимое имя мира «{folder}»"));

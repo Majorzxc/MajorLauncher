@@ -15,7 +15,12 @@
   import Select from "./Select.svelte";
 
   // `onmrpack` — «Из файла .mrpack»: этот импорт живёт на экране «Сборки».
-  let { onclose, onmrpack }: { onclose: () => void; onmrpack: () => void } = $props();
+  // `onimported` — в мастере первого запуска: остаться в мастере, а не открывать сборку.
+  let {
+    onclose,
+    onmrpack,
+    onimported,
+  }: { onclose: () => void; onmrpack?: () => void; onimported?: () => void } = $props();
 
   let list = $state<ImportFound[] | null>(null);
   let error = $state("");
@@ -98,7 +103,8 @@
       toast(`Сборка «${created.name}» импортирована — в ${chosen.source_title} ничего не изменилось`);
       await refresh();
       onclose();
-      openBuild(created.id);
+      if (onimported) onimported();
+      else openBuild(created.id);
     } catch (e) {
       error = String(e);
     } finally {
@@ -189,10 +195,12 @@
         <Icon name="import" size={18} />Импортировать
       </button>
     {:else}
-      <button class="btn" onclick={pickFolder}><Icon name="folder" size={18} />Выбрать папку…</button>
-      <button class="btn back" title="Сборка Modrinth, Prism или Modrinth App в одном файле" onclick={onmrpack}
-        ><Icon name="import" size={18} />Из файла .mrpack…</button
-      >
+      <button class="btn" class:back={!onmrpack} onclick={pickFolder}><Icon name="folder" size={18} />Выбрать папку…</button>
+      {#if onmrpack}
+        <button class="btn back" title="Сборка Modrinth, Prism или Modrinth App в одном файле" onclick={onmrpack}
+          ><Icon name="import" size={18} />Из файла .mrpack…</button
+        >
+      {/if}
       <button class="btn btn-quiet" onclick={onclose}>Закрыть</button>
     {/if}
   {/snippet}

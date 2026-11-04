@@ -6,16 +6,13 @@ export interface Section {
   id: SectionId;
   title: string;
   icon: IconName;
-  /// Где раздел появится, пока он не готов (для заглушки).
-  stage?: string;
-  about?: string;
 }
 
 /// Разделы боковой панели (раздел 6.1 ТЗ): сверху основные, снизу — служебные.
 export const TOP: Section[] = [
   { id: "home", title: "Главная", icon: "home" },
   { id: "builds", title: "Сборки", icon: "builds" },
-  { id: "mods", title: "Моды", icon: "mods", about: "Каталог Modrinth и библиотека." },
+  { id: "mods", title: "Моды", icon: "mods" },
   { id: "servers", title: "Серверы", icon: "servers" },
   { id: "skins", title: "Скины", icon: "skins" },
 ];

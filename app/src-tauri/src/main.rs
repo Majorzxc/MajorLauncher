@@ -17,6 +17,7 @@ mod importer;
 mod mods;
 mod optimize;
 mod play;
+mod selfupdate;
 mod servers;
 mod settings;
 mod skins;
@@ -52,6 +53,8 @@ pub struct AppState {
     pub data_moved: Mutex<Option<(String, String)>>,
     /// Фоновые обновления модов и сборок из каталога.
     pub updates: Mutex<updates::Updates>,
+    /// Новая версия самого лаунчера.
+    pub launcher: Mutex<selfupdate::LauncherUpdate>,
 }
 
 /// Перенос папки данных: пока он идёт, остальные команды её не трогают.
@@ -203,6 +206,7 @@ fn main() {
                 tasks: Mutex::new(tasks::Tasks::default()),
                 data_moved: Mutex::new(None),
                 updates: Mutex::new(updates::Updates::default()),
+                launcher: Mutex::new(selfupdate::LauncherUpdate::default()),
             });
             // Диск с данными сменил букву — найти папку до первого окна.
             let state: State<AppState> = app.state();
@@ -225,6 +229,7 @@ fn main() {
             settings::set_appearance,
             settings::set_game,
             settings::set_catalog,
+            settings::tutorial,
             catalog::catalog_search,
             catalog::catalog_categories,
             catalog::catalog_translate,
@@ -333,6 +338,9 @@ fn main() {
             updates::set_updates,
             updates::pack_info,
             updates::pack_update,
+            selfupdate::launcher_update_view,
+            selfupdate::launcher_update_check,
+            selfupdate::launcher_update_install,
             analyzer::problems_last,
             analyzer::problems_counts,
             analyzer::analyze_log,

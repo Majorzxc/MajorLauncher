@@ -17,8 +17,11 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Закреплённая версия, как у автора и в release.yml: новый clippy не должен
+      # внезапно ронять проверки (так было с Rust 1.99, 04.11.2026).
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.97.1"
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2

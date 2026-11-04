@@ -44,7 +44,9 @@ pub mod playtime;
 pub mod relocate;
 pub mod rules;
 pub mod secrets;
+pub mod selfupdate;
 pub mod servers;
+pub mod signing;
 pub mod skins;
 pub mod snapshots;
 pub mod suspect;
@@ -57,7 +59,7 @@ pub mod verify;
 pub use account::{Account, Accounts, Kind, Session};
 pub use builds::{Builds, Instance};
 pub use config::{
-    Appearance, CatalogSettings, Config, ConfigStore, GameSettings, OnLaunch, ThemeMode,
+    Appearance, CatalogSettings, Config, ConfigStore, GameSettings, OnLaunch, ThemeMode, Tutorial,
 };
 pub use download::{DownloadOptions, Downloader};
 pub use error::{Error, Result};

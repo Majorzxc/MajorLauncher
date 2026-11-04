@@ -46,7 +46,7 @@
   onkeydown={(e) => e.key === "Escape" && (tasks.open = false)}
 />
 
-<div class="wrap" bind:this={root}>
+<div class="wrap" bind:this={root} data-tour="downloads">
   <button
     class="btn-dl"
     class:busy={active.length > 0}

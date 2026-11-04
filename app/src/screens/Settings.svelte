@@ -3,19 +3,21 @@
   import UpdateSettings from "../components/UpdateSettings.svelte";
   import AiSettings from "../components/AiSettings.svelte";
   import { open as openFile } from "@tauri-apps/plugin-dialog";
-  import { openUrl } from "@tauri-apps/plugin-opener";
   import { call, inTauri } from "../lib/tauri";
   import { api } from "../lib/api";
+  import { openExternal } from "../lib/links";
   import { size } from "../lib/format";
   import DataMove from "../components/DataMove.svelte";
   import GameOptions from "../components/GameOptions.svelte";
   import GameProfile from "../components/GameProfile.svelte";
   import { settingsPage } from "../lib/nav.svelte";
+  import { restartTutorial, stopTutorial, tutorial } from "../lib/tutorial.svelte";
   import { catalog, setAutoDeps, setTranslate } from "../lib/catalog.svelte";
   import HexInput from "../components/HexInput.svelte";
   import Icon from "../components/Icon.svelte";
   import Logo from "../components/Logo.svelte";
-  import { apply, loadImage, save, theme, type Appearance, type ThemeMode } from "../lib/theme.svelte";
+  import ThemeModes from "../components/ThemeModes.svelte";
+  import { apply, loadImage, save, theme, type Appearance } from "../lib/theme.svelte";
 
   type Page = "profile" | "look" | "game" | "catalog" | "optimize" | "updates" | "ai" | "data" | "about";
   // Страница настроек из адреса (#settings/profile) — чтобы открыть «Настройки игры» по ссылке.
@@ -30,18 +32,11 @@
   async function open(url: string) {
     linkError = "";
     try {
-      if (inTauri) await openUrl(url);
-      else window.open(url);
+      await openExternal(url);
     } catch (e) {
       linkError = `Не удалось открыть ссылку: ${e}`;
     }
   }
-
-  const MODES: { id: ThemeMode; title: string; hint: string }[] = [
-    { id: "dark", title: "Чёрная", hint: "Тёмный фон, светлый текст" },
-    { id: "light", title: "Белая", hint: "Светлый фон, тёмный текст" },
-    { id: "system", title: "Как в Windows", hint: "Следует за темой системы" },
-  ];
 
   let error = $state("");
 
@@ -96,7 +91,7 @@
 </script>
 
 <div class="settings">
-  <nav class="pages" aria-label="Разделы настроек">
+  <nav class="pages" aria-label="Разделы настроек" data-tour="settings-pages">
     <button class="page" aria-current={page === "profile" ? "page" : undefined} onclick={() => (page = "profile")}>
       Настройки игры
     </button>
@@ -133,22 +128,7 @@
 
       <div class="card block">
         <h2>Тема</h2>
-        <div class="modes" role="radiogroup" aria-label="Тема">
-          {#each MODES as m (m.id)}
-            <button
-              class="mode"
-              role="radio"
-              aria-checked={theme.appearance.mode === m.id}
-              onclick={() => update({ mode: m.id })}
-            >
-              <span class="mini {m.id}" aria-hidden="true">
-                <i class="mini-nav"></i><i class="mini-card"></i><i class="mini-btn"></i>
-              </span>
-              <b>{m.title}</b>
-              <span class="muted">{m.hint}</span>
-            </button>
-          {/each}
-        </div>
+        <ThemeModes onpick={(mode) => update({ mode })} />
       </div>
 
       <div class="card block">
@@ -334,6 +314,19 @@
           Иконки — Lucide (ISC). Шрифт — Onest (SIL Open Font License).
         </p>
       </div>
+      <div class="card block">
+        <h2>Обучение</h2>
+        <p class="muted">
+          Короткая экскурсия по главному экрану, а в каждом разделе — пара подсказок при первом открытии.
+          {tutorial.state.enabled ? "Сейчас подсказки разделов включены." : "Сейчас подсказки разделов выключены."}
+        </p>
+        <div class="row-buttons">
+          <button class="btn" onclick={restartTutorial}><Icon name="info" size={18} />Пройти обучение заново</button>
+          {#if tutorial.state.enabled}
+            <button class="btn btn-quiet" onclick={stopTutorial}>Выключить подсказки</button>
+          {/if}
+        </div>
+      </div>
     {/if}
   </section>
 </div>
@@ -405,104 +398,6 @@
     flex-direction: column;
     gap: var(--s4);
     padding: var(--s5);
-  }
-
-  .modes {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--s3);
-  }
-  .mode {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    padding: var(--s3);
-    border: 1px solid var(--border);
-    border-radius: var(--r);
-    background: var(--bg);
-    text-align: left;
-    cursor: pointer;
-  }
-  .mode:hover {
-    border-color: var(--border-strong);
-  }
-  .mode[aria-checked="true"] {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-  }
-  .mode b {
-    margin-top: var(--s2);
-    font-weight: 600;
-  }
-  .mode .muted {
-    font-size: var(--fs-14);
-  }
-
-  /* Мини-окно для превью темы: фиксированные цвета, не зависят от текущей темы. */
-  .mini {
-    position: relative;
-    width: 100%;
-    height: 72px;
-    border-radius: var(--r-sm);
-    overflow: hidden;
-    border: 1px solid #00000022;
-  }
-  .mini i {
-    position: absolute;
-    display: block;
-    border-radius: 3px;
-  }
-  .mini-nav {
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 14px;
-    border-radius: 0 !important;
-  }
-  .mini-card {
-    left: 24px;
-    right: 10px;
-    top: 10px;
-    height: 30px;
-  }
-  .mini-btn {
-    left: 24px;
-    width: 46px;
-    bottom: 10px;
-    height: 12px;
-  }
-  .mini.dark {
-    background: #0e0e10;
-  }
-  .mini.dark .mini-nav,
-  .mini.dark .mini-card {
-    background: #1d1d20;
-  }
-  .mini.dark .mini-btn {
-    background: #ededef;
-  }
-  .mini.light {
-    background: #f4f4f5;
-  }
-  .mini.light .mini-nav,
-  .mini.light .mini-card {
-    background: #ffffff;
-  }
-  .mini.light .mini-btn {
-    background: #121214;
-  }
-  .mini.system {
-    background: linear-gradient(90deg, #0e0e10 50%, #f4f4f5 50%);
-  }
-  .mini.system .mini-nav {
-    background: #1d1d20;
-  }
-  .mini.system .mini-card {
-    background: linear-gradient(90deg, #1d1d20 50%, #ffffff 50%);
-  }
-  .mini.system .mini-btn {
-    background: #ededef;
   }
 
   .row {
@@ -580,6 +475,10 @@
   }
   .small {
     font-size: var(--fs-12);
+  }
+  .row-buttons {
+    display: flex;
+    gap: var(--s2);
   }
   .credits {
     margin: 0;

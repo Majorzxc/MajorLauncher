@@ -2,10 +2,9 @@
   // «Настройки → ИИ-разбор» (раздел 5.8 ТЗ): сервис, ключ, модель, показ
   // перед отправкой, разбор сам после игры и лимит в день. Выключено, пока
   // игрок не включит: лог уходит в чужой сервис.
-  import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type AiProvider, type AiSettings } from "../lib/api";
   import { ai } from "../lib/ai.svelte";
-  import { inTauri } from "../lib/tauri";
+  import { openExternal } from "../lib/links";
   import { attempt, toast } from "../lib/toast.svelte";
   import Icon from "./Icon.svelte";
   import Select from "./Select.svelte";
@@ -135,10 +134,7 @@
     );
   }
 
-  function link(url: string) {
-    if (inTauri) openUrl(url).catch(() => {});
-    else window.open(url);
-  }
+  const link = (url: string) => openExternal(url).catch(() => {});
 </script>
 
 {#if opts}

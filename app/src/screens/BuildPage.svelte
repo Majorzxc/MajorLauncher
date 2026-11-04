@@ -13,10 +13,11 @@
   import SnapshotsTab from "../components/tabs/SnapshotsTab.svelte";
   import WorldsTab from "../components/tabs/WorldsTab.svelte";
   import { api } from "../lib/api";
+  import { acceptDrop, ext } from "../lib/drop.svelte";
   import { builds, refresh } from "../lib/builds.svelte";
   import { ago, playtime } from "../lib/format";
   import { go, lastTab, nav, optimizing } from "../lib/nav.svelte";
-  import { attempt } from "../lib/toast.svelte";
+  import { attempt, toast } from "../lib/toast.svelte";
   import { loaderLabel } from "../lib/loaders";
 
   let { id }: { id: string } = $props();
@@ -52,6 +53,32 @@
 
   if (!builds.loaded) refresh();
   const entry = $derived(builds.list.find((b) => b.id === id && b.state === "active"));
+
+  // Перетащенные файлы: моды (.jar) — в моды, архивы (.zip) — в шейдеры, если
+  // открыта их вкладка, иначе в ресурспаки. Вкладка после этого перечитывается.
+  let added = $state(0);
+  const packsTab = $derived<"resourcepacks" | "shaderpacks">(tab === "shaderpacks" ? "shaderpacks" : "resourcepacks");
+  acceptDrop(() => ({
+    hint: `Моды (.jar) и ${packsTab === "shaderpacks" ? "шейдеры" : "ресурспаки"} (.zip) добавятся в «${entry?.name ?? "сборку"}»`,
+    ondrop: async (paths) => {
+      const jars = paths.filter((p) => ext(p) === "jar");
+      const zips = paths.filter((p) => ext(p) === "zip");
+      const other = paths.length - jars.length - zips.length;
+      if (other) toast(`Пропущено файлов: ${other} — в сборку добавляются только .jar и .zip`, { error: true });
+      let ok = 0;
+      for (const [folder, list] of [["mods", jars], [packsTab, zips]] as const) {
+        if (!list.length) continue;
+        const errors = await attempt("Файлы", () => api.addFiles(id, folder, list));
+        errors?.forEach((e) => toast(e, { error: true }));
+        if (errors) ok += list.length - errors.length;
+      }
+      if (ok) {
+        toast(`Добавлено в «${entry?.name ?? id}»: ${ok}`);
+        tab = jars.length && !zips.length ? "mods" : zips.length && !jars.length ? packsTab : tab;
+        added++;
+      }
+    },
+  }));
 </script>
 
 <button class="btn btn-quiet back" onclick={() => go("builds")}><Icon name="arrow-left" size={18} />Сборки</button>
@@ -71,7 +98,7 @@
         <span>{entry.last_played ? `запуск ${ago(entry.last_played)}` : "ещё не запускалась"}</span>
       </p>
     </div>
-    <div class="actions">
+    <div class="actions" data-tour="build-actions">
       {#if !entry.quick}
         <button class="btn" onclick={() => (editing = true)}><Icon name="edit" size={18} />Изменить</button>
       {/if}
@@ -94,7 +121,7 @@
     </div>
   </header>
 
-  <nav class="tabs" aria-label="Вкладки сборки">
+  <nav class="tabs" aria-label="Вкладки сборки" data-tour="build-tabs">
     {#each TABS as t (t.id)}
       <button
         class="tab"
@@ -109,6 +136,7 @@
   </nav>
 
   <div class="body">
+    {#key added}
     {#if tab === "mods" || tab === "resourcepacks" || tab === "shaderpacks"}
       {#key tab}
         {#if tab === "mods"}<ModsTab {entry} />{:else}<FilesTab id={entry.id} folder={tab} loader={entry.loader} />{/if}
@@ -124,6 +152,7 @@
     {:else if tab === "settings"}
       <SettingsTab {entry} />
     {/if}
+    {/key}
   </div>
 
   {#if exporting}

@@ -1,0 +1,102 @@
+name: Выпуск
+
+# Установщик собирается здесь, публично, из кода этого тега — любой может
+# сверить, что выпуск собран из открытого кода (раздел 4 ТЗ). Выпуск
+# подписывается ключом из секрета UPDATE_SIGNING_KEY: без верной подписи
+# лаунчер обновление не примет.
+#
+# Выпустить: scripts/set-version.ps1 1.0.0, коммит, затем
+#   git tag v1.0.0 && git push origin v1.0.0
+# Тег с дефисом (v1.1.0-beta.1) — пробная версия для канала «Бета».
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # Та же версия Rust, что у автора: новая версия clippy не должна ломать выпуск.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          components: rustfmt, clippy
+
+      - name: Версия совпадает с тегом
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $conf = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $npm = (Get-Content app/package.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne $cargo -or $tag -ne $conf -or $tag -ne $npm) {
+            throw "тег $tag, Cargo.toml $cargo, tauri.conf.json $conf, package.json $npm — версии должны совпадать (scripts/set-version.ps1)"
+          }
+          "VERSION=$tag" >> $env:GITHUB_ENV
+
+      - name: Фронтенд — зависимости
+        working-directory: app
+        run: npm ci
+
+      - name: Фронтенд — проверка типов
+        working-directory: app
+        run: npm run check
+
+      - name: Rust — clippy и тесты
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+
+      - name: Установщик
+        working-directory: app
+        run: npx tauri build
+
+      - name: Подпись выпуска
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if (-not $env:UPDATE_SIGNING_KEY) { throw "нет секрета UPDATE_SIGNING_KEY — без подписи лаунчер обновление не примет" }
+          cargo build -p majorlauncher-cli
+          $exe = "target/release/bundle/nsis/MajorLauncher_${env:VERSION}_x64-setup.exe"
+          $size = (Get-Item $exe).Length
+          if ($size -gt 15MB) { throw "установщик $([math]::Round($size / 1MB, 1)) МБ — бюджет 15 МБ (раздел 7 ТЗ)" }
+          $key = Join-Path $env:RUNNER_TEMP "update.pk8"
+          [IO.File]::WriteAllBytes($key, [Convert]::FromBase64String($env:UPDATE_SIGNING_KEY))
+          try {
+            ./target/debug/mlcli.exe release sign --key $key --version $env:VERSION $exe
+            if ($LASTEXITCODE -ne 0) { throw "подпись не удалась" }
+          } finally {
+            Remove-Item $key -Force
+          }
+          $dir = "target/release/bundle/nsis"
+          Get-ChildItem $dir -File | Where-Object { $_.Name -in @("MajorLauncher_${env:VERSION}_x64-setup.exe", "update.json", "update.json.sig") } |
+            ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
+            Set-Content "$dir/SHA256SUMS.txt" -Encoding utf8NoBOM
+
+      - name: Выпуск на GitHub
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = "target/release/bundle/nsis"
+          $files = @("$dir/MajorLauncher_${env:VERSION}_x64-setup.exe", "$dir/update.json", "$dir/update.json.sig", "$dir/SHA256SUMS.txt")
+          $params = @("${{ github.ref_name }}") + $files + @("--title", "MajorLauncher ${env:VERSION}")
+          # Что нового — из release-notes/<версия>.md, иначе GitHub перечислит коммиты сам.
+          $notes = "release-notes/${env:VERSION}.md"
+          if (Test-Path $notes) { $params += @("--notes-file", $notes) } else { $params += "--generate-notes" }
+          if ($env:VERSION.Contains("-")) { $params += "--prerelease" }
+          gh release create @params

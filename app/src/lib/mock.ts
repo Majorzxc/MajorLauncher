@@ -1,7 +1,8 @@
 // Заглушки команд ядра для проверки вёрстки в браузере (только `npm run dev`).
 // Параметры адреса для снимков:
 //   ?mode=light&accent=%237c3aed&bg=%23202a44 — оформление
-//   ?fresh — первый запуск (папка данных не выбрана)
+//   ?fresh — первый запуск (мастер); ?tour — подсказки разделов включены;
+//   ?offer — кнопка «Пройти обучение» в шапке; ?lupdate — вышла новая версия лаунчера
 //   ?missing — папка данных не найдена; ?moved — диск сменил букву
 //   ?starting — игра запускается (этап и проценты)
 //   ?risky — миры из более новой версии; ?crash&streak — падает подряд, откат
@@ -23,6 +24,12 @@ function config() {
     appearance: { mode: url.get("mode") ?? "system", accent: url.get("accent"), background: url.get("bg") },
     game: { on_launch: "close", memory_mb: null, jvm_args: "" },
     optimize: { hardware: true, mods: true, memory: true, gpu: true, system: true, graphics: false, fps: false, intro_seen: false },
+    tutorial: {
+      onboarded: !url.has("fresh"),
+      enabled: url.has("tour"),
+      seen: [],
+      offer_until: url.has("offer") ? now() + 7 * DAY : null,
+    },
   };
 }
 
@@ -634,6 +641,46 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
     case "set_data_dir":
       saveConfig({ ...config(), data_dir: a.path });
       return config() as T;
+    case "launcher_update_view":
+    case "launcher_update_check":
+      if (cmd === "launcher_update_check") await sleep(600);
+      return {
+        current: "0.1.0",
+        available: url.has("lupdate")
+          ? {
+              version: "1.0.0",
+              beta: false,
+              notes: `## Что нового
+
+- Мастер первого запуска и обучение
+- Обновления лаунчера с подписью
+
+[Все изменения](https://github.com/Majorzxc/MajorLauncher)`,
+              published: "2026-11-10T12:00:00Z",
+              page: "https://github.com/Majorzxc/MajorLauncher/releases/tag/v1.0.0",
+              size: 4_600_000,
+            }
+          : null,
+        ready: url.has("lupdate"),
+        checked: now(),
+        busy: false,
+        error: null,
+      } as T;
+    case "launcher_update_install":
+      await sleep(500);
+      throw new Error("в браузере установщик не запускается");
+    case "tutorial": {
+      const c = config();
+      const t = c.tutorial;
+      const act = a.action;
+      if (act.action === "finish") Object.assign(t, { onboarded: true, enabled: act.tutorial, offer_until: act.tutorial ? null : now() + 7 * DAY });
+      if (act.action === "seen" && !t.seen.includes(act.id)) t.seen.push(act.id);
+      if (act.action === "restart") Object.assign(t, { enabled: true, seen: [], offer_until: null });
+      if (act.action === "stop") Object.assign(t, { enabled: false, offer_until: null });
+      if (act.action === "hide_offer") t.offer_until = null;
+      saveConfig(c);
+      return c as T;
+    }
     case "open_data_dir":
     case "build_open_folder":
       return undefined as T;

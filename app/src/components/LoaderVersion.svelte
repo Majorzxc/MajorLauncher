@@ -1,10 +1,9 @@
 <script lang="ts">
   // Версия загрузчика для версии игры: список у ядра, по умолчанию —
   // рекомендованная (у Forge — «recommended», у Fabric и NeoForge — последняя стабильная).
-  import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type Loader, type LoaderVersion } from "../lib/api";
   import { loaderTitle } from "../lib/loaders";
-  import { inTauri } from "../lib/tauri";
+  import { openExternal } from "../lib/links";
   import Icon from "./Icon.svelte";
   import Select from "./Select.svelte";
 
@@ -44,9 +43,7 @@
   );
 
   function support() {
-    const url = "https://www.patreon.com/LexManos/";
-    if (inTauri) openUrl(url);
-    else window.open(url);
+    openExternal("https://www.patreon.com/LexManos/").catch(() => {});
   }
 </script>
 

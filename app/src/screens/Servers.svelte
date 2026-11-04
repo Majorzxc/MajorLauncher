@@ -129,7 +129,7 @@
     <span class="muted">{list.length} {plural(list.length, ["сервер", "сервера", "серверов"])}</span>
   {/if}
 </div>
-<div class="head">
+<div class="head" data-tour="servers-head">
   {#if lists.length > 1}
     <Select label="Список серверов" icon="servers" shrink value={servers.build} options={lists} onchange={(v) => openList(v)} />
   {/if}

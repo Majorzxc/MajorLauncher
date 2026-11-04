@@ -42,6 +42,37 @@ pub fn set_catalog(state: State<AppState>, catalog: CatalogSettings) -> CmdResul
     Ok(config.get().clone())
 }
 
+/// Что игрок сделал с обучением (раздел 6.4 ТЗ).
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case", tag = "action")]
+pub enum TutorialAction {
+    /// Мастер первого запуска пройден; `tutorial` — согласился ли на обучение.
+    Finish {
+        tutorial: bool,
+    },
+    /// Подсказки раздела показаны или пропущены.
+    Seen {
+        id: String,
+    },
+    Restart,
+    Stop,
+    HideOffer,
+}
+
+#[tauri::command]
+pub fn tutorial(state: State<AppState>, action: TutorialAction) -> CmdResult<Config> {
+    let mut config = state.config.lock().unwrap();
+    match action {
+        TutorialAction::Finish { tutorial } => config.finish_onboarding(tutorial),
+        TutorialAction::Seen { id } => config.tour_seen(&id),
+        TutorialAction::Restart => config.restart_tutorial(),
+        TutorialAction::Stop => config.stop_tutorial(),
+        TutorialAction::HideOffer => config.hide_tutorial_offer(),
+    }
+    .map_err(text)?;
+    Ok(config.get().clone())
+}
+
 #[tauri::command]
 pub fn set_game(state: State<AppState>, game: GameSettings) -> CmdResult<Config> {
     let mut config = state.config.lock().unwrap();

@@ -315,6 +315,7 @@ mod tests {
             state: State::Active,
             has_cover: false,
             archive_size: None,
+            mods: None,
         }
     }
 

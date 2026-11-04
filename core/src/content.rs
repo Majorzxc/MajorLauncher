@@ -19,6 +19,9 @@ use crate::paths::DataDir;
 pub enum Folder {
     Mods,
     ResourcePacks,
+    /// Текстурпаки версий до 1.6: игра берёт их из `%APPDATA%\.minecraft`, а
+    /// лаунчер подменяет APPDATA на папку сборки (`launch::legacy_home`).
+    TexturePacks,
     ShaderPacks,
     Screenshots,
 }
@@ -28,8 +31,17 @@ impl Folder {
         match self {
             Folder::Mods => "mods",
             Folder::ResourcePacks => "resourcepacks",
+            Folder::TexturePacks => ".minecraft/texturepacks",
             Folder::ShaderPacks => "shaderpacks",
             Folder::Screenshots => "screenshots",
+        }
+    }
+
+    /// Паки этой версии: ресурспаки, а до 1.6 — текстурпаки.
+    pub fn for_version(self, legacy: bool) -> Folder {
+        match self {
+            Folder::ResourcePacks if legacy => Folder::TexturePacks,
+            other => other,
         }
     }
 }
@@ -66,7 +78,7 @@ pub fn files(game_dir: &Path, folder: Folder) -> Result<Vec<FileEntry>> {
         let lower = file.to_lowercase();
         let wanted = match folder {
             Folder::Mods => lower.ends_with(".jar") || lower.ends_with(".jar.disabled"),
-            Folder::ResourcePacks | Folder::ShaderPacks => {
+            Folder::ResourcePacks | Folder::TexturePacks | Folder::ShaderPacks => {
                 meta.is_dir() || lower.ends_with(".zip") || lower.ends_with(".zip.disabled")
             }
             Folder::Screenshots => lower.ends_with(".png") || lower.ends_with(".jpg"),
@@ -113,7 +125,7 @@ pub fn set_enabled(game_dir: &Path, folder: Folder, file: &str, enabled: bool) -
 pub fn add_files(game_dir: &Path, folder: Folder, paths: &[PathBuf]) -> Vec<String> {
     let ext = match folder {
         Folder::Mods => "jar",
-        Folder::ResourcePacks | Folder::ShaderPacks => "zip",
+        Folder::ResourcePacks | Folder::TexturePacks | Folder::ShaderPacks => "zip",
         Folder::Screenshots => return vec!["в скриншоты файлы не добавляются".into()],
     };
     let dir = game_dir.join(folder.dir());

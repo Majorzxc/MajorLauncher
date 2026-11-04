@@ -152,6 +152,28 @@ pub struct CatalogSettings {
     pub translate: bool,
 }
 
+/// Первый запуск и обучение (раздел 6.4 ТЗ). Сами подсказки — данные окна
+/// (`app/src/lib/tours.ts`), здесь — что игрок уже прошёл.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tutorial {
+    /// Мастер первого запуска пройден.
+    #[serde(default)]
+    pub onboarded: bool,
+    /// Обучение включено: подсказки раздела показываются при первом его открытии.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Подсказки, которые игрок уже видел (id тура).
+    #[serde(default)]
+    pub seen: Vec<String>,
+    /// До какого времени (Unix, с) кнопка «Пройти обучение» видна в шапке
+    /// окна. Потом она остаётся только в настройках.
+    #[serde(default)]
+    pub offer_until: Option<u64>,
+}
+
+/// Сколько кнопка «Пройти обучение» видна в шапке после отказа.
+pub const OFFER_SECS: u64 = 7 * 24 * 3600;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
     /// Папка данных; `None` — ещё не выбрана (первый запуск).
@@ -179,6 +201,9 @@ pub struct Config {
     /// Скины: программа-редактор, спорные скины в каталоге.
     #[serde(default)]
     pub skins: crate::skins::SkinSettings,
+    /// Мастер первого запуска и обучение.
+    #[serde(default)]
+    pub tutorial: Tutorial,
 }
 
 pub struct ConfigStore {
@@ -190,11 +215,31 @@ impl ConfigStore {
     /// Загрузить настройки. Нет файла — настройки по умолчанию; битый файл —
     /// тоже по умолчанию, чтобы лаунчер всегда открывался.
     pub fn load(path: PathBuf) -> Self {
-        let config = std::fs::read(&path)
+        let raw: Option<serde_json::Value> = std::fs::read(&path)
             .ok()
-            .and_then(|bytes| json(&bytes, "настройки лаунчера").ok())
+            .and_then(|bytes| json(&bytes, "настройки лаунчера").ok());
+        // Настройки лаунчера, который стоял до мастера первого запуска: мастер
+        // не показывается, обучение — только предлагается.
+        let before_tutorial = raw.as_ref().is_some_and(|v| v.get("tutorial").is_none());
+        let mut config: Config = raw
+            .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
-        Self { path, config }
+        let mut store = Self {
+            path,
+            config: Config::default(),
+        };
+        if before_tutorial && config.data_dir.is_some() {
+            config.tutorial = Tutorial {
+                onboarded: true,
+                offer_until: Some(now() + OFFER_SECS),
+                ..Tutorial::default()
+            };
+            store.config = config;
+            let _ = store.save();
+        } else {
+            store.config = config;
+        }
+        store
     }
 
     pub fn get(&self) -> &Config {
@@ -273,6 +318,50 @@ impl ConfigStore {
         self.save()
     }
 
+    /// Мастер первого запуска пройден. Отказался от обучения — кнопка
+    /// «Пройти обучение» неделю видна в шапке, потом — только в настройках.
+    pub fn finish_onboarding(&mut self, tutorial: bool) -> Result<()> {
+        let t = &mut self.config.tutorial;
+        t.onboarded = true;
+        t.enabled = tutorial;
+        t.offer_until = (!tutorial).then(|| now() + OFFER_SECS);
+        self.save()
+    }
+
+    /// Игрок посмотрел (или пропустил) подсказки раздела — больше их сам не показывать.
+    pub fn tour_seen(&mut self, id: &str) -> Result<()> {
+        let id = id.trim();
+        let t = &mut self.config.tutorial;
+        if id.is_empty() || id.len() > 64 || t.seen.iter().any(|s| s == id) {
+            return Ok(());
+        }
+        t.seen.push(id.to_string());
+        self.save()
+    }
+
+    /// «Пройти обучение»: подсказки всех разделов покажутся заново.
+    pub fn restart_tutorial(&mut self) -> Result<()> {
+        let t = &mut self.config.tutorial;
+        t.enabled = true;
+        t.seen.clear();
+        t.offer_until = None;
+        self.save()
+    }
+
+    /// «Выключить подсказки»: больше ничего не показывать само.
+    pub fn stop_tutorial(&mut self) -> Result<()> {
+        let t = &mut self.config.tutorial;
+        t.enabled = false;
+        t.offer_until = None;
+        self.save()
+    }
+
+    /// Убрать кнопку «Пройти обучение» из шапки — она остаётся в настройках.
+    pub fn hide_tutorial_offer(&mut self) -> Result<()> {
+        self.config.tutorial.offer_until = None;
+        self.save()
+    }
+
     pub fn set_appearance(&mut self, appearance: Appearance) -> Result<()> {
         appearance.validate()?;
         // Картинку включает только set_background: без файла её нет.
@@ -330,6 +419,12 @@ impl ConfigStore {
         std::fs::write(&tmp, bytes).at(&tmp)?;
         std::fs::rename(&tmp, &self.path).at(&self.path)
     }
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 #[cfg(test)]
@@ -401,6 +496,63 @@ mod tests {
         // Старый config.json без новых полей читается с приглушением по умолчанию.
         let old: Appearance = serde_json::from_str(r#"{"mode":"dark"}"#).unwrap();
         assert_eq!(old.image_dim, 60);
+    }
+
+    #[test]
+    fn tutorial_flow() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let mut store = ConfigStore::load(path.clone());
+        assert!(
+            !store.get().tutorial.onboarded,
+            "новый лаунчер начинает с мастера"
+        );
+        store.set_data_dir(dir.path().join("data")).unwrap();
+        // Окно закрыли посреди мастера — при следующем запуске он продолжится.
+        assert!(!ConfigStore::load(path.clone()).get().tutorial.onboarded);
+
+        store.finish_onboarding(false).unwrap();
+        let t = &store.get().tutorial;
+        assert!(t.onboarded && !t.enabled);
+        assert!(t.offer_until.unwrap() > now() + OFFER_SECS - 60);
+        store.hide_tutorial_offer().unwrap();
+        assert_eq!(store.get().tutorial.offer_until, None);
+
+        store.restart_tutorial().unwrap();
+        store.tour_seen("home").unwrap();
+        store.tour_seen("home").unwrap();
+        store.tour_seen(" ").unwrap();
+        let t = ConfigStore::load(path.clone()).get().tutorial.clone();
+        assert!(t.enabled);
+        assert_eq!(t.seen, ["home"]);
+        store.restart_tutorial().unwrap();
+        assert!(store.get().tutorial.seen.is_empty());
+        store.stop_tutorial().unwrap();
+        assert!(!store.get().tutorial.enabled);
+    }
+
+    #[test]
+    fn launcher_from_before_the_wizard_skips_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(
+            &path,
+            br#"{"data_dir":"D:\\MajorLauncherData","appearance":{"mode":"dark"}}"#,
+        )
+        .unwrap();
+        let store = ConfigStore::load(path.clone());
+        let t = &store.get().tutorial;
+        assert!(t.onboarded && !t.enabled);
+        assert!(t.offer_until.is_some(), "обучение предлагается кнопкой");
+        assert_eq!(store.get().appearance.mode, ThemeMode::Dark);
+        // Записано сразу: следующий запуск не продлевает срок кнопки.
+        let again = ConfigStore::load(path);
+        assert_eq!(again.get().tutorial, *t);
+
+        // Без папки данных — это ещё первый запуск.
+        let fresh = dir.path().join("fresh.json");
+        std::fs::write(&fresh, br#"{"appearance":{"mode":"light"}}"#).unwrap();
+        assert!(!ConfigStore::load(fresh).get().tutorial.onboarded);
     }
 
     #[test]

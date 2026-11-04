@@ -41,27 +41,31 @@ fn view(u: &Updates) -> UpdatesView {
     }
 }
 
-fn now() -> u64 {
+pub(crate) fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
 }
 
-/// Запустить фоновую проверку на всё время работы лаунчера.
+/// Запустить фоновую проверку на всё время работы лаунчера: моды и сборки
+/// из каталога, правила анализатора и сам лаунчер — по своим переключателям.
 pub fn start_background(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio_sleep(Duration::from_secs(45)).await;
         loop {
-            let check = app
+            let settings = app
                 .state::<AppState>()
                 .config
                 .lock()
                 .unwrap()
                 .get()
                 .updates
-                .check;
-            if check {
+                .clone();
+            if settings.check {
                 run(&app).await;
+            }
+            if settings.launcher {
+                crate::selfupdate::run(&app).await;
             }
             tokio_sleep(Duration::from_secs(6 * 3600)).await;
         }

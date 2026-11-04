@@ -145,7 +145,7 @@
 
 <h1>Статистика</h1>
 
-<div class="filters">
+<div class="filters" data-tour="stats-filters">
   <div class="chips" role="radiogroup" aria-label="Период">
     {#each PERIODS as p (p.id)}
       <button class="chip" role="radio" aria-checked={period === p.id} class:on={period === p.id} onclick={() => (period = p.id)}>

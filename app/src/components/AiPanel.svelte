@@ -2,14 +2,13 @@
   // «Разобрать с ИИ» (раздел 5.8 ТЗ): по кнопке — сначала показать, что
   // именно уйдёт в сервис (если так в настройках), потом ответ ИИ. Выключенный
   // ИИ-разбор объясняет, почему он выключен, и ведёт в настройки.
-  import { openUrl } from "@tauri-apps/plugin-opener";
   import { untrack } from "svelte";
   import { api, type AiAnswer, type AiPrepared } from "../lib/api";
   import { ai } from "../lib/ai.svelte";
   import { ago, size } from "../lib/format";
   import { renderMarkdown } from "../lib/markdown";
   import { openSettings } from "../lib/nav.svelte";
-  import { inTauri } from "../lib/tauri";
+  import { interceptLinks } from "../lib/links";
   import Icon from "./Icon.svelte";
 
   let {
@@ -109,16 +108,6 @@
     onleave?.();
     openSettings("ai");
   }
-
-  // Ссылки из ответа — во внешнем браузере.
-  function intercept(e: MouseEvent) {
-    const a = (e.target as HTMLElement).closest("a");
-    const href = a?.getAttribute("href");
-    if (!href) return;
-    e.preventDefault();
-    if (inTauri) openUrl(href).catch(() => {});
-    else window.open(href);
-  }
 </script>
 
 <section class="ai">
@@ -133,7 +122,7 @@
       </div>
       <!-- Ответ прошёл DOMPurify (lib/markdown.ts). -->
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-      <article class="md" onclick={intercept}>{@html renderMarkdown(shown.text)}</article>
+      <article class="md" onclick={interceptLinks}>{@html renderMarkdown(shown.text)}</article>
       {#if shown.truncated}<p class="muted small">Ответ оборвался на лимите длины.</p>{/if}
       <p class="muted small">ИИ может ошибаться: проверьте совет, прежде чем удалять что-то из сборки.</p>
     </div>
@@ -244,36 +233,5 @@
     white-space: pre-wrap;
     word-break: break-all;
     user-select: text;
-  }
-  .md {
-    line-height: 1.55;
-    user-select: text;
-    overflow-wrap: anywhere;
-  }
-  .md :global(p),
-  .md :global(ol),
-  .md :global(ul) {
-    margin: var(--s2) 0;
-  }
-  .md :global(a) {
-    color: var(--text);
-    text-decoration: underline;
-  }
-  .md :global(pre),
-  .md :global(code) {
-    font-family: Consolas, monospace;
-    font-size: var(--fs-12);
-    background: var(--surface-raised);
-    border-radius: var(--r-sm);
-  }
-  .md :global(pre) {
-    padding: var(--s2) var(--s3);
-    overflow: auto;
-  }
-  .md :global(h1),
-  .md :global(h2),
-  .md :global(h3) {
-    margin: var(--s3) 0 var(--s1);
-    font-size: var(--fs-16);
   }
 </style>

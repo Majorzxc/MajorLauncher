@@ -2,12 +2,12 @@
   // Левая панель раздела «Скины»: выбранный скин в 3D (поворот мышью,
   // анимации) и что с ним можно сделать.
   import { save as saveFile, open as openFile } from "@tauri-apps/plugin-dialog";
-  import { openUrl } from "@tauri-apps/plugin-opener";
   import { api } from "../../lib/api";
   import { currentAccount } from "../../lib/accounts.svelte";
   import { forget } from "../../lib/skinrender";
   import { knownSlim, loadCape, loadSkins, pixels, saveSkinSettings, skins, wear, type Selected } from "../../lib/skins.svelte";
   import { inTauri } from "../../lib/tauri";
+  import { openExternal } from "../../lib/links";
   import { attempt, toast } from "../../lib/toast.svelte";
   import type { Decoded } from "../../lib/skinrender";
   import Icon from "../Icon.svelte";
@@ -88,10 +88,7 @@
     }
   }
 
-  function link(url: string) {
-    if (inTauri) openUrl(url).catch(() => {});
-    else window.open(url);
-  }
+  const link = (url: string) => openExternal(url).catch(() => {});
 
   async function addToLibrary() {
     if (!sel || sel.kind === "lib") return;

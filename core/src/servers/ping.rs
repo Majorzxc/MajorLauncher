@@ -504,8 +504,10 @@ async fn legacy(s: &mut TcpStream, host: &str, port: u16) -> Result<Status, Ping
     let mut raw = vec![0; len * 2];
     s.read_exact(&mut raw).await.map_err(io_error)?;
     let units: Vec<u16> = raw
-        .chunks_exact(2)
-        .map(|c| u16::from_be_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&c| u16::from_be_bytes(c))
         .collect();
     parse_legacy(&String::from_utf16_lossy(&units), sent.elapsed()).ok_or(PingError::Protocol)
 }

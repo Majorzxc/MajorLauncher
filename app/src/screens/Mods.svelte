@@ -5,7 +5,7 @@
   import Library from "./Library.svelte";
 </script>
 
-<div class="views" role="tablist" aria-label="Каталог или библиотека">
+<div class="views" role="tablist" aria-label="Каталог или библиотека" data-tour="mods-views">
   <button class="chip" role="tab" aria-selected={catalog.view === "catalog"} class:on={catalog.view === "catalog"} onclick={() => (catalog.view = "catalog")}>
     Каталог Modrinth
   </button>
