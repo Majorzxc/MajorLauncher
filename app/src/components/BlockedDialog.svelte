@@ -11,7 +11,10 @@
   let {
     info,
     onclose,
-  }: { info: { id: string; version: string | null; issues: ModIssue[] }; onclose: () => void } = $props();
+  }: {
+    info: { id: string; version: string | null; issues: ModIssue[]; server?: string | null };
+    onclose: () => void;
+  } = $props();
 </script>
 
 <Modal title="Игра не запустится" width={560} {onclose}>
@@ -26,9 +29,9 @@
       class="btn btn-quiet"
       onclick={() => {
         // Сначала запомнить: после onclose() свойство info уже null.
-        const { id, version } = info;
+        const { id, version, server } = info;
         onclose();
-        start(id, version, true);
+        start(id, version, true, false, server ?? null);
       }}>Всё равно играть</button
     >
     <button

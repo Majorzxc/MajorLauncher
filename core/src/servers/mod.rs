@@ -4,6 +4,7 @@
 //! и из лаунчера; [`ping`] узнаёт, что сейчас на сервере.
 
 mod dns;
+pub mod fit;
 pub mod motd;
 pub mod ping;
 
@@ -27,6 +28,20 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Адрес без порта — через запись SRV, как его нашла бы игра: `host:port`.
+/// Нет записи (или порт указан) — адрес как есть.
+pub async fn resolve_srv(address: &str) -> String {
+    match ping::Address::parse(address) {
+        Some(a) if a.port.is_none() && a.host.parse::<std::net::IpAddr>().is_err() => {
+            match dns::srv(&a.host).await {
+                Some((host, port)) => format!("{host}:{port}"),
+                None => address.to_string(),
+            }
+        }
+        _ => address.to_string(),
+    }
 }
 
 /// Общий список.

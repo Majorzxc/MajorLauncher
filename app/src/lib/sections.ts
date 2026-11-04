@@ -16,7 +16,7 @@ export const TOP: Section[] = [
   { id: "home", title: "Главная", icon: "home" },
   { id: "builds", title: "Сборки", icon: "builds" },
   { id: "mods", title: "Моды", icon: "mods", about: "Каталог Modrinth и библиотека." },
-  { id: "servers", title: "Серверы", icon: "servers", stage: "9", about: "Общий список серверов и их статус." },
+  { id: "servers", title: "Серверы", icon: "servers" },
   { id: "skins", title: "Скины", icon: "skins" },
 ];
 

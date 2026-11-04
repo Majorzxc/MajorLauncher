@@ -16,9 +16,9 @@ export const play = $state({
   /// Игра закрылась с ошибкой — окно с подробностями.
   crash: null as Finished | null,
   /// Запуск остановлен: в сборке проблемы, которые не дадут игре запуститься.
-  blocked: null as null | { id: string; version: string | null; issues: ModIssue[] },
+  blocked: null as null | { id: string; version: string | null; issues: ModIssue[]; server?: string | null },
   /// Миры сборки открывали в более новой версии — спросить перед запуском.
-  risky: null as null | { id: string; version: string | null; worlds: RiskyWorld[] },
+  risky: null as null | { id: string; version: string | null; worlds: RiskyWorld[]; server?: string | null },
 });
 
 /// Можно ли сейчас отменить запуск этой сборки (до появления окна игры).
@@ -107,17 +107,24 @@ export function busyLabel(id: string): string | null {
 /// в более новой версии — окно спросит, сохранить ли копию и играть (`worldsOk`
 /// — уже спросили). Если в сборке есть проблемы, которые не дадут игре
 /// запуститься, — окно спросит «Всё равно играть?» (`force` — уже спросили).
-export async function start(id: string, version: string | null = null, force = false, worldsOk = false) {
+/// `server` — «Играть на сервере»: игра сразу зайдёт на него.
+export async function start(
+  id: string,
+  version: string | null = null,
+  force = false,
+  worldsOk = false,
+  server: string | null = null,
+) {
   try {
     if (!force && !worldsOk) {
       const worlds = await api.worldsCheck(id, id === QUICK_ID ? version : null).catch(() => []);
       if (worlds.length) {
-        play.risky = { id, version, worlds };
+        play.risky = { id, version, worlds, server };
         return;
       }
     }
-    const blocked = await api.play(id, version, force);
-    if (blocked?.length) play.blocked = { id, version, issues: blocked };
+    const blocked = await api.play(id, version, force, server);
+    if (blocked?.length) play.blocked = { id, version, issues: blocked, server };
   } catch (e) {
     toast(`Не удалось запустить: ${e}`, { error: true });
   }

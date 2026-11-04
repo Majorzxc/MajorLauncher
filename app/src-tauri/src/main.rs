@@ -17,6 +17,7 @@ mod importer;
 mod mods;
 mod optimize;
 mod play;
+mod servers;
 mod settings;
 mod skins;
 mod snapshots;
@@ -344,6 +345,13 @@ fn main() {
             ai::ai_used_today,
             ai::ai_preview,
             ai::ai_ask,
+            servers::servers_list,
+            servers::server_add,
+            servers::server_edit,
+            servers::server_remove,
+            servers::server_move,
+            servers::servers_ping,
+            servers::server_choices,
             skins::skins_list,
             skins::skin_png,
             skins::skin_path,

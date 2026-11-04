@@ -86,6 +86,18 @@ pub async fn prepare(
         })
         .await?;
     let (session, prepared) = (session?, prepared?);
+    // 1.6–1.19 заходят на сервер по `--server` без записи SRV — ищем её сами,
+    // иначе сервер, у которого адрес только в SRV, не найдётся.
+    let quick_play = match quick_play {
+        Some(crate::playtime::LastPlace::Server { address })
+            if launch::joins_server(&prepared.version) == launch::Join::Args =>
+        {
+            Some(crate::playtime::LastPlace::Server {
+                address: crate::servers::resolve_srv(&address).await,
+            })
+        }
+        other => other,
+    };
     let jvm_args = instance
         .settings
         .jvm_args

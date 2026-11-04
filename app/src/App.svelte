@@ -23,6 +23,7 @@
   import Placeholder from "./screens/Placeholder.svelte";
   import Settings from "./screens/Settings.svelte";
   import Stats from "./screens/Stats.svelte";
+  import Servers from "./screens/Servers.svelte";
   import Skins from "./screens/Skins.svelte";
   import { api, type DataStatus } from "./lib/api";
   import { toast } from "./lib/toast.svelte";
@@ -116,6 +117,8 @@
       <Stats />
     {:else if nav.section === "mods"}
       <Mods />
+    {:else if nav.section === "servers"}
+      <Servers />
     {:else if nav.section === "skins"}
       <Skins />
     {:else if nav.section === "settings"}
@@ -170,7 +173,7 @@
         class="btn btn-primary"
         onclick={() => {
           play.risky = null;
-          start(r.id, r.version, false, true);
+          start(r.id, r.version, false, true, r.server ?? null);
         }}>Сохранить копию и играть</button
       >
     {/snippet}

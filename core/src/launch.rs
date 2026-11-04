@@ -118,25 +118,31 @@ pub fn build(
                 features.enabled.push("is_quick_play_singleplayer".into());
                 vars.insert("quickPlaySingleplayer", folder.clone());
             }
-            crate::playtime::LastPlace::Server { address } => {
-                if supported("${quickPlayMultiplayer}") {
+            crate::playtime::LastPlace::Server { address } => match joins_server(version) {
+                Join::QuickPlay => {
                     features.enabled.push("is_quick_play_multiplayer".into());
-                    let full = if address.contains(':') {
-                        address.clone()
-                    } else {
-                        format!("{address}:25565")
+                    // Порт 25565 игра всё равно проверяет по записи SRV.
+                    let full = match crate::servers::ping::Address::parse(address) {
+                        Some(a) if a.port.is_none() => format!("{address}:25565"),
+                        _ => address.clone(),
                     };
                     vars.insert("quickPlayMultiplayer", full);
-                } else {
-                    let (host, port) = address.split_once(':').unwrap_or((address, "25565"));
-                    legacy_server = vec![
-                        "--server".to_string(),
-                        host.to_string(),
-                        "--port".to_string(),
-                        port.to_string(),
-                    ];
                 }
-            }
+                Join::Args => {
+                    if let Some(a) = crate::servers::ping::Address::parse(address) {
+                        legacy_server = vec![
+                            "--server".to_string(),
+                            a.host,
+                            "--port".to_string(),
+                            a.port
+                                .unwrap_or(crate::servers::ping::DEFAULT_PORT)
+                                .to_string(),
+                        ];
+                    }
+                }
+                // До 1.6 игра не умеет заходить на сервер при запуске.
+                Join::No => {}
+            },
             _ => {}
         }
     }
@@ -177,6 +183,34 @@ pub fn build(
         args,
         cwd: game_dir.clone(),
     })
+}
+
+/// Как версия заходит на сервер при запуске.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Join {
+    /// С 1.20 — `--quickPlayMultiplayer`, игра сама ищет запись SRV.
+    QuickPlay,
+    /// 1.6–1.19 — `--server` и `--port`, без записи SRV.
+    Args,
+    /// До 1.6 — никак: сервер выбирают в игре.
+    No,
+}
+
+pub fn joins_server(version: &crate::meta::VersionJson) -> Join {
+    match (&version.arguments, &version.minecraft_arguments) {
+        (Some(a), _)
+            if a.game
+                .iter()
+                .any(|arg| arg_mentions(arg, "${quickPlayMultiplayer}")) =>
+        {
+            Join::QuickPlay
+        }
+        (Some(_), _) => Join::Args,
+        // Параметры с именами (`--username`) — у нового Main с 1.6; до него —
+        // ник и сессия просто по порядку.
+        (None, Some(old)) if old.contains("--username") => Join::Args,
+        _ => Join::No,
+    }
 }
 
 /// Упоминает ли аргумент описания версии переменную (`${quickPlayMultiplayer}`).
@@ -358,6 +392,32 @@ mod tests {
             Some(LastPlace::World {
                 folder: "w".into(),
                 name: "w".into(),
+            }),
+        );
+        assert!(!args.contains(&"--server".to_string()));
+
+        // IPv6 с портом — адрес без скобок, порт отдельно.
+        let args = build_with(
+            old,
+            Some(LastPlace::Server {
+                address: "[::1]:25566".into(),
+            }),
+        );
+        assert!(args.ends_with(&[
+            "--server".into(),
+            "::1".into(),
+            "--port".into(),
+            "25566".into()
+        ]));
+
+        // 1.5.2: ник и сессия по порядку — `--server` игра не поймёт.
+        let ancient = r#"{"id":"1.5.2","mainClass":"M","assetIndex":{"id":"pre-1.6","url":"u","sha1":"s","size":1},
+            "downloads":{"client":{"url":"u","sha1":"s","size":1}},
+            "minecraftArguments":"${auth_player_name} ${auth_session} --gameDir ${game_directory}"}"#;
+        let args = build_with(
+            ancient,
+            Some(LastPlace::Server {
+                address: "play.net".into(),
             }),
         );
         assert!(!args.contains(&"--server".to_string()));

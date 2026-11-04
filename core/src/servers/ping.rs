@@ -170,6 +170,23 @@ pub async fn ping_many(addresses: &[String]) -> Vec<Result<Status, PingError>> {
         .await
 }
 
+/// Опросить несколько серверов и сообщать о каждом, как только ответил
+/// (или не ответил): живые не ждут тех, что молчат.
+pub async fn ping_each(
+    addresses: Vec<String>,
+    mut each: impl FnMut(&str, &Result<Status, PingError>),
+) {
+    let mut replies = stream::iter(addresses)
+        .map(|a| async move {
+            let r = ping(&a).await;
+            (a, r)
+        })
+        .buffer_unordered(PARALLEL);
+    while let Some((a, r)) = replies.next().await {
+        each(&a, &r);
+    }
+}
+
 async fn ping_addr(addr: &Address) -> Result<Status, PingError> {
     // Порт не указан — сначала запись SRV, как в игре. Обычный адрес ищется
     // тут же, параллельно: несуществующее имя Windows ищет по 10 с и дольше.

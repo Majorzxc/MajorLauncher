@@ -774,6 +774,73 @@ export interface SnapshotInfo {
   current: boolean;
 }
 
+/// Кусок описания сервера: текст одного вида (цвет — `#rrggbb`).
+export interface Span {
+  text: string;
+  color?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underlined?: boolean;
+  strikethrough?: boolean;
+  obfuscated?: boolean;
+}
+
+export type ServerTextures = "ask" | "accept" | "deny";
+
+export interface ServerRow {
+  /// Место в файле — для правки, удаления и перестановки.
+  index: number;
+  name: string;
+  address: string;
+  /// PNG 64×64 в base64.
+  icon: string | null;
+  textures: ServerTextures;
+  hidden: boolean;
+  /// По статистике: сколько играл, когда и какой сборкой.
+  played: { seconds: number; last: number; build: string; build_name: string } | null;
+}
+
+export interface ServersView {
+  servers: ServerRow[];
+  /// Сборки со своим списком серверов.
+  lists: { build: string; name: string }[];
+}
+
+export interface ServerStatus {
+  version: string;
+  protocol: number | null;
+  online: number | null;
+  max: number | null;
+  sample: string[];
+  motd: Span[];
+  favicon: string | null;
+  ping_ms: number;
+  modded: { loader: string | null; mods: number | null } | null;
+  legacy: boolean;
+}
+
+/// Ответ сервера на опрос (событие «server-status»).
+export interface ServerProbe {
+  token: number;
+  address: string;
+  status: ServerStatus | null;
+  error: string | null;
+  kind: "offline" | "bad" | null;
+}
+
+export type Fit = "last" | "exact" | "range" | "unknown" | "no";
+
+/// Сборка для «Играть на сервере».
+export interface ServerChoice {
+  id: string;
+  name: string;
+  version: string;
+  loader: Loader;
+  loader_version: string | null;
+  fit: Fit;
+  note: string;
+}
+
 export const TRASH_DAYS = 30;
 
 export const api = {
@@ -793,8 +860,26 @@ export const api = {
     call<ElyLogin>("account_add_ely", { login, password, code }),
   removeAccount: (id: string) => call<Account[]>("account_remove", { id }),
 
-  play: (id: string, version: string | null = null, force = false) =>
-    call<ModIssue[] | null>("build_play", { id, version, force }),
+  play: (id: string, version: string | null = null, force = false, server: string | null = null) =>
+    call<ModIssue[] | null>("build_play", { id, version, force, server }),
+
+  servers: (build: string | null) => call<ServersView>("servers_list", { build }),
+  serverAdd: (build: string | null, name: string, address: string) =>
+    call<ServersView>("server_add", { build, name, address }),
+  serverEdit: (
+    build: string | null,
+    index: number,
+    address: string,
+    change: { name?: string; address?: string; textures?: ServerTextures },
+  ) => call<ServersView>("server_edit", { build, index, address, change }),
+  serverRemove: (build: string | null, index: number, address: string) =>
+    call<ServersView>("server_remove", { build, index, address }),
+  serverMove: (build: string | null, index: number, address: string, to: number) =>
+    call<ServersView>("server_move", { build, index, address, to }),
+  serversPing: (build: string | null, addresses: string[], token: number) =>
+    call<void>("servers_ping", { build, addresses, token }),
+  serverChoices: (address: string, version: string | null, modded: boolean) =>
+    call<ServerChoice[]>("server_choices", { address, version, modded }),
   verify: (id: string) => call<Checked>("build_verify", { id }),
   modsReport: (id: string, online: boolean) => call<ModsReport>("mods_report", { id, online }),
   modsApply: (id: string, action: ModAction) => call<void>("mods_apply", { id, action }),

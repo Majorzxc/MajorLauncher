@@ -26,6 +26,69 @@ function config() {
   };
 }
 
+const MOCK_SERVERS: any[] = [
+  { name: "Выживание с друзьями", address: "play.example.org", icon: null, textures: "accept", hidden: false, played: { seconds: 52000, last: now() - DAY, build: "vyzhivanie", build_name: "Выживание с друзьями" } },
+  { name: "Hypixel", address: "mc.hypixel.net", icon: null, textures: "ask", hidden: false, played: { seconds: 4100, last: now() - 9 * DAY, build: "tehno", build_name: "Техно 1.20.1" } },
+  { name: "Анархия", address: "wizards.ru-mc.ru", icon: null, textures: "ask", hidden: false, played: null },
+  { name: "Сервер Киры", address: "192.168.1.71:50450", icon: null, textures: "ask", hidden: false, played: null },
+  { name: "Очень длинное название сервера, которое не помещается в строку целиком", address: "nosuch.example.invalid", icon: null, textures: "deny", hidden: false, played: null },
+];
+
+function mockServersView() {
+  return {
+    servers: url.has("noservers") ? [] : MOCK_SERVERS.map((s, index) => ({ ...s, index })),
+    lists: [{ build: "moy-server", name: "Мой сервер" }],
+  };
+}
+
+/// Иконка-заглушка 64×64 с буквой — разная у разных серверов.
+function mockIcon(address: string): string {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!;
+  g.fillStyle = `hsl(${(address.length * 47) % 360} 55% 40%)`;
+  g.fillRect(0, 0, 64, 64);
+  g.fillStyle = "#fff";
+  g.font = "bold 40px sans-serif";
+  g.textAlign = "center";
+  g.fillText(address[0].toUpperCase(), 32, 46);
+  return c.toDataURL("image/png").split(",")[1];
+}
+
+function mockProbe(address: string, token: number) {
+  if (address.includes("invalid")) return { token, address, status: null, error: "адрес не найден", kind: "bad" };
+  if (address.startsWith("192.")) return { token, address, status: null, error: "сервер не отвечает", kind: "offline" };
+  const big = address.includes("hypixel");
+  return {
+    token,
+    address,
+    error: null,
+    kind: null,
+    status: {
+      version: big ? "Requires MC 1.8 / 1.21" : address.includes("wizards") ? "Velocity 1.7.2-26.3" : "Paper 1.21.1",
+      protocol: big ? 47 : 767,
+      online: big ? 16379 : 3,
+      max: big ? 200000 : 20,
+      sample: big ? [] : ["Majorzxc", "Kirya", "Alex"],
+      motd: big
+        ? [
+            { text: "                Hypixel Network ", color: "#55ff55", bold: true },
+            { text: "[1.8/26.3]", color: "#ff5555" },
+            { text: "\n            ", color: "#ffffff" },
+            { text: "SKYBLOCK ", color: "#ffaa00", bold: true },
+            { text: "GHOST VISITORS", color: "#55ffff", bold: true },
+          ]
+        : address.includes("wizards")
+          ? [{ text: "♛ Волшебная анархия ", color: "#ff55ff" }, { text: "| v1.21.4", color: "#aaaaaa" }, { text: " ✦✦", obfuscated: true, color: "#ffff55" }]
+          : [{ text: "Наш сервер для своих. ", color: "#ffaa00" }, { text: "Заходи!", color: "#000000" }],
+      favicon: mockIcon(address),
+      ping_ms: big ? 214 : address.includes("wizards") ? 158 : 37,
+      modded: null,
+      legacy: false,
+    },
+  };
+}
+
 const MOCK_SKINS = [
   { id: "a1", name: "Рыцарь", slim: false, source: "каталог Ely.by", page: "https://ely.by/skins/s1", added: now() - 100 },
   { id: "b2", name: "Алекс в худи", slim: true, source: "файл", added: now() - 200 },
@@ -215,6 +278,37 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
         list: a.ai.provider === "anthropic" ? ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] : ["llama3.1:8b", "qwen2.5:14b"],
         url: a.ai.provider === "custom" && a.ai.url && !a.ai.url.endsWith("/v1") ? `${a.ai.url.replace(/\/$/, "")}/v1` : a.ai.url,
       } as T;
+    case "servers_list":
+      return mockServersView() as T;
+    case "server_add":
+      if (MOCK_SERVERS.some((x) => x.address.toLowerCase() === a.address.trim().toLowerCase()))
+        throw new Error("этот адрес уже есть в списке");
+      if (!/^[\w.-]+(:\d+)?$/.test(a.address.trim())) throw new Error(`«${a.address}» не похоже на адрес сервера`);
+      MOCK_SERVERS.push({ name: a.name.trim() || "Сервер Minecraft", address: a.address.trim(), icon: null, textures: "ask", hidden: false, played: null });
+      return mockServersView() as T;
+    case "server_edit": {
+      const s = MOCK_SERVERS[a.index];
+      Object.assign(s, Object.fromEntries(Object.entries(a.change).filter(([, v]) => v !== undefined)));
+      return mockServersView() as T;
+    }
+    case "server_remove":
+      MOCK_SERVERS.splice(a.index, 1);
+      return mockServersView() as T;
+    case "server_move": {
+      const [s] = MOCK_SERVERS.splice(a.index, 1);
+      MOCK_SERVERS.splice(a.to, 0, s);
+      return mockServersView() as T;
+    }
+    case "servers_ping":
+      await sleep(700);
+      return (a.addresses as string[]).map((address) => mockProbe(address, a.token)) as T;
+    case "server_choices":
+      await sleep(150);
+      return [
+        { id: "vyzhivanie", name: "Выживание с друзьями", version: "1.21.1", loader: "fabric", loader_version: "0.16.10", fit: "last", note: "вы играли на нём с этой сборкой" },
+        { id: "_quick", name: "Быстрая игра", version: "1.21.1", loader: "vanilla", loader_version: null, fit: "exact", note: "сервер на 1.21.1" },
+        { id: "1-12-2", name: "1.12.2", version: "1.12.2", loader: "forge", loader_version: "14.23.5.2859", fit: "no", note: "сервер на 1.21.1 — может не пустить" },
+      ] as T;
     case "skins_list":
       return JSON.parse(localStorage.getItem("mock-skins") ?? "null") ?? MOCK_SKINS;
     case "skin_png":

@@ -192,8 +192,11 @@ pub async fn build_play(
     id: String,
     version: Option<String>,
     force: Option<bool>,
+    server: Option<String>,
 ) -> CmdResult<Option<Vec<Issue>>> {
-    launch(app, id, version, force, None).await
+    // «Играть на сервере»: сразу зайти на него.
+    let place = server.map(|address| LastPlace::Server { address });
+    launch(app, id, version, force, place).await
 }
 
 /// Запуск игры: кнопка «Играть» и перезапуск после выхода. `quick_play` —
