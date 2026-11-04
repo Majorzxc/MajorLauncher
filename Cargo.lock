@@ -2210,7 +2210,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "majorlauncher"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "base64 0.23.1",
  "majorlauncher-core",
@@ -2227,7 +2227,7 @@ dependencies = [
 
 [[package]]
 name = "majorlauncher-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "clap",
  "majorlauncher-core",
@@ -2238,7 +2238,7 @@ dependencies = [
 
 [[package]]
 name = "majorlauncher-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "base64 0.23.1",
  "flate2",
