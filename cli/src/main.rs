@@ -110,6 +110,15 @@ enum Command {
         #[arg(long, default_value_t = 15)]
         limit: usize,
     },
+    /// Список серверов (этап 9): общий или сборки (`--build`). Без
+    /// подкоманды — список с опросом каждого сервера.
+    Servers {
+        /// Свой список сборки — у неё выключен общий.
+        #[arg(long)]
+        build: Option<String>,
+        #[command(subcommand)]
+        action: Option<ServersAction>,
+    },
     /// Аккаунты: офлайн-ники и Ely.by. Без подкоманды — список.
     Accounts {
         #[command(subcommand)]
@@ -138,6 +147,31 @@ enum Command {
         /// Только показать команду запуска, не запускать.
         #[arg(long)]
         dry_run: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServersAction {
+    /// Список с опросом (`--offline` — без опроса).
+    List {
+        #[arg(long)]
+        offline: bool,
+    },
+    /// Опросить адреса (не из списка).
+    Ping { addresses: Vec<String> },
+    /// Добавить в конец списка.
+    Add { name: String, address: String },
+    /// Удалить по номеру из списка.
+    Remove { number: usize },
+    /// Переставить сервер с места на место (номера из списка).
+    Move { from: usize, to: usize },
+    /// Переименовать или сменить адрес.
+    Edit {
+        number: usize,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        address: Option<String>,
     },
 }
 
@@ -485,6 +519,14 @@ async fn run(cli: Cli) -> majorlauncher_core::Result<ExitCode> {
                 p.name
             );
         }
+        Command::Servers { build, action } => {
+            servers(
+                &data,
+                build,
+                action.unwrap_or(ServersAction::List { offline: false }),
+            )
+            .await?;
+        }
         Command::Accounts { action } => {
             accounts(&data, &dl, action.unwrap_or(AccountsAction::List)).await?;
         }
@@ -717,6 +759,154 @@ async fn accounts(
         AccountsAction::Default { account } => {
             accounts.set_default(&account)?;
             println!("Аккаунт по умолчанию: {}", accounts.find(&account)?.name);
+        }
+    }
+    Ok(())
+}
+
+async fn servers(
+    data: &DataDir,
+    build: Option<String>,
+    action: ServersAction,
+) -> majorlauncher_core::Result<()> {
+    use majorlauncher_core::servers::{self, motd, ping};
+    let path = match &build {
+        Some(id) => servers::build_path(data, id),
+        None => servers::shared_path(data),
+    };
+    let show = |address: &str, r: &Result<ping::Status, ping::PingError>| match r {
+        Ok(s) => {
+            let players = match (s.online, s.max) {
+                (Some(o), Some(m)) => format!("{o}/{m}"),
+                _ => "?".into(),
+            };
+            println!(
+                "    {address}: {} · игроков {players} · {} мс{}{}",
+                if s.version.is_empty() {
+                    "версия неизвестна"
+                } else {
+                    &s.version
+                },
+                s.ping_ms,
+                s.protocol
+                    .map(|p| format!(" · протокол {p}"))
+                    .unwrap_or_default(),
+                if s.legacy {
+                    " · старый протокол"
+                } else {
+                    ""
+                },
+            );
+            for line in motd::plain(&s.motd)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+            {
+                println!("      | {}", line.trim());
+            }
+            if let Some(m) = &s.modded {
+                println!(
+                    "      моды: {} {}",
+                    m.loader.as_deref().unwrap_or("загрузчик неизвестен"),
+                    m.mods.map(|n| n.to_string()).unwrap_or_else(|| "?".into())
+                );
+            }
+            if !s.sample.is_empty() {
+                println!("      игроки: {}", s.sample.join(", "));
+            }
+            if s.favicon.is_some() {
+                println!("      есть иконка");
+            }
+        }
+        Err(e) => println!("    {address}: {e}"),
+    };
+    // Номера для игрока — с единицы и только видимые серверы, как в игре.
+    let visible = |path: &std::path::Path| -> majorlauncher_core::Result<Vec<servers::Server>> {
+        Ok(servers::list(path)?
+            .into_iter()
+            .filter(|s| !s.hidden)
+            .collect())
+    };
+    let pick = |number: usize| -> majorlauncher_core::Result<servers::Server> {
+        visible(&path)?
+            .into_iter()
+            .nth(number.wrapping_sub(1))
+            .ok_or_else(|| Error::Other(format!("сервера №{number} в списке нет")))
+    };
+    match action {
+        ServersAction::List { offline } => {
+            let list = visible(&path)?;
+            println!("{} ({} серверов)", path.display(), list.len());
+            let addresses: Vec<String> = list.iter().map(|s| s.address.clone()).collect();
+            let started = Instant::now();
+            let results = if offline {
+                Vec::new()
+            } else {
+                ping::ping_many(&addresses).await
+            };
+            for (i, s) in list.iter().enumerate() {
+                println!("{:>3}. {}", i + 1, s.name);
+                match results.get(i) {
+                    Some(r) => show(&s.address, r),
+                    None => println!("    {}", s.address),
+                }
+            }
+            if !offline {
+                println!(
+                    "
+опрос: {:.1} с",
+                    started.elapsed().as_secs_f64()
+                );
+                let icons: Vec<(String, Option<String>)> = list
+                    .iter()
+                    .zip(&results)
+                    .filter_map(|(s, r)| {
+                        r.as_ref()
+                            .ok()
+                            .map(|st| (s.address.clone(), st.favicon.clone()))
+                    })
+                    .collect();
+                if servers::update_icons(&path, &icons)? {
+                    println!("иконки обновлены");
+                }
+            }
+        }
+        ServersAction::Ping { addresses } => {
+            for (a, r) in addresses.iter().zip(ping::ping_many(&addresses).await) {
+                show(a, &r);
+            }
+        }
+        ServersAction::Add { name, address } => {
+            servers::add(&path, &name, &address)?;
+            println!("добавлен: {address}");
+        }
+        ServersAction::Remove { number } => {
+            let s = pick(number)?;
+            servers::remove(&path, s.index, &s.address)?;
+            println!("удалён: {} ({})", s.name, s.address);
+        }
+        ServersAction::Move { from, to } => {
+            let s = pick(from)?;
+            let target = pick(to)?;
+            servers::move_to(&path, s.index, &s.address, target.index)?;
+            println!("{} — теперь №{to}", s.name);
+        }
+        ServersAction::Edit {
+            number,
+            name,
+            address,
+        } => {
+            let s = pick(number)?;
+            servers::edit(
+                &path,
+                s.index,
+                &s.address,
+                &servers::ServerEdit {
+                    name,
+                    address,
+                    textures: None,
+                },
+            )?;
+            println!("изменён: №{number}");
         }
     }
     Ok(())

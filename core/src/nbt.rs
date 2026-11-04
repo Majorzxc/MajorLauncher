@@ -96,9 +96,7 @@ impl Reader<'_> {
     }
     fn string(&mut self) -> Option<String> {
         let n = u16::from_be_bytes(self.arr()?) as usize;
-        // Строки в Java «модифицированной» UTF-8; для имён миров и серверов
-        // обычная UTF-8 почти всегда совпадает.
-        Some(String::from_utf8_lossy(self.take(n)?).into_owned())
+        Some(decode_mutf8(self.take(n)?))
     }
 
     fn payload(&mut self, id: u8, depth: usize) -> Option<Tag> {
@@ -191,11 +189,91 @@ pub fn write(root: &Tag) -> Vec<u8> {
     out
 }
 
+/// Строки NBT — в «модифицированной» UTF-8 Java: символ с кодом 0 — два
+/// байта, символы вне BMP (эмодзи) — парой суррогатов по три байта.
+/// Обычную четырёхбайтную UTF-8 игра не читает и теряет весь файл, поэтому
+/// пишем как Java; читаем и то и другое.
+fn encode_mutf8(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len());
+    for c in s.chars() {
+        let mut units = [0u16; 2];
+        for &u in c.encode_utf16(&mut units).iter() {
+            match u {
+                1..=0x7f => out.push(u as u8),
+                0 | 0x80..=0x7ff => {
+                    out.push(0xc0 | (u >> 6) as u8);
+                    out.push(0x80 | (u & 0x3f) as u8);
+                }
+                _ => {
+                    out.push(0xe0 | (u >> 12) as u8);
+                    out.push(0x80 | ((u >> 6) & 0x3f) as u8);
+                    out.push(0x80 | (u & 0x3f) as u8);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn decode_mutf8(bytes: &[u8]) -> String {
+    let mut units = Vec::with_capacity(bytes.len());
+    let cont = |i: usize| {
+        bytes
+            .get(i)
+            .filter(|b| *b & 0xc0 == 0x80)
+            .map(|b| (b & 0x3f) as u32)
+    };
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i] as u32;
+        let (code, len) = match b {
+            0..=0x7f => (Some(b), 1),
+            0xc0..=0xdf => (cont(i + 1).map(|c1| ((b & 0x1f) << 6) | c1), 2),
+            0xe0..=0xef => (
+                cont(i + 1)
+                    .zip(cont(i + 2))
+                    .map(|(c1, c2)| ((b & 0x0f) << 12) | (c1 << 6) | c2),
+                3,
+            ),
+            // Обычная UTF-8 вне BMP — так писали старые версии лаунчера.
+            0xf0..=0xf7 => (
+                cont(i + 1)
+                    .zip(cont(i + 2))
+                    .zip(cont(i + 3))
+                    .map(|((c1, c2), c3)| ((b & 0x07) << 18) | (c1 << 12) | (c2 << 6) | c3),
+                4,
+            ),
+            _ => (None, 1),
+        };
+        match code.and_then(char::from_u32) {
+            Some(c) => units.extend_from_slice(c.encode_utf16(&mut [0; 2])),
+            // Половинка суррогатной пары — склеится с соседней в from_utf16.
+            None if code.is_some_and(|c| (0xd800..0xe000).contains(&c)) => {
+                units.push(code.unwrap() as u16)
+            }
+            None => {
+                units.push(0xfffd);
+                i += 1;
+                continue;
+            }
+        }
+        i += len;
+    }
+    String::from_utf16_lossy(&units)
+}
+
 fn write_string(out: &mut Vec<u8>, s: &str) {
-    let bytes = s.as_bytes();
-    let n = bytes.len().min(u16::MAX as usize);
-    out.extend_from_slice(&(n as u16).to_be_bytes());
-    out.extend_from_slice(&bytes[..n]);
+    let mut bytes = encode_mutf8(s);
+    if bytes.len() > u16::MAX as usize {
+        // Обрезаем по границе символа: продолжение не начинается с 10xxxxxx.
+        let mut n = u16::MAX as usize;
+        while n > 0 && bytes[n] & 0xc0 == 0x80 {
+            n -= 1;
+        }
+        bytes.truncate(n);
+    }
+    out.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
+    out.extend_from_slice(&bytes);
 }
 
 fn write_payload(out: &mut Vec<u8>, tag: &Tag) {
@@ -285,6 +363,19 @@ mod tests {
             first.get("ip").and_then(Tag::as_str),
             Some("mc.example.org")
         );
+    }
+
+    #[test]
+    fn java_strings() {
+        // Как пишет Java DataOutputStream.writeUTF: «😀» — два суррогата по 3 байта.
+        assert_eq!(encode_mutf8("a😀"), b"a\xed\xa0\xbd\xed\xb8\x80");
+        assert_eq!(encode_mutf8("\0Я"), b"\xc0\x80\xd0\xaf");
+        for s in ["Сервер 😀 §aзелёный", "\0", "", "日本"] {
+            assert_eq!(decode_mutf8(&encode_mutf8(s)), s);
+        }
+        // Обычная UTF-8 из старых версий лаунчера тоже читается.
+        assert_eq!(decode_mutf8("ок 😀".as_bytes()), "ок 😀");
+        assert_eq!(decode_mutf8(b"a\xffb"), "a\u{fffd}b");
     }
 
     #[test]
