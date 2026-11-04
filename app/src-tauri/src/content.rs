@@ -224,9 +224,7 @@ fn target_path(state: &State<AppState>, id: &str, target: Target) -> CmdResult<s
                 return Err(format!("папку «{name}» открыть нельзя"));
             }
             let path = match name.as_str() {
-                "resourcepacks" if legacy(state, id)? => {
-                    dir.join(".minecraft").join("texturepacks")
-                }
+                "resourcepacks" if legacy(state, id)? => dir.join("texturepacks"),
                 _ => dir.join(&name),
             };
             std::fs::create_dir_all(&path).map_err(text)?;
@@ -256,7 +254,12 @@ pub async fn stats_summary(state: State<'_, AppState>, filter: Filter) -> CmdRes
         let mut worlds = |build: &str| {
             cache
                 .entry(build.to_string())
-                .or_insert_with(|| content::world_names(&data.instance(build)))
+                .or_insert_with(|| {
+                    let dir = Builds::new(data.clone())
+                        .game_dir(build)
+                        .unwrap_or_else(|_| data.instance(build));
+                    content::world_names(&dir)
+                })
                 .clone()
         };
         resolve_worlds(&mut records, &mut worlds);

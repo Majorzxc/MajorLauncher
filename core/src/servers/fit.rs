@@ -316,6 +316,7 @@ mod tests {
             has_cover: false,
             archive_size: None,
             mods: None,
+            legacy: false,
         }
     }
 

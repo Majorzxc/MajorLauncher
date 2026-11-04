@@ -102,6 +102,8 @@ pub struct Entry {
     pub archive_size: Option<u64>,
     /// Включённых модов (у архивных не считается).
     pub mods: Option<u32>,
+    /// Версия до 1.6: текстурпаки вместо ресурспаков, папка игры — `.minecraft`.
+    pub legacy: bool,
 }
 
 /// Сколько включённых модов в папке сборки — только по именам, без чтения jar.
@@ -224,6 +226,7 @@ impl Builds {
             out.push(Entry {
                 has_cover: dir.join(COVER).exists(),
                 mods: Some(enabled_mods(&dir)),
+                legacy: crate::launch::legacy_layout(&self.data, &instance.version),
                 instance,
                 state: State::Active,
                 archive_size: None,
@@ -238,6 +241,7 @@ impl Builds {
                 state: State::Archived,
                 archive_size: Some(m.size),
                 mods: None,
+                legacy: false,
             });
         }
         Ok(out)
@@ -395,10 +399,11 @@ impl Builds {
         write_meta(&dir, &instance)
     }
 
-    /// Папка игры сборки.
+    /// Папка игры сборки: миры, настройки, скриншоты, логи. У версий до 1.6 —
+    /// `<сборка>\.minecraft` ([`crate::launch::home_dir`]).
     pub fn game_dir(&self, id: &str) -> Result<PathBuf> {
-        self.get(id)?;
-        Ok(self.data.instance(id))
+        let instance = self.get(id)?;
+        Ok(crate::launch::home_dir(&self.data, &instance))
     }
 
     /// «Быстрая игра» с выбранной версией: создаётся при первом запуске,
@@ -482,9 +487,9 @@ impl Builds {
         .at(&path)
     }
 
-    /// Содержимое корзины; заодно удаляет то, что пролежало дольше срока.
-    pub fn trash_list(&self) -> Result<Vec<TrashEntry>> {
-        self.purge_expired(TRASH_DAYS)?;
+    /// Содержимое корзины; заодно удаляет то, что пролежало дольше `days` дней.
+    pub fn trash_list(&self, days: u64) -> Result<Vec<TrashEntry>> {
+        self.purge_expired(days)?;
         let mut out = Vec::new();
         for dir in subdirs(&self.data.trash())? {
             if let Some(mut entry) = read_trash_entry(&dir)? {
@@ -1084,7 +1089,7 @@ mod tests {
         b.trash(&a.id).unwrap();
         assert!(b.list().unwrap().is_empty());
 
-        let trash = b.trash_list().unwrap();
+        let trash = b.trash_list(TRASH_DAYS).unwrap();
         assert_eq!(trash.len(), 1);
         let restored = b.restore(&trash[0].trash_id).unwrap();
         assert_eq!(restored.name, "Тест");
@@ -1096,10 +1101,10 @@ mod tests {
         );
 
         b.trash(&restored.id).unwrap();
-        let id = b.trash_list().unwrap()[0].trash_id.clone();
+        let id = b.trash_list(TRASH_DAYS).unwrap()[0].trash_id.clone();
         assert!(b.purge("../escape").is_err(), "пути из окна не принимаются");
         b.purge(&id).unwrap();
-        assert!(b.trash_list().unwrap().is_empty());
+        assert!(b.trash_list(TRASH_DAYS).unwrap().is_empty());
     }
 
     #[test]

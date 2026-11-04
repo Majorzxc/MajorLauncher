@@ -180,13 +180,13 @@ pub fn build(
     }
     args.extend(legacy_server);
 
-    // До 1.6 игра кладёт текстурпаки, звуки, статистику и журнал в
-    // `%APPDATA%\.minecraft`, мимо папки сборки: подменяем APPDATA, и всё это
-    // оказывается в `<сборка>\.minecraft` (см. `content::packs_dir`).
-    let env = if legacy_home(version) {
-        vec![("APPDATA".to_string(), game_dir.clone())]
-    } else {
-        Vec::new()
+    // До 1.6 игра держит настройки, миры, текстурпаки и журнал в
+    // `%APPDATA%\.minecraft`, мимо `--gameDir`. Её папка игры — `<сборка>\.minecraft`
+    // ([`home_dir`]), а APPDATA подменяется на саму сборку: так оба пути
+    // ведут в одно место.
+    let env = match game_dir.parent() {
+        Some(build) if legacy_home(version) => vec![("APPDATA".to_string(), build.to_path_buf())],
+        _ => Vec::new(),
     };
     Ok(LaunchCommand {
         program: java::executable(&prepared.java_home, opts.console),
@@ -198,7 +198,53 @@ pub fn build(
 
 /// Версия до 1.6: свою папку берёт из `%APPDATA%`, а не из `--gameDir`.
 pub fn legacy_home(version: &crate::meta::VersionJson) -> bool {
-    joins_server(version) == Join::No
+    // Признак тот же, что у `Join::No`: старая строка аргументов — ник и сессия по порядку.
+    version.arguments.is_none()
+        && version
+            .minecraft_arguments
+            .as_deref()
+            .is_some_and(|a| !a.contains("--username"))
+}
+
+/// Папка игры сборки — миры, настройки, серверы, скриншоты, логи: у версий
+/// до 1.6 — `<сборка>\.minecraft` (туда указывает подменённый APPDATA), у
+/// остальных — сама папка сборки.
+pub fn home_dir(data: &DataDir, instance: &crate::builds::Instance) -> PathBuf {
+    let dir = data.instance(&instance.id);
+    if legacy_layout(data, &instance.version) {
+        dir.join(".minecraft")
+    } else {
+        dir
+    }
+}
+
+/// Подготовить папку игры перед запуском. У версий до 1.6 файлы игры, которые
+/// лежат прямо в папке сборки (их туда положили импорт, копирование миров или
+/// лаунчер до 1.0), переезжают в `.minecraft` — переименованием, без копий;
+/// то, что там уже есть, не трогается.
+pub fn prepare_home(data: &DataDir, instance: &crate::builds::Instance) -> Result<PathBuf> {
+    let home = home_dir(data, instance);
+    std::fs::create_dir_all(&home).at(&home)?;
+    let root = data.instance(&instance.id);
+    if home != root {
+        for name in [
+            "saves",
+            "screenshots",
+            "options.txt",
+            "servers.dat",
+            "texturepacks",
+            "resourcepacks",
+            "resources",
+            "stats",
+            "crash-reports",
+        ] {
+            let (from, to) = (root.join(name), home.join(name));
+            if from.exists() && !to.exists() {
+                std::fs::rename(&from, &to).at(&from)?;
+            }
+        }
+    }
+    Ok(home)
 }
 
 /// То же по номеру версии сборки: по скачанному описанию версии, а пока его
@@ -516,6 +562,33 @@ mod tests {
         ] {
             assert!(!legacy_layout(&data, new), "{new}");
         }
+
+        // Файлы, лежавшие в корне старой сборки, переезжают в `.minecraft`.
+        let b = crate::builds::Builds::new(data.clone())
+            .create(
+                "Старая",
+                "1.5.2",
+                crate::builds::LoaderChoice::default(),
+                None,
+            )
+            .unwrap();
+        let root = data.instance(&b.id);
+        std::fs::create_dir_all(root.join("saves/Мир")).unwrap();
+        std::fs::write(root.join("options.txt"), "fov:0.5").unwrap();
+        let home = prepare_home(&data, &b).unwrap();
+        assert_eq!(home, root.join(".minecraft"));
+        assert!(home.join("saves/Мир").is_dir() && home.join("options.txt").exists());
+        assert!(!root.join("saves").exists());
+        // Новая версия — папка сборки и есть папка игры.
+        let n = crate::builds::Builds::new(data.clone())
+            .create(
+                "Новая",
+                "1.21.1",
+                crate::builds::LoaderChoice::default(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(prepare_home(&data, &n).unwrap(), data.instance(&n.id));
     }
 
     #[test]

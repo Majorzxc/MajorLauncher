@@ -152,6 +152,8 @@ const QUOTES_SINCE: &str = V1_19.1;
 const LOWERCASE_LANG_SINCE: &str = "2016-11-14";
 /// С этой даты клавиши и ресурспаки хранятся в нынешнем формате.
 const KEY_NAMES_SINCE: &str = V1_13.1;
+/// С 1.6.1 в игре есть ресурспаки (строка `resourcePacks`); раньше — текстурпаки.
+const PACKS_SINCE: &str = "2013-07-01";
 
 use Group::*;
 
@@ -801,6 +803,30 @@ impl Profile {
     }
 
     /// Поменять значение из окна лаунчера. Значение проверяется по каталогу.
+    /// Назначить клавишу действию (`key.forward`) — редактор клавиш в лаунчере.
+    /// `None` — вернуть клавишу по умолчанию (убрать из профиля).
+    pub fn set_key(&mut self, action: &str, key: Option<&str>) -> Result<()> {
+        let ok = !action.is_empty()
+            && action.len() <= 128
+            && action
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
+        if !ok {
+            return Err(Error::Other(format!("непонятное действие «{action}»")));
+        }
+        let line = format!("key_{action}");
+        match key {
+            Some(k) if crate::keycodes::is_known(k) => {
+                self.keys.insert(line, k.to_string());
+            }
+            Some(k) => return Err(Error::Other(format!("клавиша «{k}» игре незнакома"))),
+            None => {
+                self.keys.remove(&line);
+            }
+        }
+        Ok(())
+    }
+
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
         let s =
             setting(key).ok_or_else(|| Error::Other(format!("неизвестный параметр «{key}»")))?;
@@ -953,7 +979,7 @@ pub fn seed(profile: &mut Profile, data: &DataDir, build: &crate::builds::Instan
             build.version
         ))
     })?;
-    let game_dir = data.instance(&build.id);
+    let game_dir = crate::launch::home_dir(data, build);
     if !game_dir.join("options.txt").exists() {
         return Err(Error::Other(format!(
             "в сборке «{}» ещё нет настроек игры — запустите её один раз",
@@ -996,21 +1022,36 @@ pub fn apply(profile: &Profile, game_dir: &Path, v: &GameVersion) -> Result<()> 
         let line = to_file(s, value, file.get(key), v);
         file.set(key, line);
     }
-    // Клавиши и ресурспаки до 1.13 хранились иначе — их в старых сборках не трогаем.
-    if v.has(KEY_NAMES_SINCE) {
-        if profile.is_shared(Group::Keys) {
-            for (key, value) in &profile.keys {
+    // До 1.13 клавиши — коды LWJGL 2, а ресурспаки — имена файлов без
+    // «file/», и порядок обратный (первым — верхний пак): переводим.
+    let modern = v.has(KEY_NAMES_SINCE);
+    if profile.is_shared(Group::Keys) {
+        for (key, value) in &profile.keys {
+            if modern {
                 file.set(key, value.clone());
+            } else if let Some(code) = crate::keycodes::to_legacy(value) {
+                file.set(key, code.to_string());
             }
         }
-        if profile.is_shared(Group::Packs)
-            && let Some(packs) = &profile.packs
-        {
-            file.set(
-                "resourcePacks",
-                serde_json::to_string(packs).expect("строки"),
-            );
-        }
+    }
+    if profile.is_shared(Group::Packs)
+        && let Some(packs) = &profile.packs
+        && v.has(PACKS_SINCE)
+    {
+        let list: Vec<String> = if modern {
+            packs.clone()
+        } else {
+            packs
+                .iter()
+                .rev()
+                .filter_map(|p| p.strip_prefix("file/"))
+                .map(str::to_string)
+                .collect()
+        };
+        file.set(
+            "resourcePacks",
+            serde_json::to_string(&list).expect("строки"),
+        );
     }
     std::fs::create_dir_all(game_dir).at(game_dir)?;
     file.write(&path)
@@ -1029,20 +1070,42 @@ pub fn import(profile: &mut Profile, game_dir: &Path, v: &GameVersion) -> Result
             profile.values.insert(s.key.to_string(), from_file(s, raw));
         }
     }
-    if v.has(KEY_NAMES_SINCE) {
-        if profile.is_shared(Group::Keys) {
-            for (k, val) in &file.lines {
-                if k.starts_with("key_") {
-                    profile.keys.insert(k.clone(), val.clone());
-                }
+    let modern = v.has(KEY_NAMES_SINCE);
+    if profile.is_shared(Group::Keys) {
+        for (k, val) in &file.lines {
+            if !k.starts_with("key_") {
+                continue;
+            }
+            let name = if modern {
+                Some(val.clone())
+            } else {
+                crate::keycodes::from_legacy(val)
+            };
+            if let Some(name) = name {
+                profile.keys.insert(k.clone(), name);
             }
         }
-        if profile.is_shared(Group::Packs)
-            && let Some(raw) = file.get("resourcePacks")
-            && let Ok(list) = serde_json::from_str::<Vec<String>>(raw)
-        {
-            profile.packs = Some(merge_packs(profile.packs.as_deref(), list, game_dir));
-        }
+    }
+    if profile.is_shared(Group::Packs)
+        && v.has(PACKS_SINCE)
+        && let Some(raw) = file.get("resourcePacks")
+        && let Ok(list) = serde_json::from_str::<Vec<String>>(raw)
+    {
+        let list = if modern {
+            list
+        } else {
+            // Старая версия знает только паки-файлы: встроенные паки новых
+            // версий и модов («vanilla», «fabric») из общего списка не теряем.
+            let mut new: Vec<String> = vec!["vanilla".into()];
+            new.extend(list.iter().rev().map(|f| format!("file/{f}")));
+            for p in profile.packs.iter().flatten() {
+                if !p.starts_with("file/") && !new.contains(p) {
+                    new.push(p.clone());
+                }
+            }
+            new
+        };
+        profile.packs = Some(merge_packs(profile.packs.as_deref(), list, game_dir));
     }
     Ok(())
 }
@@ -1173,17 +1236,79 @@ mod tests {
             ]
         );
 
-        // Старая версия: язык приводится к новому виду, клавиши не берутся.
+        // Старая версия: язык приводится к новому виду, коды клавиш — к именам.
         let old = tempfile::tempdir().unwrap();
         std::fs::write(
             old.path().join("options.txt"),
-            "lang:ru_RU\nkey_key.jump:57\n",
+            "lang:ru_RU\nkey_key.jump:57\nkey_key.attack:-100\nkey_key.weird:9999\n",
         )
         .unwrap();
         let mut p = Profile::default();
         import(&mut p, old.path(), &v("2013-04-25T15:45:00+00:00")).unwrap();
         assert_eq!(p.values["lang"], "ru_ru");
-        assert!(p.keys.is_empty());
+        assert_eq!(p.keys["key_key.jump"], "key.keyboard.space");
+        assert_eq!(p.keys["key_key.attack"], "key.mouse.left");
+        assert!(
+            !p.keys.contains_key("key_key.weird"),
+            "непонятный код не берётся"
+        );
+    }
+
+    #[test]
+    fn key_editor() {
+        let mut p = Profile::default();
+        p.set_key("key.jump", Some("key.keyboard.f")).unwrap();
+        p.set_key("key.journeymap.map", Some("key.mouse.4"))
+            .unwrap();
+        assert_eq!(p.keys["key_key.jump"], "key.keyboard.f");
+        assert!(p.set_key("key.jump", Some("key.keyboard.nope")).is_err());
+        assert!(
+            p.set_key("key jump\nfov:2", Some("key.keyboard.f"))
+                .is_err()
+        );
+        p.set_key("key.jump", None).unwrap();
+        assert!(!p.keys.contains_key("key_key.jump"));
+    }
+
+    #[test]
+    fn keys_and_packs_for_old_versions() {
+        let mut p = Profile::default();
+        p.keys
+            .insert("key_key.forward".into(), "key.keyboard.up".into());
+        p.keys
+            .insert("key_key.use".into(), "key.mouse.right".into());
+        p.packs = Some(vec![
+            "vanilla".into(),
+            "fabric".into(),
+            "file/Low.zip".into(),
+            "file/Top.zip".into(),
+        ]);
+        let game = tempfile::tempdir().unwrap();
+        // 1.12.2: коды и имена паков сверху вниз, без «file/» и встроенных.
+        apply(&p, game.path(), &v("2017-09-18T08:39:46+00:00")).unwrap();
+        let text = std::fs::read_to_string(game.path().join("options.txt")).unwrap();
+        assert!(text.contains("key_key.forward:200\n"), "{text}");
+        assert!(text.contains("key_key.use:-99\n"), "{text}");
+        assert!(
+            text.contains(r#"resourcePacks:["Top.zip","Low.zip"]"#),
+            "{text}"
+        );
+
+        // Игрок поменял порядок в игре — в общем списке он тоже новый, «fabric» остался.
+        let txt = text.replace(r#"["Top.zip","Low.zip"]"#, r#"["Low.zip","Top.zip"]"#);
+        std::fs::write(game.path().join("options.txt"), txt).unwrap();
+        import(&mut p, game.path(), &v("2017-09-18T08:39:46+00:00")).unwrap();
+        assert_eq!(
+            p.packs.as_deref().unwrap(),
+            ["vanilla", "file/Top.zip", "file/Low.zip", "fabric"]
+        );
+
+        // До 1.6 ресурспаков нет — строку не пишем.
+        let ancient = tempfile::tempdir().unwrap();
+        apply(&p, ancient.path(), &v("2013-04-25T15:45:00+00:00")).unwrap();
+        let text = std::fs::read_to_string(ancient.path().join("options.txt")).unwrap();
+        assert!(!text.contains("resourcePacks"), "{text}");
+        assert!(text.contains("key_key.forward:200"), "{text}");
     }
 
     #[test]

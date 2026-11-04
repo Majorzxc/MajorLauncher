@@ -232,6 +232,8 @@
     }
   }
   .spin {
+    display: block;
+    margin: 0;
     width: 14px;
     height: 14px;
     border: 2px solid var(--border-strong);

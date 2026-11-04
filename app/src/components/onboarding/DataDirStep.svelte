@@ -192,10 +192,6 @@
     justify-content: flex-end;
     gap: var(--s2);
   }
-  .buttons :disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
   .path {
     font-family: Consolas, monospace;
     font-weight: 400;

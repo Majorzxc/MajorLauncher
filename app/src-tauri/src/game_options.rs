@@ -22,8 +22,9 @@ pub struct OptionsView {
     values: BTreeMap<String, String>,
     shared: Vec<Group>,
     seeded_from: Option<String>,
-    /// Есть ли в профиле клавиши и ресурспаки (их правят в игре).
-    keys: usize,
+    /// Клавиши профиля: `key_<действие>` → клавиша; и действия ванильной игры.
+    keys: BTreeMap<String, String>,
+    actions: &'static [majorlauncher_core::keycodes::Action],
     packs: Option<Vec<String>>,
 }
 
@@ -31,7 +32,8 @@ fn view(p: Profile) -> OptionsView {
     OptionsView {
         settings: SETTINGS,
         shared: Group::ALL.into_iter().filter(|g| p.is_shared(*g)).collect(),
-        keys: p.keys.len(),
+        keys: p.keys,
+        actions: majorlauncher_core::keycodes::ACTIONS,
         packs: p.packs,
         seeded_from: p.seeded_from,
         values: p.values,
@@ -82,6 +84,20 @@ pub fn options_set(state: State<AppState>, key: String, value: String) -> CmdRes
     Ok(view(profile))
 }
 
+/// Редактор клавиш: назначить клавишу действию; `None` — как по умолчанию.
+#[tauri::command]
+pub fn options_set_key(
+    state: State<AppState>,
+    action: String,
+    key: Option<String>,
+) -> CmdResult<OptionsView> {
+    let data = state.data()?;
+    let mut profile = Profile::load(&data).map_err(text)?;
+    profile.set_key(&action, key.as_deref()).map_err(text)?;
+    profile.save(&data).map_err(text)?;
+    Ok(view(profile))
+}
+
 #[tauri::command]
 pub fn options_set_shared(
     state: State<AppState>,
@@ -127,7 +143,10 @@ pub async fn worlds_check(
     let Ok(manifest) = install::fetch_manifest(&data, &state.http).await else {
         return Ok(Vec::new());
     };
-    Ok(game::risky_worlds(&data.instance(&id), &version, &manifest))
+    let dir = Builds::new(data.clone())
+        .game_dir(&id)
+        .unwrap_or_else(|_| data.instance(&id));
+    Ok(game::risky_worlds(&dir, &version, &manifest))
 }
 
 #[tauri::command]
@@ -266,7 +285,7 @@ pub async fn library_remove(
             .map_err(text)?
             .into_iter()
             .filter(|e| e.state == BuildState::Active)
-            .map(|e| data.instance(&e.instance.id))
+            .map(|e| majorlauncher_core::launch::home_dir(&data, &e.instance))
             .collect();
         Library::new(&data)
             .remove(folder, &file, &dirs)

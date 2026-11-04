@@ -166,7 +166,7 @@
           {:else}
             <span class="muted">Плащ: из файла PNG или у игрока, найденного по нику («Взять этот плащ себе»).</span>
           {/if}
-          <button class="btn btn-sm btn-quiet" onclick={capeFromFile}>{skins.cape ? "Другой из файла…" : "Плащ из файла…"}</button>
+          <button class="btn btn-sm" onclick={capeFromFile}>{skins.cape ? "Другой из файла…" : "Плащ из файла…"}</button>
         </div>
         {#if wornSkin || skins.cape}<SkinLoaderBuilds />{/if}
       </div>

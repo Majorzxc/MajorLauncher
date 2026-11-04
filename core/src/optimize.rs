@@ -648,7 +648,7 @@ fn graphics(data: &DataDir, build: &str, hw: &Hardware, know_hw: bool) -> Step {
                 "сборка ещё не запускалась — нажмите «Оптимизировать» после первого запуска".into(),
             ));
         };
-        options::apply(&tmp, &data.instance(build), &v)?;
+        options::apply(&tmp, &crate::launch::home_dir(data, &instance), &v)?;
         Ok(summary)
     })();
     match result {

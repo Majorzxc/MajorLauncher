@@ -261,6 +261,8 @@
     right: var(--s3);
   }
   .spin {
+    display: block;
+    margin: 0;
     width: 32px;
     height: 32px;
     border: 3px solid var(--border-strong);

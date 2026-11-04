@@ -34,6 +34,8 @@ export const catalog = $state({
   autoDeps: false,
   /// Переводить описания на русский — только если игрок включил в настройках.
   translate: false,
+  /// Показывать советы 💡 среди предупреждений о модах.
+  tips: true,
   /// Окно плана установки ждёт ответа.
   ask: null as null | { plan: Plan; resolve: (ok: boolean) => void },
 });
@@ -47,6 +49,7 @@ api
   .then((c) => {
     catalog.autoDeps = c.catalog?.auto_deps ?? false;
     catalog.translate = c.catalog?.translate ?? false;
+    catalog.tips = c.notices?.tips ?? true;
   })
   .catch(() => {});
 
@@ -174,6 +177,15 @@ export async function setTranslate(on: boolean) {
   catalog.translate = on;
   try {
     await saveCatalog();
+  } catch (e) {
+    toast(String(e), { error: true });
+  }
+}
+
+export async function setTips(on: boolean) {
+  catalog.tips = on;
+  try {
+    await api.setNotices({ tips: on });
   } catch (e) {
     toast(String(e), { error: true });
   }

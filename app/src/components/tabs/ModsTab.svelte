@@ -46,7 +46,8 @@
     load(false).then(() => load(true));
   });
 
-  const issues = $derived(report?.issues ?? []);
+  // Советы 💡 игрок может скрыть («Настройки → Моды и каталог»).
+  const issues = $derived((report?.issues ?? []).filter((i) => catalog.tips || i.level !== "tip"));
   const perFile = $derived.by(() => {
     const m = new Map<string, "block" | "warn" | "tip">();
     for (const i of issues) {
@@ -57,6 +58,15 @@
     return m;
   });
   const updatable = $derived((report?.mods ?? []).filter((m) => m.enabled && m.update && !m.pinned));
+
+  // Советы «есть обновление» по одному на мод вытесняли сам список: от трёх —
+  // одной строкой с «Обновить всё», у каждого мода в списке и так есть отметка.
+  const updateTips = $derived(issues.filter((i) => i.action?.kind === "update"));
+  const shownIssues = $derived(updateTips.length >= 3 ? issues.filter((i) => i.action?.kind !== "update") : issues);
+  const updateNames = $derived.by(() => {
+    const names = updateTips.map((i) => i.text.match(/«(.+?)»/)?.[1] ?? "").filter(Boolean);
+    return names.length > 3 ? `${names.slice(0, 3).join(", ")} и ещё ${names.length - 3}` : names.join(", ");
+  });
 
   async function act(a: ModAction) {
     busy = true;
@@ -151,9 +161,16 @@
 {/if}
 {#if restarting}<RestartDialog onclose={() => (restarting = false)} />{/if}
 
-{#if issues.length}
+{#if shownIssues.length || updateTips.length >= 3}
   <ul class="issues" aria-label="Предупреждения">
-    {#each issues as i, n (n)}
+    {#if updateTips.length >= 3}
+      <li class="lvl-tip">
+        <Icon name="info" size={18} />
+        <span class="grow">Есть обновления у {updateTips.length} модов: {updateNames}.</span>
+        <button class="btn btn-sm" disabled={busy || !updatable.length} onclick={updateAll}>Обновить всё</button>
+      </li>
+    {/if}
+    {#each shownIssues as i, n (n)}
       <li class="lvl-{i.level}">
         <Icon name={LEVEL[i.level]} size={18} />
         <span class="grow">{i.text}</span>
@@ -170,7 +187,7 @@
     {#if report}{report.mods.length} · {report.mods.filter((m) => m.enabled).length} включено{/if}
     {#if checking}· проверяем на Modrinth…{:else if report && asked && !report.online}· Modrinth не ответил — показано известное{/if}
   </span>
-  {#if updatable.length}
+  {#if updatable.length && updateTips.length < 3}
     <button class="btn btn-sm" disabled={busy} onclick={updateAll}><Icon name="refresh" size={16} />Обновить всё ({updatable.length})</button>
   {/if}
   <button class="btn btn-sm btn-primary" onclick={() => openCatalog(id, "mod")}><Icon name="search" size={16} />Каталог</button>

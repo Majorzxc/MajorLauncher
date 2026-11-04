@@ -24,7 +24,18 @@ use crate::paths::DataDir;
 
 /// Сколько автоматических снапшотов держать на сборку; сделанные вручную
 /// остаются, пока их не удалят.
-pub const KEEP: usize = 20;
+pub const DEFAULT_KEEP: usize = 20;
+
+/// Сколько автоматических снапшотов держать (`StorageSettings::keep_snapshots`).
+static KEEP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(DEFAULT_KEEP);
+
+pub fn set_keep(n: usize) {
+    KEEP.store(n.max(1), std::sync::atomic::Ordering::Relaxed);
+}
+
+fn keep() -> usize {
+    KEEP.load(std::sync::atomic::Ordering::Relaxed)
+}
 /// Файлы настроек больше этого не копируются: это кэши модов, а не настройки.
 const CONFIG_FILE_MAX: u64 = 2 * 1024 * 1024;
 const INFO: &str = "snapshot.json";
@@ -332,7 +343,7 @@ fn prune(data: &DataDir, build: &str) -> Result<()> {
         .into_iter()
         .filter(|s| !s.manual)
         .collect();
-    for old in auto.iter().skip(KEEP) {
+    for old in auto.iter().skip(keep()) {
         let d = dir(data, build, &old.id)?;
         std::fs::remove_dir_all(&d).at(&d)?;
     }
@@ -574,12 +585,12 @@ mod tests {
         std::fs::create_dir_all(&mods).unwrap();
         std::fs::write(mods.join("0.jar"), b"0").unwrap();
         let manual = take(&data, &id, "вручную", true).unwrap();
-        for i in 1..=KEEP + 3 {
+        for i in 1..=DEFAULT_KEEP + 3 {
             std::fs::write(mods.join(format!("{i}.jar")), b"x").unwrap();
             take(&data, &id, "авто", false).unwrap();
         }
         let all = load_all(&data, &id).unwrap();
-        assert_eq!(all.len(), KEEP + 1);
+        assert_eq!(all.len(), DEFAULT_KEEP + 1);
         assert!(all.iter().any(|s| s.id == manual.id));
         delete(&data, &id, &manual.id).unwrap();
         assert!(delete(&data, &id, "../x").is_err());

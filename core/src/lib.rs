@@ -26,6 +26,7 @@ pub mod health;
 pub mod importer;
 pub mod install;
 pub mod java;
+pub mod keycodes;
 pub mod launch;
 pub mod library;
 pub mod loaders;
@@ -42,6 +43,7 @@ pub mod options;
 pub mod paths;
 pub mod playtime;
 pub mod relocate;
+pub mod report;
 pub mod rules;
 pub mod secrets;
 pub mod selfupdate;
@@ -59,7 +61,8 @@ pub mod verify;
 pub use account::{Account, Accounts, Kind, Session};
 pub use builds::{Builds, Instance};
 pub use config::{
-    Appearance, CatalogSettings, Config, ConfigStore, GameSettings, OnLaunch, ThemeMode, Tutorial,
+    Appearance, CatalogSettings, Config, ConfigStore, DownloadSettings, GameSettings,
+    NoticeSettings, OnLaunch, StorageSettings, ThemeMode, Tutorial,
 };
 pub use download::{DownloadOptions, Downloader};
 pub use error::{Error, Result};

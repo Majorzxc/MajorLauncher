@@ -103,8 +103,9 @@
         {/if}
       </div>
       <p class="muted">
-        {current.version} · {loaderLabel(current)}{#if current.loader !== "vanilla" && current.mods != null}
-          · {count(current.mods)} {plural(current.mods, ["мод", "мода", "модов"])}{/if}
+        {current.version} · {loaderLabel(current)}{#if current.loader !== "vanilla" && current.mods != null}{` · ${count(
+            current.mods,
+          )} ${plural(current.mods, ["мод", "мода", "модов"])}`}{/if}
       </p>
       <p class="meta muted">
         <span><Icon name="time" size={16} />{playtime(current.playtime)} в игре</span>

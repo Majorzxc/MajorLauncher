@@ -10,7 +10,7 @@
   import Modal from "../components/Modal.svelte";
   import Select from "../components/Select.svelte";
   import Wizard from "../components/Wizard.svelte";
-  import { api, TRASH_DAYS, type Entry, type TrashEntry } from "../lib/api";
+  import { api, type Entry, type TrashEntry } from "../lib/api";
   import { builds, forget, refresh, withBusy } from "../lib/builds.svelte";
   import { plural, size, trashLeft } from "../lib/format";
   import { attempt, toast } from "../lib/toast.svelte";
@@ -152,7 +152,7 @@
     forget(b.id);
     await Promise.all([refresh(), loadTrash()]);
     const entry = trash.find((t) => t.instance.id === b.id);
-    toast(`«${b.name}» в корзине на ${TRASH_DAYS} дней`, {
+    toast(`«${b.name}» в корзине на ${trashDays} дней`, {
       action: entry ? { label: "Вернуть", run: () => restore(entry) } : undefined,
     });
   }
@@ -252,6 +252,10 @@
       importer?.inspect(pack);
     },
   }));
+
+  // Срок корзины — из «Настройки → Папка данных».
+  let trashDays = $state(30);
+  api.config().then((c) => (trashDays = c.storage?.trash_days ?? 30)).catch(() => {});
 </script>
 
 {#if view === "trash"}
@@ -264,7 +268,10 @@
       <button class="btn" onclick={purgeAll}><Icon name="trash" size={18} />Очистить корзину</button>
     {/if}
   </div>
-  <p class="muted note">Удалённые сборки хранятся здесь {TRASH_DAYS} дней вместе с мирами, потом удаляются сами.</p>
+  <p class="muted small trash-hint">
+    Удалённые сборки хранятся здесь {trashDays} дней вместе с мирами, потом удаляются сами. Срок — в «Настройки → Папка
+    данных».
+  </p>
   {#if trash.length === 0}
     <div class="empty"><Icon name="trash" size={32} /><p class="muted">Корзина пуста</p></div>
   {:else}
@@ -273,7 +280,7 @@
         <div class="row card">
           <div class="grow">
             <b>{t.instance.name}</b>
-            <span class="muted">{t.instance.version} · {trashLeft(t.deleted_at, TRASH_DAYS)} · {size(t.size)}</span>
+            <span class="muted">{t.instance.version} · {trashLeft(t.deleted_at, trashDays)} · {size(t.size)}</span>
           </div>
           <button class="btn btn-sm" onclick={() => restore(t)}><Icon name="restore" size={16} />Восстановить</button>
           <button class="btn btn-sm btn-quiet danger" onclick={() => purge(t)}>Удалить навсегда</button>
@@ -554,9 +561,8 @@
   .empty p {
     margin: 0 0 var(--s3);
   }
-  .note {
+  .trash-hint {
     margin: 0 0 var(--s4);
-    font-size: var(--fs-14);
   }
   .rows {
     display: flex;

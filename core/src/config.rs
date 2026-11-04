@@ -124,6 +124,10 @@ pub struct GameSettings {
     /// Дополнительные аргументы JVM через пробел.
     #[serde(default)]
     pub jvm_args: String,
+    /// «Для опытных»: при запуске игры окно лаунчера остаётся и показывает
+    /// лог игры, пока она идёт.
+    #[serde(default)]
+    pub log_window: bool,
 }
 
 /// Допустимая память для игры, МБ.
@@ -174,6 +178,100 @@ pub struct Tutorial {
 /// Сколько кнопка «Пройти обучение» видна в шапке после отказа.
 pub const OFFER_SECS: u64 = 7 * 24 * 3600;
 
+fn yes() -> bool {
+    true
+}
+
+/// «Настройки → Загрузки» (раздел 5.16 ТЗ). Применяются сразу, к следующим запросам.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DownloadSettings {
+    /// Сколько файлов качать одновременно.
+    #[serde(default = "default_parallel")]
+    pub parallel: u32,
+    /// Запасные зеркала для ассетов, библиотек и загрузчиков (всегда с проверкой хеша).
+    #[serde(default = "yes")]
+    pub mirrors: bool,
+    /// Ограничение скорости, КБ/с; 0 — без ограничения.
+    #[serde(default)]
+    pub limit_kbps: u32,
+    /// Прокси `http://адрес:порт`; пусто — напрямую.
+    #[serde(default)]
+    pub proxy: String,
+}
+
+fn default_parallel() -> u32 {
+    16
+}
+
+impl Default for DownloadSettings {
+    fn default() -> Self {
+        Self {
+            parallel: default_parallel(),
+            mirrors: true,
+            limit_kbps: 0,
+            proxy: String::new(),
+        }
+    }
+}
+
+impl DownloadSettings {
+    pub fn options(&self) -> crate::download::DownloadOptions {
+        crate::download::DownloadOptions {
+            parallel: self.parallel as usize,
+            mirrors: self.mirrors,
+            limit_kbps: self.limit_kbps,
+            proxy: Some(self.proxy.trim().to_string()).filter(|p| !p.is_empty()),
+            ..Default::default()
+        }
+    }
+}
+
+/// Снапшоты сборок и корзина (раздел 5.16 ТЗ).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageSettings {
+    /// Снапшот сам перед каждым изменением сборки.
+    #[serde(default = "yes")]
+    pub auto_snapshots: bool,
+    /// Сколько автоматических снапшотов держать на сборку.
+    #[serde(default = "default_keep")]
+    pub keep_snapshots: u32,
+    /// Сколько дней удалённая сборка лежит в корзине.
+    #[serde(default = "default_trash_days")]
+    pub trash_days: u32,
+}
+
+fn default_keep() -> u32 {
+    crate::snapshots::DEFAULT_KEEP as u32
+}
+
+fn default_trash_days() -> u32 {
+    crate::builds::TRASH_DAYS as u32
+}
+
+impl Default for StorageSettings {
+    fn default() -> Self {
+        Self {
+            auto_snapshots: true,
+            keep_snapshots: default_keep(),
+            trash_days: default_trash_days(),
+        }
+    }
+}
+
+/// Какие предупреждения показывать (раздел 5.16 ТЗ, «Уведомления»).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoticeSettings {
+    /// Советы 💡 — ниже предупреждений ⚠ и ошибок ⛔, их можно скрыть.
+    #[serde(default = "yes")]
+    pub tips: bool,
+}
+
+impl Default for NoticeSettings {
+    fn default() -> Self {
+        Self { tips: true }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
     /// Папка данных; `None` — ещё не выбрана (первый запуск).
@@ -204,6 +302,12 @@ pub struct Config {
     /// Мастер первого запуска и обучение.
     #[serde(default)]
     pub tutorial: Tutorial,
+    #[serde(default)]
+    pub downloads: DownloadSettings,
+    #[serde(default)]
+    pub storage: StorageSettings,
+    #[serde(default)]
+    pub notices: NoticeSettings,
 }
 
 pub struct ConfigStore {
@@ -300,6 +404,35 @@ impl ConfigStore {
 
     pub fn set_updates(&mut self, updates: crate::updates::UpdateSettings) -> Result<()> {
         self.config.updates = updates;
+        self.save()
+    }
+
+    pub fn set_downloads(&mut self, d: DownloadSettings) -> Result<()> {
+        if !(1..=64).contains(&d.parallel) {
+            return Err(Error::Other("одновременных загрузок — от 1 до 64".into()));
+        }
+        self.config.downloads = DownloadSettings {
+            proxy: d.proxy.trim().to_string(),
+            ..d
+        };
+        self.save()
+    }
+
+    pub fn set_storage(&mut self, st: StorageSettings) -> Result<()> {
+        if !(1..=200).contains(&st.keep_snapshots) {
+            return Err(Error::Other(
+                "автоматических снапшотов — от 1 до 200 на сборку".into(),
+            ));
+        }
+        if !(1..=365).contains(&st.trash_days) {
+            return Err(Error::Other("срок корзины — от 1 до 365 дней".into()));
+        }
+        self.config.storage = st;
+        self.save()
+    }
+
+    pub fn set_notices(&mut self, n: NoticeSettings) -> Result<()> {
+        self.config.notices = n;
         self.save()
     }
 
@@ -496,6 +629,40 @@ mod tests {
         // Старый config.json без новых полей читается с приглушением по умолчанию.
         let old: Appearance = serde_json::from_str(r#"{"mode":"dark"}"#).unwrap();
         assert_eq!(old.image_dim, 60);
+    }
+
+    #[test]
+    fn launcher_settings_are_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let mut store = ConfigStore::load(path.clone());
+        assert_eq!(store.get().downloads.parallel, 16);
+        assert_eq!(store.get().storage.trash_days, 30);
+        let d = DownloadSettings {
+            parallel: 4,
+            proxy: "  http://127.0.0.1:3128 ".into(),
+            ..DownloadSettings::default()
+        };
+        store.set_downloads(d).unwrap();
+        let opts = ConfigStore::load(path).get().downloads.options();
+        assert_eq!(
+            (opts.parallel, opts.proxy.as_deref()),
+            (4, Some("http://127.0.0.1:3128"))
+        );
+        assert!(DownloadSettings::default().options().proxy.is_none());
+        let zero = DownloadSettings {
+            parallel: 0,
+            ..DownloadSettings::default()
+        };
+        assert!(store.set_downloads(zero).is_err());
+        let bad = StorageSettings {
+            trash_days: 0,
+            ..StorageSettings::default()
+        };
+        assert!(store.set_storage(bad).is_err());
+        // Старые настройки без новых разделов читаются со значениями по умолчанию.
+        let old: Config = serde_json::from_str(r#"{"game":{"on_launch":"keep"}}"#).unwrap();
+        assert!(old.notices.tips && old.storage.auto_snapshots && !old.game.log_window);
     }
 
     #[test]

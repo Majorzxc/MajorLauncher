@@ -22,14 +22,26 @@ export const nav = $state({
 /// (в том числе кнопками «назад» и «вперёд») открывает её же.
 export const lastTab: Record<string, string> = {};
 
+/// Страницы настроек (screens/Settings.svelte).
+export type SettingsPage =
+  | "profile"
+  | "look"
+  | "game"
+  | "accounts"
+  | "catalog"
+  | "optimize"
+  | "updates"
+  | "downloads"
+  | "ai"
+  | "data"
+  | "about";
+
 /// Какую страницу настроек открыть при переходе (одноразово).
-export const settingsPage = $state({
-  value: null as null | "profile" | "look" | "game" | "catalog" | "optimize" | "updates" | "ai" | "data" | "about",
-});
+export const settingsPage = $state({ value: null as SettingsPage | null });
 /// Окно «Оптимизировать» для сборки — открывается из любого места.
 export const optimizing = $state({ build: null as null | { id: string; name: string } });
 
-export function openSettings(page: NonNullable<typeof settingsPage.value>) {
+export function openSettings(page: SettingsPage) {
   settingsPage.value = page;
   go("settings");
 }

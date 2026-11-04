@@ -2,6 +2,7 @@
 // события «play»; когда игра закрылась — «play-finished» (или итог ждёт
 // заново открытое окно в play_status).
 
+import { resetGameLog } from "./gamelog.svelte";
 import { listen } from "@tauri-apps/api/event";
 import { api, QUICK_ID, type ModIssue, type Finished, type PlayStatus, type RiskyWorld } from "./api";
 import { refresh } from "./builds.svelte";
@@ -115,6 +116,7 @@ export async function start(
   worldsOk = false,
   server: string | null = null,
 ) {
+  resetGameLog();
   try {
     if (!force && !worldsOk) {
       const worlds = await api.worldsCheck(id, id === QUICK_ID ? version : null).catch(() => []);

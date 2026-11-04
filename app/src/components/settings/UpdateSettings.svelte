@@ -1,10 +1,14 @@
 <script lang="ts">
   // «Настройки → Обновления» (раздел 5.13 ТЗ): сам лаунчер и что он обновляет в фоне.
-  import { api, type UpdateSettings } from "../lib/api";
-  import { ago, size } from "../lib/format";
-  import { interceptLinks, openExternal } from "../lib/links";
-  import { renderMarkdown } from "../lib/markdown";
-  import Logo from "./Logo.svelte";
+  import { api, type UpdateSettings } from "../../lib/api";
+  import { ago, size } from "../../lib/format";
+  import { interceptLinks, openExternal } from "../../lib/links";
+  import { renderMarkdown } from "../../lib/markdown";
+  import Logo from "../Logo.svelte";
+  import { openBuild } from "../../lib/nav.svelte";
+  import { attempt } from "../../lib/toast.svelte";
+  import { checkLauncher, checkNow, launcher, updates } from "../../lib/updates.svelte";
+  import Icon from "../Icon.svelte";
 
   // «в 14:05», вчера и раньше — «вчера», «3 дня назад».
   function checkedAt(unix: number): string {
@@ -12,10 +16,6 @@
     const today = new Date().toDateString() === d.toDateString();
     return today ? `в ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : ago(unix);
   }
-  import { openBuild } from "../lib/nav.svelte";
-  import { attempt } from "../lib/toast.svelte";
-  import { checkLauncher, checkNow, launcher, updates } from "../lib/updates.svelte";
-  import Icon from "./Icon.svelte";
 
   let opts = $state<UpdateSettings | null>(null);
   let rules = $state<[number, boolean] | null>(null);
@@ -217,39 +217,6 @@
 {/if}
 
 <style>
-  .block {
-    display: flex;
-    flex-direction: column;
-    gap: var(--s4);
-    padding: var(--s5);
-    margin-bottom: var(--s4);
-    max-width: 760px;
-  }
-  .block p {
-    margin: 0;
-  }
-  .opt {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--s3);
-    cursor: pointer;
-  }
-  .opt input {
-    margin-top: 4px;
-  }
-  .opt > span {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .off {
-    opacity: 0.55;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: var(--s3);
-  }
   .grow {
     flex: 1;
     min-width: 0;

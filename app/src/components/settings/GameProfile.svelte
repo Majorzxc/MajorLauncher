@@ -2,11 +2,12 @@
   // Настройки игры (раздел 5.18 ТЗ): всё нужное из меню игры на одной
   // странице, с поиском. Это общий профиль для всех сборок: лаунчер пишет его
   // в options.txt перед запуском и забирает изменения после игры.
-  import { api, type Group, type OptionsView, type Setting } from "../lib/api";
-  import { builds, refresh } from "../lib/builds.svelte";
-  import { attempt, toast } from "../lib/toast.svelte";
-  import Icon from "./Icon.svelte";
-  import Select from "./Select.svelte";
+  import { api, type Group, type OptionsView, type Setting } from "../../lib/api";
+  import { builds, refresh } from "../../lib/builds.svelte";
+  import { attempt, toast } from "../../lib/toast.svelte";
+  import Icon from "../Icon.svelte";
+  import Select from "../Select.svelte";
+  import KeyEditor from "./KeyEditor.svelte";
 
   const GROUPS: { id: Group; title: string; hint?: string }[] = [
     { id: "view", title: "Обзор и эффекты" },
@@ -128,13 +129,11 @@
       {#if !g.shared}
         <p class="muted small">Сейчас у каждой сборки свои — меняются в игре. {g.hint ?? ""}</p>
       {:else if g.id === "keys"}
-        <p class="muted small">
-          Клавиши назначаются в самой игре, лаунчер переносит их во все сборки 1.13 и новее.
-          {opts.keys ? `Сейчас перенесено назначений: ${opts.keys}.` : "Пока ни одного — появятся после первой игры."}
-        </p>
+        <KeyEditor {opts} onchange={(o) => (opts = o)} />
       {:else if g.id === "packs"}
         <p class="muted small">
-          Какие ресурспаки включены и в каком порядке — включаются в игре, переносятся во все сборки 1.13 и новее.
+          Какие ресурспаки включены и в каком порядке — включаются в игре, переносятся во все сборки с 1.6 (до 1.13 —
+          в их формате).
           Сами файлы кладите в «Библиотеку» (раздел «Моды»), чтобы они были в каждой сборке.
         </p>
         {#if opts.packs?.length}
@@ -193,13 +192,6 @@
 {/if}
 
 <style>
-  .block {
-    align-self: stretch;
-    display: flex;
-    flex-direction: column;
-    gap: var(--s3);
-    padding: var(--s5);
-  }
   .intro p {
     margin: 0;
   }
@@ -240,19 +232,11 @@
     align-items: center;
     justify-content: space-between;
   }
-  h2 {
-    margin: 0;
-    font-size: var(--fs-16);
-    font-weight: 600;
-  }
   .shared {
     display: flex;
     align-items: center;
     gap: var(--s2);
     cursor: pointer;
-  }
-  .block > p {
-    margin: 0;
   }
   .rows-plain {
     margin: 0;

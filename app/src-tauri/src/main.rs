@@ -55,6 +55,8 @@ pub struct AppState {
     pub updates: Mutex<updates::Updates>,
     /// Новая версия самого лаунчера.
     pub launcher: Mutex<selfupdate::LauncherUpdate>,
+    /// Папка журнала лаунчера («Собрать логи»).
+    pub log_dir: PathBuf,
 }
 
 /// Перенос папки данных: пока он идёт, остальные команды её не трогают.
@@ -99,9 +101,45 @@ impl AppState {
     }
 }
 
-/// Перевести ошибку ядра в текст для окна.
+/// Перевести ошибку ядра в текст для окна — и записать её в журнал лаунчера:
+/// по нему потом разбираются сообщения об ошибках.
 pub fn text<E: std::fmt::Display>(e: E) -> String {
-    e.to_string()
+    let text = e.to_string();
+    tracing::warn!("{text}");
+    text
+}
+
+/// Журнал лаунчера: `launcher.log` (большой при запуске уезжает в
+/// `launcher.old.log`). Ядро пишет туда предупреждения, окно — ошибки команд.
+fn start_log(dir: &std::path::Path) {
+    use majorlauncher_core::report;
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    report::rotate(dir);
+    let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(report::LOG))
+    else {
+        return;
+    };
+    let _ = tracing_subscriber::fmt()
+        .with_writer(Mutex::new(file))
+        .with_ansi(false)
+        .with_target(false)
+        .with_max_level(tracing::Level::INFO)
+        .try_init();
+    std::panic::set_hook(Box::new(|info| tracing::error!("сбой лаунчера: {info}")));
+    tracing::info!(
+        "MajorLauncher {} запущен{}",
+        majorlauncher_core::VERSION,
+        if std::env::var_os("MAJORLAUNCHER_CONFIG_DIR").is_some() {
+            " (проверочный экземпляр)"
+        } else {
+            ""
+        }
+    );
 }
 
 #[tauri::command]
@@ -193,20 +231,29 @@ fn main() {
         .setup(|app| {
             // MAJORLAUNCHER_CONFIG_DIR — другая папка настроек (а с ней и папка
             // данных) для автоматических проверок: они не трогают данные игрока.
-            let config_dir = match std::env::var_os("MAJORLAUNCHER_CONFIG_DIR") {
-                Some(dir) => std::path::PathBuf::from(dir),
-                None => app.path().app_config_dir()?,
+            let (config_dir, log_dir) = match std::env::var_os("MAJORLAUNCHER_CONFIG_DIR") {
+                Some(dir) => (PathBuf::from(&dir), PathBuf::from(dir).join("logs")),
+                None => (app.path().app_config_dir()?, app.path().app_log_dir()?),
             };
+            start_log(&log_dir);
             let config = ConfigStore::load(config_dir.join("config.json"));
+            // Свои настройки загрузок; не подошли (битый прокси) — обычные.
+            let http = Downloader::new(config.get().downloads.options()).or_else(|e| {
+                tracing::warn!("настройки загрузок не применились: {e}");
+                Downloader::new(DownloadOptions::default())
+            })?;
+            snapshots::apply(&config.get().storage);
+            let trash_days = u64::from(config.get().storage.trash_days);
             app.manage(AppState {
                 config: Mutex::new(config),
-                http: Downloader::new(DownloadOptions::default())?,
+                http,
                 play: Mutex::new(play::PlayState::default()),
                 relocation: Mutex::new(Relocation::default()),
                 tasks: Mutex::new(tasks::Tasks::default()),
                 data_moved: Mutex::new(None),
                 updates: Mutex::new(updates::Updates::default()),
                 launcher: Mutex::new(selfupdate::LauncherUpdate::default()),
+                log_dir,
             });
             // Диск с данными сменил букву — найти папку до первого окна.
             let state: State<AppState> = app.state();
@@ -218,8 +265,7 @@ fn main() {
             // Корзина чистится от сборок старше 30 дней при каждом запуске.
             let state: State<AppState> = app.state();
             if let Ok(data) = state.data() {
-                let _ = majorlauncher_core::Builds::new(data)
-                    .purge_expired(majorlauncher_core::builds::TRASH_DAYS);
+                let _ = majorlauncher_core::Builds::new(data).purge_expired(trash_days);
             }
             Ok(())
         })
@@ -229,6 +275,9 @@ fn main() {
             settings::set_appearance,
             settings::set_game,
             settings::set_catalog,
+            settings::set_downloads,
+            settings::set_storage,
+            settings::set_notices,
             settings::tutorial,
             catalog::catalog_search,
             catalog::catalog_categories,
@@ -247,6 +296,7 @@ fn main() {
             settings::set_data_dir,
             settings::data_dir_check,
             settings::open_data_dir,
+            settings::launcher_report,
             settings::data_size,
             settings::data_move_plan,
             settings::data_move,
@@ -294,6 +344,7 @@ fn main() {
             game_options::options_get,
             game_options::options_set,
             game_options::options_set_shared,
+            game_options::options_set_key,
             game_options::options_seed,
             game_options::worlds_check,
             game_options::build_copy_world,
@@ -362,7 +413,6 @@ fn main() {
             servers::server_choices,
             skins::skins_list,
             skins::skin_png,
-            skins::skin_path,
             skins::skin_add_file,
             skins::skin_lookup,
             skins::skin_texture,

@@ -13,6 +13,8 @@
   import Tooltip from "./components/Tooltip.svelte";
   import Tour from "./components/Tour.svelte";
   import DropOverlay from "./components/DropOverlay.svelte";
+  import GameLog from "./components/GameLog.svelte";
+  import { connectGameLog } from "./lib/gamelog.svelte";
   import { connectDrop } from "./lib/drop.svelte";
   import type { TourId } from "./lib/tours";
   import { sectionOpened, setTutorial } from "./lib/tutorial.svelte";
@@ -63,6 +65,7 @@
     connectUpdates();
     connectAi();
     connectDrop();
+    connectGameLog();
     loadProblems();
     if (!first) connect();
   });
@@ -156,6 +159,7 @@
 <svelte:window onmousedown={mouse} onmouseup={mouse} onkeydown={keys} />
 <Toasts />
 <Tooltip />
+<GameLog />
 <Tour />
 <DropOverlay />
 {#if catalog.ask}

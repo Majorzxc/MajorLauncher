@@ -132,7 +132,7 @@
               aria-pressed={place === p.key}
               title={place === p.key ? "Показать всё" : "Подробнее"}
               onclick={() => toggle(p)}
-              >{p.name}{#if p.build_name}<span class="muted small"> · {p.build_name}</span>{/if}</button
+              >{p.name}{#if p.build_name}<span class="muted small">{` · ${p.build_name}`}</span>{/if}</button
             >
             <b class="time">{duration(p.seconds)}</b>
             <span class="track"><span style:width="{(p.seconds / list[0].seconds) * 100}%"></span></span>

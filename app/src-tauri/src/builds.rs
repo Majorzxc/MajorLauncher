@@ -226,7 +226,8 @@ pub fn group_delete(state: State<AppState>, name: String) -> CmdResult<()> {
 #[tauri::command]
 pub async fn trash_list(state: State<'_, AppState>) -> CmdResult<Vec<TrashEntry>> {
     let b = builds(&state)?;
-    blocking(move || b.trash_list().map_err(text)).await
+    let days = u64::from(state.config.lock().unwrap().get().storage.trash_days);
+    blocking(move || b.trash_list(days).map_err(text)).await
 }
 
 #[tauri::command]

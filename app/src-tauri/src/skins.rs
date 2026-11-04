@@ -33,12 +33,6 @@ pub fn skin_png(state: State<AppState>, id: String) -> CmdResult<Response> {
     Ok(Response::new(std::fs::read(&path).map_err(text)?))
 }
 
-/// Путь к файлу скина — «Показать в папке», перетаскивание на сайт.
-#[tauri::command]
-pub fn skin_path(state: State<AppState>, id: String) -> CmdResult<PathBuf> {
-    library(&state)?.path(&id).map_err(text)
-}
-
 #[tauri::command]
 pub fn skin_add_file(state: State<AppState>, path: PathBuf) -> CmdResult<Skin> {
     library(&state)?.add_file(&path).map_err(text)

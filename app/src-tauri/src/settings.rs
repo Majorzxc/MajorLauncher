@@ -9,7 +9,10 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use majorlauncher_core::datadir::{self, DirCheck, Located};
 use majorlauncher_core::relocate::{self, Method, Plan};
-use majorlauncher_core::{Appearance, CatalogSettings, Config, GameSettings, content, system};
+use majorlauncher_core::{
+    Appearance, CatalogSettings, Config, DownloadSettings, GameSettings, NoticeSettings,
+    StorageSettings, content, system,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
@@ -70,6 +73,31 @@ pub fn tutorial(state: State<AppState>, action: TutorialAction) -> CmdResult<Con
         TutorialAction::HideOffer => config.hide_tutorial_offer(),
     }
     .map_err(text)?;
+    Ok(config.get().clone())
+}
+
+/// «Настройки → Загрузки»: сразу к следующим запросам. Неверный прокси — ошибка,
+/// и настройки не меняются.
+#[tauri::command]
+pub fn set_downloads(state: State<AppState>, downloads: DownloadSettings) -> CmdResult<Config> {
+    state.http.reconfigure(downloads.options()).map_err(text)?;
+    let mut config = state.config.lock().unwrap();
+    config.set_downloads(downloads).map_err(text)?;
+    Ok(config.get().clone())
+}
+
+#[tauri::command]
+pub fn set_storage(state: State<AppState>, storage: StorageSettings) -> CmdResult<Config> {
+    let mut config = state.config.lock().unwrap();
+    config.set_storage(storage).map_err(text)?;
+    crate::snapshots::apply(&config.get().storage);
+    Ok(config.get().clone())
+}
+
+#[tauri::command]
+pub fn set_notices(state: State<AppState>, notices: NoticeSettings) -> CmdResult<Config> {
+    let mut config = state.config.lock().unwrap();
+    config.set_notices(notices).map_err(text)?;
     Ok(config.get().clone())
 }
 
@@ -164,6 +192,30 @@ pub async fn data_dir_check(app: AppHandle) -> CmdResult<DataStatus> {
         Ok(status)
     })
     .await
+}
+
+/// «Собрать логи лаунчера»: zip для сообщения об ошибке — туда, куда выбрал
+/// игрок; после этого архив показывается в проводнике.
+#[tauri::command]
+pub async fn launcher_report(
+    app: AppHandle,
+    path: String,
+) -> CmdResult<majorlauncher_core::report::Collected> {
+    let out = PathBuf::from(path);
+    let done = blocking({
+        let app = app.clone();
+        let out = out.clone();
+        move || {
+            let state = app.state::<AppState>();
+            let config = state.config.lock().unwrap().get().clone();
+            let data = state.data().ok();
+            majorlauncher_core::report::collect(&out, &state.log_dir, &config, data.as_ref())
+                .map_err(text)
+        }
+    })
+    .await?;
+    let _ = app.opener().reveal_item_in_dir(&out);
+    Ok(done)
 }
 
 /// Открыть папку данных в проводнике. Путь знает ядро, окно его не передаёт.

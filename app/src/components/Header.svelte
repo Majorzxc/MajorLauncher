@@ -27,7 +27,7 @@
     <span
       class="offline small"
       title="Скачанные сборки запускаются и без интернета. Каталог, обновления модов и вход через Ely.by — недоступны, пока сеть не появится."
-      ><Icon name="warning" size={16} />Нет интернета — можно играть в скачанные сборки</span
+      ><Icon name="warning" size={16} /><span class="text">Нет интернета — можно играть в скачанные сборки</span></span
     >
   {/if}
 
@@ -48,7 +48,10 @@
 </header>
 
 <style>
+  /* В узком окне надпись сжимается с многоточием — полная фраза в подсказке. */
   .offline {
+    min-width: 0;
+    flex: 0 1 auto;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -58,7 +61,12 @@
     color: var(--warning);
     white-space: nowrap;
   }
+  .offline .text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .offer {
+    flex: none;
     display: inline-flex;
     align-items: center;
     height: var(--h-sm);

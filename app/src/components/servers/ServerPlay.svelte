@@ -138,10 +138,6 @@
     border-bottom-left-radius: 0;
     border-left: 1px solid color-mix(in srgb, var(--on-accent) 25%, transparent);
   }
-  .btn:disabled {
-    opacity: 0.55;
-    cursor: default;
-  }
   .menu {
     position: absolute;
     right: 0;

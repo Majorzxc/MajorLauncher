@@ -107,7 +107,7 @@ pub async fn prepare(
         .map(str::to_string)
         .collect();
     let opts = LaunchOptions {
-        game_dir: data.instance(&instance.id),
+        game_dir: launch::home_dir(data, instance),
         memory_mb: memory_mb(instance, game),
         console: false,
         extra_jvm_args: jvm_args,
@@ -189,7 +189,7 @@ pub async fn verify(
 /// шейдеры из библиотеки (раздел 5.18 ТЗ). Ошибка здесь игру не останавливает —
 /// окно покажет её после игры.
 pub fn before_launch(data: &DataDir, instance: &Instance, version: &GameVersion) -> Result<()> {
-    let game_dir = data.instance(&instance.id);
+    let game_dir = launch::prepare_home(data, instance)?;
     if !instance.settings.own_options {
         let mut profile = Profile::load(data)?;
         // Самый первый запуск после обновления: профилем становятся настройки
@@ -209,7 +209,7 @@ pub fn before_launch(data: &DataDir, instance: &Instance, version: &GameVersion)
 
 /// После игры: забрать изменённые настройки и список серверов в общие.
 pub fn after_exit(data: &DataDir, instance: &Instance, version: &GameVersion) -> Result<()> {
-    let game_dir = data.instance(&instance.id);
+    let game_dir = launch::home_dir(data, instance);
     if !instance.settings.own_options {
         let mut profile = Profile::load(data)?;
         options::import(&mut profile, &game_dir, version)?;

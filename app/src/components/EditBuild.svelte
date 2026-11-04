@@ -4,6 +4,7 @@
   import { builds, refresh } from "../lib/builds.svelte";
   import { pickCover } from "../lib/cover";
   import { attempt, toast } from "../lib/toast.svelte";
+  import CoverPicker from "./CoverPicker.svelte";
   import GroupSelect from "./GroupSelect.svelte";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
@@ -20,7 +21,10 @@
 
   async function chooseCover() {
     const png = await attempt("Обложка", pickCover);
-    if (!png) return;
+    if (png) await setCover(png);
+  }
+
+  async function setCover(png: string) {
     if (await attempt("Обложка", () => api.setCover(entry.id, png).then(() => true))) {
       builds.covers[entry.id] = `data:image/png;base64,${png}`;
     }
@@ -53,9 +57,10 @@
       </div>
       <div class="cover-actions">
         <b>Обложка</b>
-        <p class="muted">Любая картинка: выберите квадрат, который станет обложкой.</p>
+        <p class="muted">Готовая из набора или любая картинка — выберите квадрат, который станет обложкой.</p>
+        <CoverPicker onpick={setCover} />
         <div class="buttons">
-          <button class="btn btn-sm" onclick={chooseCover}><Icon name="screenshot" size={16} />Выбрать картинку</button>
+          <button class="btn btn-sm" onclick={chooseCover}><Icon name="screenshot" size={16} />Своя картинка…</button>
           {#if cover}<button class="btn btn-sm btn-quiet" onclick={removeCover}>Убрать</button>{/if}
         </div>
       </div>
@@ -120,6 +125,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    image-rendering: pixelated;
   }
   .cover-actions p {
     margin: 2px 0 var(--s2);

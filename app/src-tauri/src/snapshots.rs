@@ -10,8 +10,20 @@ use crate::play::Phase;
 use crate::{AppState, CmdResult, text};
 
 /// Сохранить состояние сборки перед изменением. Не вышло — изменение не
+/// «Создавать снапшоты сами» (`StorageSettings::auto_snapshots`).
+pub static AUTO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Применить настройки хранения: число снапшотов и сами ли они делаются.
+pub fn apply(st: &majorlauncher_core::StorageSettings) {
+    AUTO.store(st.auto_snapshots, std::sync::atomic::Ordering::Relaxed);
+    snapshots::set_keep(st.keep_snapshots as usize);
+}
+
 /// делаем: без снапшота его нельзя будет откатить.
 pub fn before(data: &DataDir, id: &str, reason: &str) -> CmdResult<()> {
+    if !AUTO.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
     snapshots::take(data, id, reason, false)
         .map(|_| ())
         .map_err(|e| format!("не удалось сохранить снапшот сборки перед изменением: {e}"))

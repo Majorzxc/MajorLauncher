@@ -43,3 +43,42 @@ function pickInBrowser(): Promise<string> {
     input.click();
   });
 }
+
+/// Готовые обложки из `assets/covers` (scripts/covers.py): 48×48, по порядку имён.
+const FILES = import.meta.glob("../assets/covers/*.png", { eager: true, query: "?url", import: "default" }) as Record<
+  string,
+  string
+>;
+const TITLES: Record<string, string> = {
+  forest: "Лес",
+  mountains: "Горы",
+  cave: "Пещера",
+  inferno: "Огненный мир",
+  "void-islands": "Острова в пустоте",
+  ocean: "Остров",
+  winter: "Зима",
+  desert: "Пустыня",
+  village: "Деревня",
+  tech: "Техника",
+  magic: "Магия",
+  castle: "Замок",
+};
+export const DEFAULT_COVERS = Object.entries(FILES)
+  .sort(([a], [b]) => a.localeCompare(b))
+  .map(([path, url]) => {
+    const id = path.split("/").pop()!.replace(/\.png$/, "");
+    return { id, url, title: TITLES[id.replace(/^\d+-/, "")] ?? id };
+  });
+
+/// Готовая обложка — PNG 240×240 в base64: каждый пиксель увеличен ровно в 5 раз.
+export async function defaultCover(url: string): Promise<string> {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 240;
+  const g = canvas.getContext("2d")!;
+  g.imageSmoothingEnabled = false;
+  g.drawImage(img, 0, 0, 240, 240);
+  return canvas.toDataURL("image/png").split(",")[1];
+}

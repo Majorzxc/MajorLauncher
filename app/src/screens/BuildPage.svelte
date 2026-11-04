@@ -59,7 +59,7 @@
   let added = $state(0);
   const packsTab = $derived<"resourcepacks" | "shaderpacks">(tab === "shaderpacks" ? "shaderpacks" : "resourcepacks");
   acceptDrop(() => ({
-    hint: `Моды (.jar) и ${packsTab === "shaderpacks" ? "шейдеры" : "ресурспаки"} (.zip) добавятся в «${entry?.name ?? "сборку"}»`,
+    hint: `Моды (.jar) и ${packsTab === "shaderpacks" ? "шейдеры" : entry?.legacy ? "текстурпаки" : "ресурспаки"} (.zip) добавятся в «${entry?.name ?? "сборку"}»`,
     ondrop: async (paths) => {
       const jars = paths.filter((p) => ext(p) === "jar");
       const zips = paths.filter((p) => ext(p) === "zip");
@@ -122,7 +122,7 @@
   </header>
 
   <nav class="tabs" aria-label="Вкладки сборки" data-tour="build-tabs">
-    {#each TABS as t (t.id)}
+    {#each TABS.filter((t) => !(entry.legacy && t.id === "shaderpacks")) as t (t.id)}
       <button
         class="tab"
         class:on={tab === t.id}
@@ -130,7 +130,7 @@
         title={t.hint ? `Появится на ${t.hint}` : undefined}
         onclick={() => (tab = t.id)}
       >
-        {t.title}{#if t.hint}<small> · {t.hint}</small>{/if}
+        {entry.legacy && t.id === "resourcepacks" ? "Текстурпаки" : t.title}{#if t.hint}<small>{` · ${t.hint}`}</small>{/if}
       </button>
     {/each}
   </nav>
@@ -139,7 +139,7 @@
     {#key added}
     {#if tab === "mods" || tab === "resourcepacks" || tab === "shaderpacks"}
       {#key tab}
-        {#if tab === "mods"}<ModsTab {entry} />{:else}<FilesTab id={entry.id} folder={tab} loader={entry.loader} />{/if}
+        {#if tab === "mods"}<ModsTab {entry} />{:else}<FilesTab id={entry.id} folder={tab} loader={entry.loader} legacy={!!entry.legacy} />{/if}
       {/key}
     {:else if tab === "worlds"}
       <WorldsTab id={entry.id} />

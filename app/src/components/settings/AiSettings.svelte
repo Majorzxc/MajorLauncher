@@ -2,12 +2,12 @@
   // «Настройки → ИИ-разбор» (раздел 5.8 ТЗ): сервис, ключ, модель, показ
   // перед отправкой, разбор сам после игры и лимит в день. Выключено, пока
   // игрок не включит: лог уходит в чужой сервис.
-  import { api, type AiProvider, type AiSettings } from "../lib/api";
-  import { ai } from "../lib/ai.svelte";
-  import { openExternal } from "../lib/links";
-  import { attempt, toast } from "../lib/toast.svelte";
-  import Icon from "./Icon.svelte";
-  import Select from "./Select.svelte";
+  import { api, type AiProvider, type AiSettings } from "../../lib/api";
+  import { ai } from "../../lib/ai.svelte";
+  import { openExternal } from "../../lib/links";
+  import { attempt, toast } from "../../lib/toast.svelte";
+  import Icon from "../Icon.svelte";
+  import Select from "../Select.svelte";
 
   const PROVIDERS: { value: AiProvider; label: string; url: string; key?: string; about: string }[] = [
     {
@@ -256,24 +256,7 @@
 {/if}
 
 <style>
-  .block {
-    display: flex;
-    flex-direction: column;
-    gap: var(--s4);
-    padding: var(--s5);
-    margin-bottom: var(--s4);
-    max-width: 760px;
-  }
   .block p,
-  h2 {
-    margin: 0;
-  }
-  h2 {
-    font-size: var(--fs-16);
-  }
-  .off {
-    opacity: 0.55;
-  }
   .row {
     display: flex;
     align-items: center;
@@ -292,19 +275,5 @@
   }
   .limit input {
     width: 100px;
-  }
-  .opt {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--s3);
-    cursor: pointer;
-  }
-  .opt input {
-    margin-top: 4px;
-  }
-  .opt > span {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
   }
 </style>

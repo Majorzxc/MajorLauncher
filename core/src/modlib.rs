@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::builds::{Builds, State};
 use crate::content::{self, Folder};
@@ -50,10 +50,6 @@ pub struct ModLibrary {
     /// Сколько занимают пустующие моды библиотеки.
     pub unused: u64,
 }
-
-/// Мод для действий окна.
-#[derive(Debug, Clone, Deserialize)]
-pub struct Key(pub String);
 
 enum Parsed {
     Library(String),

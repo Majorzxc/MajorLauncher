@@ -165,10 +165,6 @@
   .hint {
     flex: 1;
   }
-  .btn:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
   .line {
     display: flex;
     align-items: center;

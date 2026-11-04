@@ -1,9 +1,9 @@
 <script lang="ts">
   // «Настройки → Оптимизация» (раздел 5.7 ТЗ): что делает кнопка
   // «Оптимизировать». У каждого пункта — зачем он нужен.
-  import { api, type Hardware, type OptimizeSettings } from "../lib/api";
-  import { attempt } from "../lib/toast.svelte";
-  import Icon from "./Icon.svelte";
+  import { api, type Hardware, type OptimizeSettings } from "../../lib/api";
+  import { attempt } from "../../lib/toast.svelte";
+  import Icon from "../Icon.svelte";
 
   let opts = $state<OptimizeSettings | null>(null);
   let hw = $state<Hardware | null>(null);
@@ -94,31 +94,11 @@
 {/if}
 
 <style>
-  .block {
-    display: flex;
-    flex-direction: column;
-    gap: var(--s4);
-    padding: var(--s5);
-    margin-bottom: var(--s4);
-    max-width: 760px;
-  }
-  .block p {
-    margin: 0;
-  }
   .hw {
     display: flex;
     align-items: flex-start;
     gap: var(--s2);
     line-height: 1.6;
-  }
-  .opt {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--s3);
-    cursor: pointer;
-  }
-  .opt input {
-    margin-top: 4px;
   }
   .opt span {
     display: flex;

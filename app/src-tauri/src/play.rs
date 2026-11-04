@@ -15,7 +15,9 @@ use majorlauncher_core::playtime::LastPlace;
 use majorlauncher_core::playtime::Stats;
 use majorlauncher_core::snapshots::{self, Hint};
 use majorlauncher_core::system;
-use majorlauncher_core::{Builds, DataDir, Event, Instance, OnLaunch, Progress, install};
+use majorlauncher_core::{
+    Builds, DataDir, Event, GameSettings, Instance, OnLaunch, Progress, install,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -317,7 +319,11 @@ pub async fn launch(
     // Миры из более новой версии — в копию перед запуском (окно уже
     // предупредило игрока и получило согласие).
     let risky = match install::fetch_manifest(&data, &state.http).await {
-        Ok(m) => game::risky_worlds(&data.instance(&instance.id), &instance.version, &m),
+        Ok(m) => game::risky_worlds(
+            &majorlauncher_core::launch::home_dir(&data, &instance),
+            &instance.version,
+            &m,
+        ),
         Err(_) => Vec::new(),
     };
     // Общие настройки, серверы, ресурспаки. Ошибка здесь игру не держит —
@@ -325,7 +331,7 @@ pub async fn launch(
     let before = {
         let (data, instance, version) = (data.clone(), instance.clone(), launch.version.clone());
         tauri::async_runtime::spawn_blocking(move || {
-            let game_dir = data.instance(&instance.id);
+            let game_dir = majorlauncher_core::launch::home_dir(&data, &instance);
             game::backup_worlds(&game_dir, &risky)
                 .map_err(|e| format!("Не удалось сохранить копию миров: {e}"))?;
             game::before_launch(&data, &instance, &version)
@@ -367,11 +373,10 @@ pub async fn launch(
     game::mark_ready(&data, &instance);
     // Сразу отмечаем запуск — сборка поднимается в начало «Недавних».
     let _ = Builds::new(data.clone()).record_play(&id, game.start, 0);
-    let on_launch = settings.on_launch;
     let version = launch.version;
     std::thread::Builder::new()
         .name("game-watch".into())
-        .spawn(move || watch(app, game, instance, version, on_launch, data, note))
+        .spawn(move || watch(app, game, instance, version, &settings, data, note))
         .map_err(text)?;
     Ok(None)
 }
@@ -516,10 +521,17 @@ fn watch(
     game: Game,
     instance: Instance,
     version: GameVersion,
-    on_launch: OnLaunch,
+    settings: &GameSettings,
     data: DataDir,
     note: Option<String>,
 ) {
+    // «Лог игры при запуске»: окно остаётся и показывает вывод игры.
+    let live = settings.log_window;
+    let on_launch = if live {
+        OnLaunch::Keep
+    } else {
+        settings.on_launch
+    };
     let started = Instant::now();
     let key = load_key(&instance);
     let cancel = app.state::<AppState>().play.lock().unwrap().cancel.clone();
@@ -546,11 +558,27 @@ fn watch(
     // Анализатор ошибок читает вывод игры, пока она идёт (раздел 5.8 ТЗ).
     let started_at = game.start;
     let mut analyzer = Analyzer::new(analyzer::remote::current(&data));
+    // Живой лог — пачками не чаще четырёх раз в секунду: окно не захлёбывается
+    // сотнями строк загрузки модов.
+    let mut batch: Vec<String> = Vec::new();
+    let mut sent = Instant::now();
     let outcome = game.wait(
         on_window,
         |stage| update(&app, |s| s.stage = Some(stage)),
-        |line| analyzer.line(line),
+        |line| {
+            analyzer.line(line);
+            if live {
+                batch.push(line.to_string());
+                if sent.elapsed() >= Duration::from_millis(250) || batch.len() >= 500 {
+                    let _ = app.emit("game-log", std::mem::take(&mut batch));
+                    sent = Instant::now();
+                }
+            }
+        },
     );
+    if !batch.is_empty() {
+        let _ = app.emit("game-log", batch);
+    }
 
     // Изменённые в игре настройки и серверы — в общие.
     let synced = game::after_exit(&data, &instance, &version)
@@ -631,7 +659,7 @@ fn watch(
         },
     };
     if !finished.cancelled {
-        let game_dir = data.instance(&instance.id);
+        let game_dir = majorlauncher_core::launch::home_dir(&data, &instance);
         let report = analyzer::find_crash_report(&game_dir, started_at);
         let index = {
             let state = app.state::<AppState>();

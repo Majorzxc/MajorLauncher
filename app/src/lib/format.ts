@@ -45,11 +45,12 @@ export function ago(unixSeconds: number | null | undefined): string {
 
 /// Время в игре: «0 ч», «45 мин», «36 ч».
 export function playtime(seconds: number): string {
-  if (seconds < 3600) {
-    const m = Math.floor(seconds / 60);
-    return m === 0 ? "0 ч" : `${m} мин`;
-  }
-  return `${Math.floor(seconds / 3600)} ч`;
+  const m = Math.floor(seconds / 60);
+  if (m === 0) return seconds > 0 ? "< 1 мин" : "0 мин";
+  if (m < 60) return `${m} мин`;
+  const h = Math.floor(m / 60);
+  // До 10 часов минуты ещё что-то значат, дальше — только часы.
+  return h < 10 && m % 60 ? `${h} ч ${m % 60} мин` : `${h} ч`;
 }
 
 /// Через сколько дней удалится из корзины.

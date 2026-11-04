@@ -319,7 +319,12 @@ impl Library {
             .list()?
             .into_iter()
             .filter(|b| b.state == crate::builds::State::Active)
-            .map(|b| b.instance.id)
+            .map(|b| {
+                (
+                    b.instance.id.clone(),
+                    crate::launch::home_dir(data, &b.instance),
+                )
+            })
             .collect();
         for item in self.load()?.items {
             if item.folder == Folder::Mods {
@@ -328,8 +333,7 @@ impl Library {
             let Ok(meta) = std::fs::metadata(self.path(item.folder, &item.file)) else {
                 continue;
             };
-            for id in &builds {
-                let dir = data.instance(id);
+            for (id, dir) in &builds {
                 let wanted = item.all_builds || item.builds.iter().any(|b| b == id);
                 let here = dir.join(item.folder.dir()).join(&item.file);
                 if !wanted && is_same(&meta, &here) {
@@ -337,8 +341,8 @@ impl Library {
                 }
             }
         }
-        for id in &builds {
-            self.link_into(id, &data.instance(id))?;
+        for (id, dir) in &builds {
+            self.link_into(id, dir)?;
         }
         Ok(())
     }

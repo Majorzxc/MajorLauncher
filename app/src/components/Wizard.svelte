@@ -4,6 +4,7 @@
   import LoaderVersion from "./LoaderVersion.svelte";
   import { builds } from "../lib/builds.svelte";
   import { pickCover } from "../lib/cover";
+  import CoverPicker from "./CoverPicker.svelte";
   import type { IconName } from "../lib/icons";
   import { attempt } from "../lib/toast.svelte";
   import GroupSelect from "./GroupSelect.svelte";
@@ -215,9 +216,13 @@
             <span>Миры из другой сборки</span>
             <Select shrink label="Миры из сборки" value={worldsFrom} options={sources} onchange={(v) => (worldsFrom = v)} />
           </div>
+          <div class="field">
+            <span>Обложка</span>
+            <CoverPicker onpick={(png) => (cover = png)} />
+          </div>
           <div class="buttons">
             <button class="btn btn-sm" onclick={async () => (cover = (await attempt("Обложка", pickCover)) ?? cover)}>
-              <Icon name="screenshot" size={16} />{cover ? "Другая обложка" : "Выбрать обложку"}
+              <Icon name="screenshot" size={16} />Своя картинка…
             </button>
             {#if cover}<button class="btn btn-sm btn-quiet" onclick={() => (cover = null)}>Без обложки</button>{/if}
           </div>
@@ -331,9 +336,11 @@
     gap: var(--s3);
     align-items: center;
   }
+  .vbar input:not([type="checkbox"]) {
+    flex: 1;
+  }
   .vbar input:not([type="checkbox"]),
   .field input {
-    flex: 1;
     height: var(--h-md);
     padding: 0 var(--s3);
     border: 1px solid var(--border);
@@ -427,6 +434,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    image-rendering: pixelated;
   }
   .fields {
     flex: 1;

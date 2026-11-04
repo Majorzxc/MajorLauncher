@@ -3,12 +3,12 @@
   // на другой — копия со сверкой; старую папку удаляет только игрок.
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, type MovePlan, type MoveProgress, type Moved } from "../lib/api";
-  import { size } from "../lib/format";
-  import { inTauri } from "../lib/tauri";
-  import { toast } from "../lib/toast.svelte";
-  import Icon from "./Icon.svelte";
-  import Modal from "./Modal.svelte";
+  import { api, type MovePlan, type MoveProgress, type Moved } from "../../lib/api";
+  import { size } from "../../lib/format";
+  import { inTauri } from "../../lib/tauri";
+  import { toast } from "../../lib/toast.svelte";
+  import Icon from "../Icon.svelte";
+  import Modal from "../Modal.svelte";
 
   let { onmoved }: { onmoved: () => void } = $props();
 
@@ -183,10 +183,6 @@
 {/if}
 
 <style>
-  h2 {
-    margin: 0;
-    font-size: var(--fs-20);
-  }
   .pick {
     display: flex;
     gap: var(--s2);
@@ -221,12 +217,6 @@
     background: var(--danger);
     border-color: var(--danger);
     color: #fff;
-  }
-  .block {
-    display: flex;
-    flex-direction: column;
-    gap: var(--s3);
-    padding: var(--s5);
   }
   p {
     margin: 0;

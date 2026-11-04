@@ -19,8 +19,7 @@ use crate::paths::DataDir;
 pub enum Folder {
     Mods,
     ResourcePacks,
-    /// Текстурпаки версий до 1.6: игра берёт их из `%APPDATA%\.minecraft`, а
-    /// лаунчер подменяет APPDATA на папку сборки (`launch::legacy_home`).
+    /// Текстурпаки версий до 1.6 — вместо ресурспаков (`launch::legacy_home`).
     TexturePacks,
     ShaderPacks,
     Screenshots,
@@ -31,7 +30,7 @@ impl Folder {
         match self {
             Folder::Mods => "mods",
             Folder::ResourcePacks => "resourcepacks",
-            Folder::TexturePacks => ".minecraft/texturepacks",
+            Folder::TexturePacks => "texturepacks",
             Folder::ShaderPacks => "shaderpacks",
             Folder::Screenshots => "screenshots",
         }

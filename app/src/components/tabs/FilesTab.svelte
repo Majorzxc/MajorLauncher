@@ -1,6 +1,7 @@
 <script lang="ts">
   // Моды, ресурспаки, шейдеры: файлы в папке сборки. Моды можно выключать,
-  // файлы — добавить с диска (каталог Modrinth — этап 5).
+  // файлы — добавить с диска или из каталога Modrinth. У версий до 1.6 вместо
+  // ресурспаков — текстурпаки (`legacy`), каталога для них нет.
   import { open } from "@tauri-apps/plugin-dialog";
   import { api, type FileEntry, type Folder, type Loader } from "../../lib/api";
   import { openCatalog } from "../../lib/catalog.svelte";
@@ -10,7 +11,12 @@
   import { attempt, toast } from "../../lib/toast.svelte";
   import Icon from "../Icon.svelte";
 
-  let { id, folder, loader }: { id: string; folder: Exclude<Folder, "screenshots">; loader: Loader } = $props();
+  let {
+    id,
+    folder,
+    loader,
+    legacy = false,
+  }: { id: string; folder: Exclude<Folder, "screenshots">; loader: Loader; legacy?: boolean } = $props();
 
   const ICON: Record<typeof folder, IconName> = { mods: "mods", resourcepacks: "resourcepack", shaderpacks: "shader" };
   const EMPTY: Record<typeof folder, string> = {
@@ -68,12 +74,14 @@
   <span class="muted small grow">
     {#if list?.length}{list.length} · {list.filter((f) => f.enabled).length} включено{/if}
   </span>
-  <button
-    class="btn btn-sm btn-primary"
-    onclick={() => openCatalog(id, folder === "mods" ? "mod" : folder === "resourcepacks" ? "resourcepack" : "shader")}
-  >
-    <Icon name="search" size={16} />Каталог
-  </button>
+  {#if !legacy}
+    <button
+      class="btn btn-sm btn-primary"
+      onclick={() => openCatalog(id, folder === "mods" ? "mod" : folder === "resourcepacks" ? "resourcepack" : "shader")}
+    >
+      <Icon name="search" size={16} />Каталог
+    </button>
+  {/if}
   <button class="btn btn-sm" onclick={add}><Icon name="plus" size={16} />Добавить файл</button>
   <button class="btn btn-sm" onclick={() => attempt("Папка", () => api.open(id, { kind: "folder", name: folder }))}>
     <Icon name="folder" size={16} />Открыть папку
@@ -84,7 +92,11 @@
 {#if error}
   <p class="warn"><Icon name="error" size={18} />{error}</p>
 {:else if list && list.length === 0}
-  <p class="note">{EMPTY[folder]}</p>
+  <p class="note">
+    {legacy && folder === "resourcepacks"
+      ? "Текстурпаков нет. Версии до 1.6 берут текстурпаки, а не ресурспаки: положите zip-файл в папку — игра покажет его в своём меню текстурпаков."
+      : EMPTY[folder]}
+  </p>
 {:else if list}
   <ul class="rows">
     {#each list as f (f.file)}

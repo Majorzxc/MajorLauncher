@@ -638,6 +638,50 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
       return (cmd === "remove_background_image" ? config() : undefined) as T;
     case "background_image":
       return null as T;
+    case "options_get":
+    case "options_set":
+    case "options_set_shared":
+    case "options_set_key": {
+      const o = JSON.parse(localStorage.getItem("mock-options") ?? "null") ?? {
+        settings: [
+          { key: "fov", label: "Поле зрения", group: "view", kind: { type: "slider", min: 0, max: 1, step: 0.01, mul: 40, add: 70, unit: "°" }, default: "0.5" },
+          { key: "bobView", label: "Покачивание камеры", group: "view", kind: { type: "bool" }, default: "true" },
+          { key: "lang", label: "Язык", group: "language", kind: { type: "choice", options: [["ru_ru", "Русский"], ["en_us", "English"]] }, default: "en_us" },
+        ],
+        values: { fov: "0.6", lang: "ru_ru" },
+        shared: ["view", "controls", "sound", "chat", "interface", "language", "keys", "packs"],
+        seeded_from: "Выживание с друзьями",
+        keys: { "key_key.jump": "key.keyboard.space", "key_key.sprint": "key.keyboard.r", "key_key.journeymap.map": "key.keyboard.j" },
+        actions: [
+          { id: "key.forward", label: "Вперёд", default: "key.keyboard.w" },
+          { id: "key.jump", label: "Прыжок", default: "key.keyboard.space" },
+          { id: "key.sprint", label: "Бег", default: "key.keyboard.left.control" },
+          { id: "key.attack", label: "Атаковать / разрушить", default: "key.mouse.left" },
+          { id: "key.drop", label: "Выбросить предмет", default: "key.keyboard.q" },
+        ],
+        packs: ["vanilla", "file/Faithful.zip"],
+      };
+      if (cmd === "options_set") o.values[a.key] = a.value;
+      if (cmd === "options_set_shared") o.shared = a.shared ? [...o.shared, a.group] : o.shared.filter((g: string) => g !== a.group);
+      if (cmd === "options_set_key") {
+        if (a.key) o.keys[`key_${a.action}`] = a.key;
+        else delete o.keys[`key_${a.action}`];
+      }
+      localStorage.setItem("mock-options", JSON.stringify(o));
+      return o as T;
+    }
+    case "set_downloads":
+      saveConfig({ ...config(), downloads: a.downloads });
+      return config() as T;
+    case "set_storage":
+      saveConfig({ ...config(), storage: a.storage });
+      return config() as T;
+    case "set_notices":
+      saveConfig({ ...config(), notices: a.notices });
+      return config() as T;
+    case "launcher_report":
+      await sleep(400);
+      return { files: ["launcher.log", "system.txt", "config.json", "builds.txt"], size: 48_000 } as T;
     case "set_data_dir":
       saveConfig({ ...config(), data_dir: a.path });
       return config() as T;

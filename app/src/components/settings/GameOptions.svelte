@@ -1,8 +1,8 @@
 <script lang="ts">
   // Настройки → Игра: что делать с окном во время игры, память, аргументы JVM.
-  import { api, type GameSettings } from "../lib/api";
-  import { attempt } from "../lib/toast.svelte";
-  import MemoryPicker from "./MemoryPicker.svelte";
+  import { api, type GameSettings } from "../../lib/api";
+  import { attempt } from "../../lib/toast.svelte";
+  import MemoryPicker from "../MemoryPicker.svelte";
 
   let game: GameSettings | null = $state(null);
   let memory: { total_mb: number | null; auto_mb: number } | null = $state(null);
@@ -57,35 +57,23 @@
     />
     <p class="muted small">Для всех сборок, через пробел. Без нужды лучше не трогать.</p>
   </div>
+  <div class="card block">
+    <h2>Для опытных</h2>
+    <label class="opt">
+      <input type="checkbox" checked={!!game.log_window} onchange={(e) => save({ log_window: e.currentTarget.checked })} />
+      <span>
+        <b>Показывать лог игры, пока она идёт</b>
+        <span class="muted small"
+          >Окно лаунчера при запуске не закрывается (выбор «Окно лаунчера во время игры» на это время не действует), внизу —
+          живой вывод игры: загрузка модов, предупреждения, ошибки. Открытое окно занимает около 100 МБ памяти.</span
+        >
+      </span>
+    </label>
+  </div>
 {/if}
 
 <style>
   /* Те же отступы, что у карточек в Settings.svelte. */
-  .block {
-    align-self: stretch;
-    display: flex;
-    flex-direction: column;
-    gap: var(--s4);
-    padding: var(--s5);
-  }
-  h2 {
-    margin: 0;
-    font-size: var(--fs-16);
-    font-weight: 600;
-  }
-  .opt {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--s2);
-    cursor: pointer;
-  }
-  .opt input {
-    margin-top: 5px;
-  }
-  .opt > span {
-    display: flex;
-    flex-direction: column;
-  }
   .mono {
     font-family: ui-monospace, Consolas, monospace;
   }

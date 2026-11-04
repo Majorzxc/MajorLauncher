@@ -3,7 +3,8 @@
 //! только после проверки — недокачанный или подменённый файл не попадёт в игру.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
 
 use futures_util::{StreamExt, TryStreamExt, stream};
 use reqwest::StatusCode;
@@ -49,7 +50,7 @@ pub struct Task {
     pub size: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DownloadOptions {
     /// Сколько файлов качать одновременно.
     pub parallel: usize,
@@ -57,6 +58,10 @@ pub struct DownloadOptions {
     pub mirrors: bool,
     /// Попыток на каждый адрес.
     pub retries: u32,
+    /// Ограничение скорости, КБ/с, общее на все загрузки; 0 — без ограничения.
+    pub limit_kbps: u32,
+    /// Прокси `http://адрес:порт` (или https); `None` — напрямую.
+    pub proxy: Option<String>,
 }
 
 impl Default for DownloadOptions {
@@ -65,14 +70,81 @@ impl Default for DownloadOptions {
             parallel: 16,
             mirrors: true,
             retries: 3,
+            limit_kbps: 0,
+            proxy: None,
         }
     }
 }
 
+/// Клиент и настройки меняются на лету («Настройки → Загрузки»): копии
+/// загрузчика делят одно и то же.
 #[derive(Clone)]
 pub struct Downloader {
+    inner: Arc<RwLock<Inner>>,
+    limiter: Arc<Limiter>,
+}
+
+struct Inner {
     client: reqwest::Client,
     opts: DownloadOptions,
+}
+
+/// Общее ограничение скорости: после каждого куска загрузка ждёт, если за
+/// последние секунды скачано больше разрешённого.
+#[derive(Default)]
+struct Limiter {
+    window: Mutex<Option<(Instant, u64)>>,
+}
+
+impl Limiter {
+    fn delay(&self, bytes: u64, kbps: u32) -> Option<Duration> {
+        if kbps == 0 {
+            return None;
+        }
+        let mut w = self.window.lock().unwrap();
+        let now = Instant::now();
+        let (start, sent) = match *w {
+            // Окно в пару секунд: ошибка округления не копится.
+            Some((start, sent)) if now.duration_since(start) < Duration::from_secs(2) => {
+                (start, sent + bytes)
+            }
+            _ => (now, bytes),
+        };
+        *w = Some((start, sent));
+        let needed = Duration::from_secs_f64(sent as f64 / (f64::from(kbps) * 1024.0));
+        needed
+            .checked_sub(now.duration_since(start))
+            .filter(|d| !d.is_zero())
+    }
+}
+
+fn client_for(opts: &DownloadOptions) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .user_agent(format!(
+            "MajorLauncher/{} (+https://github.com/Majorzxc/MajorLauncher)",
+            crate::VERSION
+        ))
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(30));
+    if let Some(proxy) = opts
+        .proxy
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
+        if !(proxy.starts_with("http://") || proxy.starts_with("https://")) {
+            return Err(Error::Other(format!(
+                "прокси «{proxy}» не подходит: нужен адрес вида http://адрес:порт"
+            )));
+        }
+        let p = reqwest::Proxy::all(proxy)
+            .map_err(|e| Error::Other(format!("прокси «{proxy}» не подходит: {e}")))?
+            .no_proxy(reqwest::NoProxy::from_string("localhost,127.0.0.1,::1"));
+        builder = builder.proxy(p);
+    }
+    builder
+        .build()
+        .map_err(|e| Error::Other(format!("не удалось создать HTTP-клиент: {e}")))
 }
 
 fn network(url: &str) -> impl FnOnce(reqwest::Error) -> Error + '_ {
@@ -96,28 +168,35 @@ fn part_path(path: &Path) -> PathBuf {
 
 impl Downloader {
     pub fn new(opts: DownloadOptions) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .user_agent(format!(
-                "MajorLauncher/{} (+https://github.com/Majorzxc/MajorLauncher)",
-                crate::VERSION
-            ))
-            .connect_timeout(Duration::from_secs(15))
-            .read_timeout(Duration::from_secs(30))
-            .build()
-            .map_err(|e| Error::Other(format!("не удалось создать HTTP-клиент: {e}")))?;
-        Ok(Self { client, opts })
+        let client = client_for(&opts)?;
+        Ok(Self {
+            inner: Arc::new(RwLock::new(Inner { client, opts })),
+            limiter: Arc::default(),
+        })
     }
 
-    /// HTTP-клиент с настройками лаунчера (таймауты, User-Agent) — для API-запросов.
-    pub(crate) fn client(&self) -> &reqwest::Client {
-        &self.client
+    /// Новые настройки: следующие запросы пойдут уже с ними. Неверный прокси —
+    /// ошибка, прежние настройки остаются.
+    pub fn reconfigure(&self, opts: DownloadOptions) -> Result<()> {
+        let client = client_for(&opts)?;
+        *self.inner.write().unwrap() = Inner { client, opts };
+        Ok(())
+    }
+
+    /// HTTP-клиент с настройками лаунчера (таймауты, User-Agent, прокси) — для API-запросов.
+    pub(crate) fn client(&self) -> reqwest::Client {
+        self.inner.read().unwrap().client.clone()
+    }
+
+    fn opts(&self) -> DownloadOptions {
+        self.inner.read().unwrap().opts.clone()
     }
 
     /// Скачать небольшой файл в память (описания версий, списки). Без зеркал:
     /// именно из этих данных берутся хеши, поэтому только официальный источник.
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
         let mut last = None;
-        for attempt in 0..self.opts.retries {
+        for attempt in 0..self.opts().retries {
             match self.get_once(url).await {
                 Ok(bytes) => return Ok(bytes),
                 Err(
@@ -133,7 +212,7 @@ impl Downloader {
     }
 
     async fn get_once(&self, url: &str) -> Result<Vec<u8>> {
-        let resp = self.client.get(url).send().await.map_err(network(url))?;
+        let resp = self.client().get(url).send().await.map_err(network(url))?;
         if !resp.status().is_success() {
             return Err(Error::HttpStatus {
                 url: url.to_string(),
@@ -146,8 +225,8 @@ impl Downloader {
     /// POST с JSON (запросы к API Modrinth по хешам), с повторами.
     pub async fn post_json(&self, url: &str, body: &serde_json::Value) -> Result<Vec<u8>> {
         let mut last = None;
-        for attempt in 0..self.opts.retries {
-            let sent = self.client.post(url).json(body).send().await;
+        for attempt in 0..self.opts().retries {
+            let sent = self.client().post(url).json(body).send().await;
             match sent {
                 Ok(resp) if resp.status().is_success() => {
                     return Ok(resp.bytes().await.map_err(network(url))?.to_vec());
@@ -173,8 +252,8 @@ impl Downloader {
 
     /// Есть ли файл по адресу (запрос HEAD). Нет связи — «нет».
     pub async fn exists(&self, url: &str) -> bool {
-        for attempt in 0..self.opts.retries {
-            match self.client.head(url).send().await {
+        for attempt in 0..self.opts().retries {
+            match self.client().head(url).send().await {
                 Ok(resp) => return resp.status().is_success(),
                 Err(_) => tokio::time::sleep(backoff(attempt)).await,
             }
@@ -204,7 +283,7 @@ impl Downloader {
         on_done: &(dyn Fn(&Task) + Sync),
     ) -> Result<()> {
         stream::iter(tasks.into_iter().map(Ok))
-            .try_for_each_concurrent(self.opts.parallel.max(1), |task| async move {
+            .try_for_each_concurrent(self.opts().parallel.max(1), |task| async move {
                 self.download(&task).await?;
                 on_done(&task);
                 Ok(())
@@ -215,7 +294,7 @@ impl Downloader {
     /// Скачать один файл: официальный адрес, затем зеркало; на каждый — несколько попыток.
     pub async fn download(&self, task: &Task) -> Result<()> {
         let mut urls = vec![task.url.clone()];
-        if self.opts.mirrors
+        if self.opts().mirrors
             && task.sha1.is_some()
             && let Some(mirror) = mirror_for(&task.url)
         {
@@ -224,7 +303,7 @@ impl Downloader {
 
         let mut last = None;
         for url in &urls {
-            for attempt in 0..self.opts.retries {
+            for attempt in 0..self.opts().retries {
                 match self.try_download(url, task).await {
                     Ok(()) => return Ok(()),
                     Err(e) => {
@@ -269,7 +348,7 @@ impl Downloader {
         // Если .part уже полный (оборвалось на проверке или переименовании) — в сеть не ходим.
         let complete = have > 0 && task.size == Some(have);
         if !complete {
-            let mut req = self.client.get(url);
+            let mut req = self.client().get(url);
             if have > 0 {
                 req = req.header(RANGE, format!("bytes={have}-"));
             }
@@ -301,10 +380,14 @@ impl Downloader {
             }
             .at(&part)?;
 
+            let limit = self.opts().limit_kbps;
             let mut body = resp.bytes_stream();
             while let Some(chunk) = body.next().await {
                 let chunk = chunk.map_err(network(url))?;
                 file.write_all(&chunk).await.at(&part)?;
+                if let Some(wait) = self.limiter.delay(chunk.len() as u64, limit) {
+                    tokio::time::sleep(wait).await;
+                }
             }
             file.flush().await.at(&part)?;
         }
@@ -410,8 +493,36 @@ mod tests {
             parallel: 1,
             mirrors: false,
             retries: 1,
+            ..DownloadOptions::default()
         })
         .unwrap()
+    }
+
+    #[test]
+    fn limiter_and_proxy() {
+        let l = Limiter::default();
+        assert_eq!(l.delay(10_000_000, 0), None, "без ограничения не ждём");
+        // 1 МБ при 512 КБ/с — около двух секунд ожидания.
+        let wait = l.delay(1024 * 1024, 512).unwrap();
+        assert!(
+            wait > Duration::from_millis(1900) && wait <= Duration::from_secs(2),
+            "{wait:?}"
+        );
+
+        let dl = downloader();
+        let bad = DownloadOptions {
+            proxy: Some("socks5://127.0.0.1:1080".into()),
+            ..DownloadOptions::default()
+        };
+        assert!(dl.reconfigure(bad).is_err());
+        assert_eq!(dl.opts().parallel, 1, "прежние настройки остались");
+        let good = DownloadOptions {
+            proxy: Some("http://127.0.0.1:3128".into()),
+            parallel: 4,
+            ..DownloadOptions::default()
+        };
+        dl.reconfigure(good).unwrap();
+        assert_eq!(dl.clone().opts().parallel, 4, "копии видят новые настройки");
     }
 
     #[tokio::test]

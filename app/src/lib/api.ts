@@ -9,6 +9,24 @@ export interface GameSettings {
   /// null — «авто», по объёму ОЗУ.
   memory_mb: number | null;
   jvm_args: string;
+  /// «Для опытных»: окно не закрывается и показывает лог игры.
+  log_window?: boolean;
+}
+
+/// «Настройки → Загрузки».
+export interface DownloadSettings {
+  parallel: number;
+  mirrors: boolean;
+  /// КБ/с; 0 — без ограничения.
+  limit_kbps: number;
+  proxy: string;
+}
+
+/// Снапшоты и корзина.
+export interface StorageSettings {
+  auto_snapshots: boolean;
+  keep_snapshots: number;
+  trash_days: number;
 }
 
 export interface Config {
@@ -21,6 +39,9 @@ export interface Config {
   ai?: AiSettings;
   skins?: SkinSettings;
   tutorial?: Tutorial;
+  downloads?: DownloadSettings;
+  storage?: StorageSettings;
+  notices?: { tips: boolean };
 }
 
 /// Первый запуск и обучение (раздел 6.4 ТЗ).
@@ -459,6 +480,8 @@ export interface Entry extends Instance {
   archive_size: number | null;
   /// Включённых модов; у архивных — null.
   mods: number | null;
+  /// Версия до 1.6: текстурпаки вместо ресурспаков, шейдеров нет.
+  legacy?: boolean;
 }
 
 export interface TrashEntry {
@@ -557,7 +580,10 @@ export interface OptionsView {
   values: Record<string, string>;
   shared: Group[];
   seeded_from: string | null;
-  keys: number;
+  /// `key_<действие>` → клавиша (`key.keyboard.w`, `key.mouse.left`).
+  keys: Record<string, string>;
+  /// Действия ванильной игры: id, подпись, клавиша по умолчанию.
+  actions: { id: string; label: string; default: string }[];
   packs: string[] | null;
 }
 
@@ -886,17 +912,19 @@ export interface ServerChoice {
   note: string;
 }
 
-export const TRASH_DAYS = 30;
-
 export const api = {
   config: () => call<Config>("get_config"),
   dataDirSuggestion: () => call<DirCheck>("data_dir_suggestion"),
   inspectDir: (path: string) => call<DirCheck>("inspect_dir", { path }),
   setDataDir: (path: string) => call<Config>("set_data_dir", { path }),
   tutorial: (action: TutorialAction) => call<Config>("tutorial", { action }),
+  launcherReport: (path: string) => call<{ files: string[]; size: number }>("launcher_report", { path }),
   dataDirCheck: () => call<DataStatus>("data_dir_check"),
   openDataDir: () => call<void>("open_data_dir"),
   setGame: (game: GameSettings) => call<Config>("set_game", { game }),
+  setDownloads: (downloads: DownloadSettings) => call<Config>("set_downloads", { downloads }),
+  setStorage: (storage: StorageSettings) => call<Config>("set_storage", { storage }),
+  setNotices: (notices: { tips: boolean }) => call<Config>("set_notices", { notices }),
   systemMemory: () => call<{ total_mb: number | null; auto_mb: number }>("system_memory"),
 
   accounts: () => call<Account[]>("accounts_list"),
@@ -943,7 +971,6 @@ export const api = {
   setAi: (ai: AiSettings) => call<Config>("set_ai", { ai }),
   skins: () => call<Skin[]>("skins_list"),
   skinPng: (id: string) => call<ArrayBuffer>("skin_png", { id }),
-  skinPath: (id: string) => call<string>("skin_path", { id }),
   skinAddFile: (path: string) => call<Skin>("skin_add_file", { path }),
   skinLookup: (nick: string, from: NickSource) => call<Textures>("skin_lookup", { nick, from }),
   skinTexture: (url: string) => call<ArrayBuffer>("skin_texture", { url }),
@@ -1009,6 +1036,7 @@ export const api = {
   options: () => call<OptionsView>("options_get"),
   setOption: (key: string, value: string) => call<OptionsView>("options_set", { key, value }),
   setShared: (group: Group, shared: boolean) => call<OptionsView>("options_set_shared", { group, shared }),
+  setKey: (action: string, key: string | null) => call<OptionsView>("options_set_key", { action, key }),
   seedOptions: (id: string) => call<OptionsView>("options_seed", { id }),
 
   library: () => call<LibraryItem[]>("library_list"),
