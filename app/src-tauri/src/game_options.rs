@@ -143,6 +143,26 @@ pub async fn build_copy_world(
     blocking(move || content::copy_world(&from, &folder, &target).map_err(text)).await
 }
 
+/// «Бэкап мира»: zip в `backups/` сборки. Пока сборка запущена — нельзя:
+/// игра пишет мир, и копия вышла бы неполной.
+#[tauri::command]
+pub async fn build_backup_world(
+    state: State<'_, AppState>,
+    id: String,
+    folder: String,
+) -> CmdResult<String> {
+    {
+        let play = state.play.lock().unwrap();
+        if play.status.phase != crate::play::Phase::Idle
+            && play.status.build.as_deref() == Some(id.as_str())
+        {
+            return Err("сборка запущена — закройте игру, чтобы бэкап мира вышел целым".into());
+        }
+    }
+    let dir = Builds::new(state.data()?).game_dir(&id).map_err(text)?;
+    blocking(move || content::backup_world(&dir, &folder).map_err(text)).await
+}
+
 /// Библиотека модов: все моды игрока и где они стоят.
 #[tauri::command]
 pub async fn library_mods(

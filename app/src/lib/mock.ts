@@ -287,6 +287,9 @@ export async function mock<T>(cmd: string, a: Record<string, any> = {}): Promise
         { id: "tech", name: "Техно 1.20.1", has: false, vanilla: false },
         { id: "vanilla", name: "Ванилла 1.21", has: false, vanilla: true },
       ] as T;
+    case "build_backup_world":
+      await sleep(600);
+      return `${a.folder}_${now()}.zip` as T;
     case "rules_info":
       return [1, false] as T;
     case "ai_used_today":

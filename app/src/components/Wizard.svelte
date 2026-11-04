@@ -11,17 +11,32 @@
   import Modal from "./Modal.svelte";
   import Select from "./Select.svelte";
 
-  let { onclose, oncreated }: { onclose: () => void; oncreated: (name: string) => void } = $props();
+  let {
+    onclose,
+    oncreated,
+    onsource,
+  }: {
+    onclose: () => void;
+    oncreated: (name: string) => void;
+    /// Другой источник: мастер закрывается, экран «Сборки» открывает своё окно.
+    onsource: (source: "modrinth" | "file" | "launcher") => void;
+  } = $props();
 
   const STEPS = ["Источник", "Версия", "Оформление", "Готово"];
   let step = $state(0);
 
-  // Шаг 1. Пока работает только пустая сборка (раздел 6.2 ТЗ, остальное — этапы 5–6).
-  const SOURCES: { title: string; hint: string; icon: IconName; stage?: string }[] = [
-    { title: "Пустая сборка", hint: "Выберете версию игры, моды добавите потом", icon: "plus" },
-    { title: "Из каталога Modrinth", hint: "Готовые сборки из каталога", icon: "globe", stage: "5" },
-    { title: "Из файла", hint: "Файл .mrpack или .zip", icon: "import", stage: "6" },
-    { title: "Импорт из другого лаунчера", hint: "Prism, официальный, TLauncher", icon: "export", stage: "6" },
+  // Шаг 1 (раздел 6.2 ТЗ). Пустая сборка — дальше по шагам мастера;
+  // остальные источники открывают свои окна (каталог, файл, импорт).
+  const SOURCES: { id: "empty" | "modrinth" | "file" | "launcher"; title: string; hint: string; icon: IconName }[] = [
+    { id: "empty", title: "Пустая сборка", hint: "Выберите версию игры, моды добавите потом", icon: "plus" },
+    { id: "modrinth", title: "Из каталога Modrinth", hint: "Готовые сборки: выберите в каталоге и нажмите «Установить»", icon: "globe" },
+    { id: "file", title: "Из файла", hint: "Файл .mrpack — Modrinth, Prism, Modrinth App", icon: "import" },
+    {
+      id: "launcher",
+      title: "Импорт из другого лаунчера",
+      hint: "Prism, официальный, TLauncher, Legacy Launcher, CurseForge, Modrinth App",
+      icon: "export",
+    },
   ];
 
   // Шаг 2.
@@ -135,11 +150,15 @@
   <div class="page">
     {#if step === 0}
       <div class="sources">
-        {#each SOURCES as s, i}
-          <button class="source" class:on={i === 0} disabled={!!s.stage}>
+        {#each SOURCES as s (s.id)}
+          <button
+            class="source"
+            class:on={s.id === "empty"}
+            onclick={() => (s.id === "empty" ? (step = 1) : onsource(s.id))}
+          >
             <Icon name={s.icon} size={24} />
             <b>{s.title}</b>
-            <span class="muted">{s.stage ? `Появится на этапе ${s.stage}` : s.hint}</span>
+            <span class="muted">{s.hint}</span>
           </button>
         {/each}
       </div>

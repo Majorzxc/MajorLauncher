@@ -16,6 +16,7 @@
   import { attempt, toast } from "../lib/toast.svelte";
   import { openBuild, optimizing } from "../lib/nav.svelte";
   import { busyLabel, start } from "../lib/play.svelte";
+  import { openModpacks } from "../lib/catalog.svelte";
 
   type Filter = { kind: "all" } | { kind: "pinned" } | { kind: "archive" } | { kind: "group"; name: string };
   type Sort = "played" | "name" | "created" | "playtime";
@@ -389,6 +390,12 @@
 {#if creating}
   <Wizard
     onclose={() => (creating = false)}
+    onsource={(s) => {
+      creating = false;
+      if (s === "modrinth") openModpacks();
+      else if (s === "file") importer?.pick();
+      else importing = true;
+    }}
     oncreated={(name) => {
       creating = false;
       filter = { kind: "all" };

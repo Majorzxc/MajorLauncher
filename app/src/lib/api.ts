@@ -870,6 +870,7 @@ export const api = {
   snapshotRestore: (id: string, snapshot: string) => call<void>("snapshot_restore", { id, snapshot }),
   snapshotDelete: (id: string, snapshot: string) => call<void>("snapshot_delete", { id, snapshot }),
   copyWorld: (id: string, folder: string, to: string) => call<string>("build_copy_world", { id, folder, to }),
+  backupWorld: (id: string, folder: string) => call<string>("build_backup_world", { id, folder }),
 
   options: () => call<OptionsView>("options_get"),
   setOption: (key: string, value: string) => call<OptionsView>("options_set", { key, value }),

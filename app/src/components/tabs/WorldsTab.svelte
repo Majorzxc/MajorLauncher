@@ -21,6 +21,15 @@
   }
   load();
 
+  // «Сделать бэкап».
+  let backingUp = $state<string | null>(null);
+  async function backup(w: World) {
+    backingUp = w.folder;
+    const file = await attempt("Бэкап мира", () => api.backupWorld(id, w.folder));
+    backingUp = null;
+    if (file) toast(`Бэкап мира «${w.name}» готов: backups/${file}`);
+  }
+
   // «Скопировать мир в другую сборку».
   let copying: World | null = $state(null);
   let target: string | null = $state(null);
@@ -40,7 +49,12 @@
 </script>
 
 <div class="bar">
-  <span class="muted small grow">Бэкап мира и откат — со снапшотами на этапе 6.</span>
+  <span class="muted small grow" title="Чтобы вернуть мир из бэкапа, распакуйте архив в папку «saves» сборки">
+    Бэкапы миров — zip-архивы в папке «backups» сборки.
+  </span>
+  <button class="btn btn-sm" onclick={() => attempt("Папка", () => api.open(id, { kind: "folder", name: "backups" }))}>
+    <Icon name="archive" size={16} />Бэкапы
+  </button>
   <button class="btn btn-sm" onclick={() => attempt("Папка", () => api.open(id, { kind: "folder", name: "saves" }))}>
     <Icon name="folder" size={16} />Открыть папку
   </button>
@@ -62,6 +76,13 @@
         {#if w.version}<span class="muted small">{w.version}</span>{/if}
         <span class="muted small">{size(w.size)}</span>
         <span class="muted small when">{ago(w.last_played)}</span>
+        <button
+          class="btn btn-sm btn-quiet"
+          aria-label="Сделать бэкап мира {w.name}"
+          title="Сделать бэкап"
+          disabled={backingUp !== null}
+          onclick={() => backup(w)}><Icon name={backingUp === w.folder ? "refresh" : "archive"} size={16} /></button
+        >
         <button
           class="btn btn-sm btn-quiet"
           aria-label="Скопировать мир {w.name} в другую сборку"

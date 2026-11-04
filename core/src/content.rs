@@ -228,6 +228,21 @@ pub fn copy_world(from_game: &Path, folder: &str, to_game: &Path) -> Result<Stri
     Ok(name)
 }
 
+/// Бэкап мира (раздел 6.2 ТЗ, вкладка «Миры»): zip в `backups/` папки игры,
+/// рядом с копиями перед запуском старой версии. Возвращает имя архива.
+pub fn backup_world(game_dir: &Path, folder: &str) -> Result<String> {
+    check_name(folder)?;
+    let from = game_dir.join("saves").join(folder);
+    if !from.join("level.dat").exists() {
+        return Err(Error::Other(format!("мира «{folder}» нет")));
+    }
+    let name = format!("{folder}_{}.zip", crate::builds::now());
+    let dir = game_dir.join("backups");
+    std::fs::create_dir_all(&dir).at(&dir)?;
+    crate::builds::zip_dir(&from, &dir.join(&name))?;
+    Ok(name)
+}
+
 /// Мир, в котором игрок сейчас, — папка и название: тот, чей `session.lock`
 /// обновлён последним (игра пишет его при открытии мира).
 pub fn current_world(game_dir: &Path) -> Option<(String, String)> {
@@ -603,6 +618,26 @@ fn mtime(meta: &std::fs::Metadata) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn world_backup_is_a_zip_in_backups() {
+        let dir = tempfile::tempdir().unwrap();
+        let world = dir.path().join("saves").join("Мир");
+        std::fs::create_dir_all(world.join("region")).unwrap();
+        std::fs::write(world.join("level.dat"), b"x").unwrap();
+        std::fs::write(world.join("region").join("r.0.0.mca"), b"y").unwrap();
+        let name = backup_world(dir.path(), "Мир").unwrap();
+        let zip = dir.path().join("backups").join(&name);
+        let archive = zip::ZipArchive::new(std::fs::File::open(&zip).unwrap()).unwrap();
+        let names: Vec<_> = archive.file_names().map(|n| n.replace('\\', "/")).collect();
+        assert!(names.iter().any(|n| n.ends_with("level.dat")), "{names:?}");
+        assert!(
+            names.iter().any(|n| n.ends_with("region/r.0.0.mca")),
+            "{names:?}"
+        );
+        assert!(backup_world(dir.path(), "../x").is_err());
+        assert!(backup_world(dir.path(), "нет").is_err());
+    }
 
     #[test]
     fn reads_plain_gzipped_and_long_logs() {

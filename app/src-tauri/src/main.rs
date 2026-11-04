@@ -291,6 +291,7 @@ fn main() {
             game_options::options_seed,
             game_options::worlds_check,
             game_options::build_copy_world,
+            game_options::build_backup_world,
             game_options::library_list,
             game_options::library_add,
             game_options::library_set,

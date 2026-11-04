@@ -80,6 +80,15 @@ export function openCatalog(buildId: string, kind: ProjectType) {
   nav.build = null;
 }
 
+/// Каталог готовых сборок Modrinth («Новая сборка → Из каталога Modrinth»).
+export function openModpacks() {
+  catalog.kind = "modpack";
+  catalog.view = "catalog";
+  catalog.project = null;
+  nav.section = "mods";
+  nav.build = null;
+}
+
 export async function refreshInstalled() {
   const pick = catalog.pick;
   installed.clear();
